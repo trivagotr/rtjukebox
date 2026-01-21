@@ -1,0 +1,38 @@
+{
+    "name": "RadioTEDUKiosk",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "android": "react-native run-android",
+        "start": "react-native start",
+        "lint": "eslint ."
+    },
+    "dependencies": {
+        "axios": "^1.6.2",
+        "react": "19.2.0",
+        "react-native": "0.83.1",
+        "@react-native/new-app-screen": "0.83.1",
+        "react-native-safe-area-context": "^5.5.2",
+        "react-native-screens": "^4.0.0",
+        "react-native-track-player": "^4.1.1",
+        "react-native-qrcode-svg": "^6.3.2",
+        "react-native-svg": "^15.8.0",
+        "socket.io-client": "^4.7.2"
+    },
+    "devDependencies": {
+        "@babel/core": "^7.25.2",
+        "@babel/preset-env": "^7.25.3",
+        "@babel/runtime": "^7.25.0",
+        "@react-native-community/cli": "20.0.0",
+        "@react-native-community/cli-platform-android": "20.0.0",
+        "@react-native/babel-preset": "0.83.1",
+        "@react-native/eslint-config": "0.83.1",
+        "@react-native/metro-config": "0.83.1",
+        "@react-native/typescript-config": "0.83.1",
+        "@types/react": "^19.2.0",
+        "typescript": "^5.8.3"
+    },
+    "engines": {
+        "node": ">=20"
+    }
+}

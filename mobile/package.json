@@ -1,0 +1,39 @@
+{
+    "name": "radiotedu-mobile",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "android": "react-native run-android",
+        "ios": "react-native run-ios",
+        "start": "react-native start",
+        "test": "jest",
+        "lint": "eslint ."
+    },
+    "dependencies": {
+        "@react-navigation/bottom-tabs": "^6.5.11",
+        "@react-navigation/native": "^6.1.9",
+        "@react-navigation/native-stack": "^6.9.17",
+        "@react-native-async-storage/async-storage": "^1.21.0",
+        "axios": "^1.6.2",
+        "react": "18.2.0",
+        "react-native": "0.73.0",
+        "react-native-safe-area-context": "^4.8.2",
+        "react-native-screens": "^3.29.0",
+        "react-native-track-player": "^4.0.0",
+        "react-native-vector-icons": "^10.0.3",
+        "react-native-camera": "^4.2.1",
+        "socket.io-client": "^4.7.2",
+        "zustand": "^4.4.7"
+    },
+    "devDependencies": {
+        "@babel/core": "^7.20.0",
+        "@babel/preset-env": "^7.20.0",
+        "@babel/runtime": "^7.20.0",
+        "@react-native/eslint-config": "^0.73.1",
+        "@react-native/metro-config": "^0.73.2",
+        "@react-native/typescript-config": "^0.73.1",
+        "@types/react": "^18.2.6",
+        "@types/react-native": "^0.72.8",
+        "typescript": "^5.0.4"
+    }
+}
