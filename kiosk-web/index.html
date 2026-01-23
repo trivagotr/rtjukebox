@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RadioTEDU Jukebox</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0"
+        rel="stylesheet">
+</head>
+
+<body>
+    <!-- Animated Background -->
+    <div class="animated-bg">
+        <div class="gradient-orb orb-1"></div>
+        <div class="gradient-orb orb-2"></div>
+        <div class="gradient-orb orb-3"></div>
+    </div>
+
+    <div class="kiosk-app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <div class="logo">
+                    <span class="logo-icon">🎵</span>
+                    <span class="logo-text">RadioTEDU</span>
+                </div>
+                <div class="device-badge" id="deviceBadge">
+                    <span class="material-symbols-rounded">location_on</span>
+                    <span id="deviceLocation">Yemekhane</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="live-indicator" id="liveIndicator">
+                    <span class="live-dot"></span>
+                    <span>CANLI</span>
+                </div>
+                <div class="connection-badge" id="connectionBadge">
+                    <span class="material-symbols-rounded" id="connectionIcon">wifi</span>
+                    <span id="connectionText">Bağlanıyor</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Now Playing Hero -->
+            <section class="now-playing-hero">
+                <!-- Idle State -->
+                <div class="idle-state" id="idleState">
+                    <div class="idle-vinyl">
+                        <div class="vinyl-disc">
+                            <div class="vinyl-label">
+                                <span class="material-symbols-rounded">music_note</span>
+                            </div>
+                        </div>
+                    </div>
+                    <h1 class="idle-title">Müzik Bekliyor</h1>
+                    <p class="idle-subtitle">QR kodu okutarak şarkı ekleyin!</p>
+                </div>
+
+                <!-- Playing State -->
+                <div class="playing-state hidden" id="playingState">
+                    <div class="album-wrapper">
+                        <div class="album-glow" id="albumGlow"></div>
+                        <div class="album-container">
+                            <img id="albumArt" src="" alt="Album" class="album-art">
+                            <div class="vinyl-edge"></div>
+                        </div>
+                        <div class="sound-waves">
+                            <span></span><span></span><span></span><span></span><span></span>
+                        </div>
+                    </div>
+
+                    <div class="song-details">
+                        <div class="now-playing-badge">
+                            <span class="material-symbols-rounded">play_circle</span>
+                            ŞU AN ÇALIYOR
+                        </div>
+                        <h1 class="song-title" id="songTitle">Şarkı Adı</h1>
+                        <p class="song-artist" id="songArtist">Sanatçı</p>
+                        <div class="requester-info" id="requesterInfo">
+                            <span class="material-symbols-rounded">person</span>
+                            <span id="songRequester">Kullanıcı</span>
+                        </div>
+                    </div>
+
+                    <!-- Progress -->
+                    <div class="progress-section">
+                        <div class="waveform-progress">
+                            <canvas id="waveformCanvas"></canvas>
+                            <div class="progress-overlay" id="progressOverlay"></div>
+                        </div>
+                        <div class="time-display">
+                            <span id="currentTime">0:00</span>
+                            <span id="totalTime">0:00</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Side Panel -->
+            <aside class="side-panel">
+                <!-- QR Code Card -->
+                <div class="qr-card">
+                    <div class="qr-header">
+                        <span class="material-symbols-rounded">qr_code_scanner</span>
+                        <span>Şarkı Ekle</span>
+                    </div>
+                    <div class="qr-container">
+                        <div class="qr-code" id="qrCode"></div>
+                        <div class="qr-pulse"></div>
+                    </div>
+                    <p class="qr-hint">Telefonunuzla tarayın</p>
+                </div>
+
+                <!-- Queue Card -->
+                <div class="queue-card">
+                    <div class="queue-header">
+                        <div class="queue-title">
+                            <span class="material-symbols-rounded">queue_music</span>
+                            <span>Sıradakiler</span>
+                        </div>
+                        <span class="queue-badge" id="queueCount">0</span>
+                    </div>
+                    <div class="queue-list" id="queueList">
+                        <div class="empty-queue">
+                            <span class="material-symbols-rounded">playlist_add</span>
+                            <p>Kuyruk boş</p>
+                            <span class="empty-hint">İlk şarkıyı siz ekleyin!</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <!-- Audio Element -->
+    <audio id="audioPlayer" preload="auto"></audio>
+
+    <!-- Scripts -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>

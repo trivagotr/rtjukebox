@@ -1,0 +1,596 @@
+﻿Initialized native services in: C:\Users\tunaoz\.gradle\native
+Initialized jansi services in: C:\Users\tunaoz\.gradle\native
+Received JVM installation metadata from 'D:\AndroidStudio\jbr': {JAVA_HOME=D:\AndroidStudio\jbr, JAVA_VERSION=21.0.8, JAVA_VENDOR=JetBrains s.r.o., RUNTIME_NAME=OpenJDK Runtime Environment, RUNTIME_VERSION=21.0.8+-14196175-b1038.72, VM_NAME=OpenJDK 64-Bit Server VM, VM_VERSION=21.0.8+-14196175-b1038.72, VM_VENDOR=JetBrains s.r.o., OS_ARCH=amd64}
+The client will now receive all logging from the daemon (pid: 27956). The daemon log file: C:\Users\tunaoz\.gradle\daemon\8.3\daemon-27956.out.log
+Starting 2nd build in daemon [uptime: 1 hrs 28 mins 14.509 secs, performance: 100%, GC rate: 0.00/s, heap usage: 3% of 2 GiB, non-heap usage: 36% of 512 MiB]
+Using 16 worker leases.
+Now considering [E:\rtmusicbox\mobile\android, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin] as hierarchies to watch
+Watching 2 directory hierarchies to track changes
+Watching the file system is configured to be enabled if available
+File system watching is active
+Starting Build
+:ReactNative:Automatically adding native module '@react-native-async-storage/async-storage'
+:ReactNative:Automatically adding native module 'react-native-safe-area-context'
+:ReactNative:Automatically adding native module 'react-native-screens'
+:ReactNative:Automatically adding native module 'react-native-track-player'
+:ReactNative:Automatically adding native module 'react-native-vector-icons'
+Settings evaluated using settings file 'E:\rtmusicbox\mobile\android\settings.gradle'.
+Now considering [E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin, E:\rtmusicbox\mobile\android] as hierarchies to watch
+Watching 2 directory hierarchies to track changes
+The configuration detachedConfiguration1 is both resolvable and consumable. This is considered a legacy configuration and it will eventually only be possible to be one of these.
+The configuration detachedConfiguration1 is both consumable and declarable. This combination is incorrect, only one of these flags should be set.
+The configuration detachedConfiguration1 is both resolvable and consumable. This is considered a legacy configuration and it will eventually only be possible to be one of these.
+The configuration detachedConfiguration1 is both consumable and declarable. This combination is incorrect, only one of these flags should be set.
+The configuration classpath is both resolvable and consumable. This is considered a legacy configuration and it will eventually only be possible to be one of these.
+The configuration classpath is both consumable and declarable. This combination is incorrect, only one of these flags should be set.
+The configuration classpath is both resolvable and consumable. This is considered a legacy configuration and it will eventually only be possible to be one of these.
+The configuration classpath is both consumable and declarable. This combination is incorrect, only one of these flags should be set.
+Invalidating in-memory cache of C:\Users\tunaoz\.gradle\caches\journal-1\file-access.bin
+Projects loaded. Root project using build file 'E:\rtmusicbox\mobile\android\build.gradle'.
+Included projects: [root project 'com.radiotedumobile', project ':app', project ':react-native-async-storage_async-storage', project ':react-native-safe-area-context', project ':react-native-screens', project ':react-native-track-player', project ':react-native-vector-icons']
+Skipping generation of dependency accessors for libs as it is up-to-date.
+
+> Configure project :gradle-plugin
+Evaluating project ':gradle-plugin' using build file 'E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build.gradle.kts'.
+The configuration detachedConfiguration1 is both resolvable and consumable. This is considered a legacy configuration and it will eventually only be possible to be one of these.
+The configuration detachedConfiguration1 is both consumable and declarable. This combination is incorrect, only one of these flags should be set.
+The configuration detachedConfiguration1 is both resolvable and consumable. This is considered a legacy configuration and it will eventually only be possible to be one of these.
+The configuration detachedConfiguration1 is both consumable and declarable. This combination is incorrect, only one of these flags should be set.
+Invalidating in-memory cache of E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\.gradle\buildOutputCleanup\outputFiles.bin
+The configuration :gradle-plugin:classpath is both resolvable and consumable. This is considered a legacy configuration and it will eventually only be possible to be one of these.
+The configuration :gradle-plugin:classpath is both consumable and declarable. This combination is incorrect, only one of these flags should be set.
+The configuration :gradle-plugin:classpath is both resolvable and consumable. This is considered a legacy configuration and it will eventually only be possible to be one of these.
+The configuration :gradle-plugin:classpath is both consumable and declarable. This combination is incorrect, only one of these flags should be set.
+Using Kotlin Gradle Plugin gradle76 variant
+kotlin scripting plugin: created the scripting discovery configuration: kotlinScriptDef
+kotlin scripting plugin: created the scripting discovery configuration: testKotlinScriptDef
+Caching disabled for Kotlin DSL accessors for project ':gradle-plugin' because:
+  Build cache is disabled
+Skipping Kotlin DSL accessors for project ':gradle-plugin' as it is up-to-date.
+Registering project ':gradle-plugin' in composite build. Will substitute for module 'com.facebook.react:react-native-gradle-plugin'.
+Resolve mutations for :gradle-plugin:compileKotlin (Thread[#222,Execution worker,5,main]) started.
+:gradle-plugin:compileKotlin (Thread[#222,Execution worker,5,main]) started.
+Resolve mutations for :gradle-plugin:pluginDescriptors (Thread[#224,Execution worker Thread 3,5,main]) started.
+:gradle-plugin:pluginDescriptors (Thread[#224,Execution worker Thread 3,5,main]) started.
+
+> Task :gradle-plugin:pluginDescriptors
+Deleting stale output file: E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\pluginDescriptors
+Caching disabled for task ':gradle-plugin:pluginDescriptors' because:
+  Build cache is disabled
+Task ':gradle-plugin:pluginDescriptors' is not up-to-date because:
+  Output property 'outputDirectory' file E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\pluginDescriptors has been removed.
+  Output property 'outputDirectory' file E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\pluginDescriptors\com.facebook.react.properties has been removed.
+  Output property 'outputDirectory' file E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\pluginDescriptors\com.facebook.react.rootproject.properties has been removed.
+Resolve mutations for :gradle-plugin:processResources (Thread[#226,Execution worker Thread 5,5,main]) started.
+:gradle-plugin:processResources (Thread[#226,Execution worker Thread 5,5,main]) started.
+
+> Task :gradle-plugin:processResources
+Deleting stale output file: E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\resources\main
+Caching disabled for task ':gradle-plugin:processResources' because:
+  Build cache is disabled
+Task ':gradle-plugin:processResources' is not up-to-date because:
+  Output property 'destinationDir' file E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\resources\main has been removed.
+  Output property 'destinationDir' file E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\resources\main\META-INF has been removed.
+  Output property 'destinationDir' file E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\resources\main\META-INF\gradle-plugins has been removed.
+file or directory 'E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\resources', not found
+
+> Configure project :
+Evaluating root project 'com.radiotedumobile' using build file 'E:\rtmusicbox\mobile\android\build.gradle'.
+Compiling build file 'E:\rtmusicbox\mobile\android\build.gradle' using SubsetScriptTransformer.
+The configuration :classpath is both resolvable and consumable. This is considered a legacy configuration and it will eventually only be possible to be one of these.
+The configuration :classpath is both consumable and declarable. This combination is incorrect, only one of these flags should be set.
+The configuration :classpath is both resolvable and consumable. This is considered a legacy configuration and it will eventually only be possible to be one of these.
+The configuration :classpath is both consumable and declarable. This combination is incorrect, only one of these flags should be set.
+Invalidating in-memory cache of E:\rtmusicbox\mobile\android\.gradle\buildOutputCleanup\outputFiles.bin
+Found project 'project :gradle-plugin' as substitute for module 'com.facebook.react:react-native-gradle-plugin'.
+The configuration :gradle-plugin:mainSourceElements is both consumable and declarable. This combination is incorrect, only one of these flags should be set.
+
+> Task :gradle-plugin:compileKotlin
+Deleting stale output file: E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\kotlin\compileKotlin\cacheable
+Deleting stale output file: E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\classes\kotlin\main
+Caching disabled for task ':gradle-plugin:compileKotlin' because:
+  Build cache is disabled
+Task ':gradle-plugin:compileKotlin' is not up-to-date because:
+  Output property 'destinationDirectory' file E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\classes\kotlin\main has been removed.
+  Output property 'destinationDirectory' file E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\classes\kotlin\main\com has been removed.
+  Output property 'destinationDirectory' file E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\classes\kotlin\main\com\facebook has been removed.
+  Output property 'destinationDirectory' file E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\classes\kotlin\main\META-INF has been removed.
+  Output property 'taskBuildCacheableOutputDirectory$kotlin_gradle_plugin_common' file E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\kotlin\compileKotlin\cacheable has been removed.
+The input changes require a full rebuild for incremental task ':gradle-plugin:compileKotlin'.
+file or directory 'E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\java', not found
+file or directory 'E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\java', not found
+Using Kotlin/JVM incremental compilation
+Kotlin source files: E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\internal\PrivateReactExtension.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\model\ModelCodegenConfig.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\model\ModelCodegenConfigAndroid.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\model\ModelPackageJson.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\ReactExtension.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\ReactPlugin.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\ReactRootProjectPlugin.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\TaskConfiguration.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\tasks\BundleHermesCTask.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\tasks\GenerateCodegenArtifactsTask.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\tasks\GenerateCodegenSchemaTask.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\tasks\internal\BuildCodegenCLITask.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\tasks\internal\PrepareBoostTask.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\tasks\internal\PrepareGlogTask.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\tasks\internal\PrepareJSCTask.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\tasks\internal\PrepareLibeventTask.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\tasks\internal\PreparePrefabHeadersTask.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\tasks\internal\utils\PrefabPreprocessingEntry.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\utils\AgpConfiguratorUtils.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\utils\BackwardCompatUtils.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\utils\DependencyUtils.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\utils\FileUtils.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\utils\JdkConfiguratorUtils.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\utils\JsonUtils.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\utils\KotlinStdlibCompatUtils.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\utils\NdkConfiguratorUtils.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\utils\Os.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\utils\PathUtils.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\utils\ProjectUtils.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\utils\PropertyUtils.kt, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\kotlin\com\facebook\react\utils\TaskUtils.kt
+file or directory 'E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\java', not found
+Java source files: 
+Script source files: 
+Script file extensions: 
+file or directory 'E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\src\main\java', not found
+[KOTLIN] Kotlin compilation 'jdkHome' argument: C:\Users\tunaoz\.gradle\jdks\eclipse_adoptium-17-amd64-windows.2
+i: found daemon on port 17486 (13760972 ms old), trying to connect
+i: connected to the daemon
+Options for KOTLIN DAEMON: IncrementalCompilationOptions(super=CompilationOptions(compilerMode=INCREMENTAL_COMPILER, targetPlatform=JVM, reportCategories=[0, 3], reportSeverity=2, requestedCompilationResults=[0]kotlinScriptExtensions=[]), areFileChangesKnown=false, modifiedFiles=null, deletedFiles=null, classpathChanges=ClasspathSnapshotDisabled, workingDir=E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\kotlin\compileKotlin\cacheable, multiModuleICSettings=MultiModuleICSettings(buildHistoryFile=E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\kotlin\compileKotlin\local-state\build-history.bin, useModuleDetection=false), usePreciseJavaTracking=trueoutputFiles=[E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\classes\kotlin\main, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\kotlin\compileKotlin\cacheable, E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\kotlin\compileKotlin\local-state])
+Resolve mutations for :gradle-plugin:compileJava (Thread[#222,Execution worker,5,main]) started.
+:gradle-plugin:compileJava (Thread[#222,Execution worker,5,main]) started.
+
+> Task :gradle-plugin:compileJava NO-SOURCE
+Skipping task ':gradle-plugin:compileJava' as it has no source files and no previous output files.
+Resolve mutations for :gradle-plugin:classes (Thread[#222,Execution worker,5,main]) started.
+:gradle-plugin:classes (Thread[#222,Execution worker,5,main]) started.
+
+> Task :gradle-plugin:classes
+Skipping task ':gradle-plugin:classes' as it has no actions.
+Resolve mutations for :gradle-plugin:jar (Thread[#222,Execution worker,5,main]) started.
+:gradle-plugin:jar (Thread[#222,Execution worker,5,main]) started.
+
+> Task :gradle-plugin:jar
+Deleting stale output file: E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\libs\react-native-gradle-plugin.jar
+Caching disabled for task ':gradle-plugin:jar' because:
+  Build cache is disabled
+Task ':gradle-plugin:jar' is not up-to-date because:
+  Output property 'archiveFile' file E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\libs\react-native-gradle-plugin.jar has been removed.
+file or directory 'E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\classes\java\main', not found
+Resolve mutations for :gradle-plugin:inspectClassesForKotlinIC (Thread[#222,Execution worker,5,main]) started.
+:gradle-plugin:inspectClassesForKotlinIC (Thread[#222,Execution worker,5,main]) started.
+
+> Task :gradle-plugin:inspectClassesForKotlinIC
+Deleting stale output file: E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\kotlin\reactnativegradlepluginjar-classes.txt
+Caching disabled for task ':gradle-plugin:inspectClassesForKotlinIC' because:
+  Build cache is disabled
+Task ':gradle-plugin:inspectClassesForKotlinIC' is not up-to-date because:
+  Output property 'classesListFile$kotlin_gradle_plugin_common' file E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\kotlin\reactnativegradlepluginjar-classes.txt has been removed.
+file or directory 'E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin\build\classes\java\main', not found
+
+> Configure project :
+The configuration :classpath is both resolvable and consumable. This is considered a legacy configuration and it will eventually only be possible to be one of these.
+The configuration :classpath is both consumable and declarable. This combination is incorrect, only one of these flags should be set.
+Compiling build file 'E:\rtmusicbox\mobile\android\build.gradle' using BuildScriptTransformer.
+
+> Configure project :app
+Evaluating project ':app' using build file 'E:\rtmusicbox\mobile\android\app\build.gradle'.
+Using default execution profile
+Using Kotlin Gradle Plugin gradle76 variant
+:ReactNative:Automatically adding native module '@react-native-async-storage/async-storage'
+:ReactNative:Automatically adding native module 'react-native-safe-area-context'
+:ReactNative:Automatically adding native module 'react-native-screens'
+:ReactNative:Automatically adding native module 'react-native-track-player'
+:ReactNative:Automatically adding native module 'react-native-vector-icons'
+.\gradlew.bat : 
+At line:1 char:211
++ ... cd android; .\gradlew.bat assembleDebug --stacktrace --info 2>&1 | Se ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+FAILURE: Build failed with an exception.
+
+* Where:
+Build file 'E:\rtmusicbox\mobile\android\build.gradle' line: 24
+
+* What went wrong:
+A problem occurred evaluating root project 'com.radiotedumobile'.
+> Cannot run Project.afterEvaluate(Closure) when the project is already evaluated.
+
+* Try:
+> Run with --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+* Exception is:
+org.gradle.api.GradleScriptException: A problem occurred evaluating root project 'com.radiote
+dumobile'.
+	at org.gradle.groovy.scripts.internal.DefaultScriptRunnerFactory$ScriptRunnerImpl.run(Defaul
+tScriptRunnerFactory.java:93)
+	at org.gradle.configuration.DefaultScriptPluginFactory$ScriptPluginImpl.lambda$apply$0(Defau
+ltScriptPluginFactory.java:135)
+	at org.gradle.configuration.ProjectScriptTarget.addConfiguration(ProjectScriptTarget.java:79
+)
+	at org.gradle.configuration.DefaultScriptPluginFactory$ScriptPluginImpl.apply(DefaultScriptP
+luginFactory.java:138)
+	at org.gradle.configuration.BuildOperationScriptPlugin$1.run(BuildOperationScriptPlugin.java
+:65)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperatio
+nRunner.java:29)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperatio
+nRunner.java:26)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperatio
+nRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperatio
+nRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationR
+unner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationR
+unner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.run(DefaultBuildOperationRunne
+r.java:47)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.run(DefaultBuildOperationExe
+cutor.java:68)
+	at org.gradle.configuration.BuildOperationScriptPlugin.lambda$apply$0(BuildOperationScriptPl
+ugin.java:62)
+	at org.gradle.configuration.internal.DefaultUserCodeApplicationContext.apply(DefaultUserCode
+ApplicationContext.java:44)
+	at org.gradle.configuration.BuildOperationScriptPlugin.apply(BuildOperationScriptPlugin.java
+:62)
+	at org.gradle.api.internal.project.DefaultProjectStateRegistry$ProjectStateImpl.lambda$apply
+ToMutableState$1(DefaultProjectStateRegistry.java:395)
+	at org.gradle.api.internal.project.DefaultProjectStateRegistry$ProjectStateImpl.fromMutableS
+tate(DefaultProjectStateRegistry.java:413)
+	at org.gradle.api.internal.project.DefaultProjectStateRegistry$ProjectStateImpl.applyToMutab
+leState(DefaultProjectStateRegistry.java:394)
+	at org.gradle.configuration.project.BuildScriptProcessor.execute(BuildScriptProcessor.java:4
+6)
+	at org.gradle.configuration.project.BuildScriptProcessor.execute(BuildScriptProcessor.java:2
+7)
+	at org.gradle.configuration.project.ConfigureActionsProjectEvaluator.evaluate(ConfigureActio
+nsProjectEvaluator.java:35)
+	at org.gradle.configuration.project.LifecycleProjectEvaluator$EvaluateProject.lambda$run$0(L
+ifecycleProjectEvaluator.java:109)
+	at org.gradle.api.internal.project.DefaultProjectStateRegistry$ProjectStateImpl.lambda$apply
+ToMutableState$1(DefaultProjectStateRegistry.java:395)
+	at org.gradle.api.internal.project.DefaultProjectStateRegistry$ProjectStateImpl.lambda$fromM
+utableState$2(DefaultProjectStateRegistry.java:418)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withReplacedLocks(DefaultWorkerLeaseSe
+rvice.java:360)
+	at org.gradle.api.internal.project.DefaultProjectStateRegistry$ProjectStateImpl.fromMutableS
+tate(DefaultProjectStateRegistry.java:418)
+	at org.gradle.api.internal.project.DefaultProjectStateRegistry$ProjectStateImpl.applyToMutab
+leState(DefaultProjectStateRegistry.java:394)
+	at org.gradle.configuration.project.LifecycleProjectEvaluator$EvaluateProject.run(LifecycleP
+rojectEvaluator.java:100)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperatio
+nRunner.java:29)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperatio
+nRunner.java:26)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperatio
+nRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperatio
+nRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationR
+unner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationR
+unner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.run(DefaultBuildOperationRunne
+r.java:47)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.run(DefaultBuildOperationExe
+cutor.java:68)
+	at org.gradle.configuration.project.LifecycleProjectEvaluator.evaluate(LifecycleProjectEvalu
+ator.java:72)
+	at org.gradle.api.internal.project.DefaultProject.evaluate(DefaultProject.java:788)
+	at org.gradle.api.internal.project.DefaultProject.evaluate(DefaultProject.java:156)
+	at org.gradle.api.internal.project.ProjectLifecycleController.lambda$ensureSelfConfigured$2(
+ProjectLifecycleController.java:84)
+	at org.gradle.internal.model.StateTransitionController.lambda$doTransition$14(StateTransitio
+nController.java:255)
+	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionControlle
+r.java:266)
+	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionControlle
+r.java:254)
+	at org.gradle.internal.model.StateTransitionController.lambda$maybeTransitionIfNotCurrentlyT
+ransitioning$10(StateTransitionController.java:199)
+	at org.gradle.internal.work.DefaultSynchronizer.withLock(DefaultSynchronizer.java:34)
+	at org.gradle.internal.model.StateTransitionController.maybeTransitionIfNotCurrentlyTransiti
+oning(StateTransitionController.java:195)
+	at org.gradle.api.internal.project.ProjectLifecycleController.ensureSelfConfigured(ProjectLi
+fecycleController.java:84)
+	at org.gradle.api.internal.project.DefaultProjectStateRegistry$ProjectStateImpl.ensureConfig
+ured(DefaultProjectStateRegistry.java:369)
+	at org.gradle.execution.TaskPathProjectEvaluator.configure(TaskPathProjectEvaluator.java:33)
+	at org.gradle.execution.TaskPathProjectEvaluator.configureHierarchy(TaskPathProjectEvaluator
+.java:47)
+	at org.gradle.configuration.DefaultProjectsPreparer.prepareProjects(DefaultProjectsPreparer.
+java:42)
+	at org.gradle.configuration.BuildTreePreparingProjectsPreparer.prepareProjects(BuildTreePrep
+aringProjectsPreparer.java:65)
+	at org.gradle.configuration.BuildOperationFiringProjectsPreparer$ConfigureBuild.run(BuildOpe
+rationFiringProjectsPreparer.java:52)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperatio
+nRunner.java:29)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperatio
+nRunner.java:26)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperatio
+nRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperatio
+nRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationR
+unner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationR
+unner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.run(DefaultBuildOperationRunne
+r.java:47)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.run(DefaultBuildOperationExe
+cutor.java:68)
+	at org.gradle.configuration.BuildOperationFiringProjectsPreparer.prepareProjects(BuildOperat
+ionFiringProjectsPreparer.java:40)
+	at org.gradle.initialization.VintageBuildModelController.lambda$prepareProjects$2(VintageBui
+ldModelController.java:84)
+	at org.gradle.internal.model.StateTransitionController.lambda$doTransition$14(StateTransitio
+nController.java:255)
+	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionControlle
+r.java:266)
+	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionControlle
+r.java:254)
+	at org.gradle.internal.model.StateTransitionController.lambda$transitionIfNotPreviously$11(S
+tateTransitionController.java:213)
+	at org.gradle.internal.work.DefaultSynchronizer.withLock(DefaultSynchronizer.java:34)
+	at org.gradle.internal.model.StateTransitionController.transitionIfNotPreviously(StateTransi
+tionController.java:209)
+	at org.gradle.initialization.VintageBuildModelController.prepareProjects(VintageBuildModelCo
+ntroller.java:84)
+	at org.gradle.initialization.VintageBuildModelController.prepareToScheduleTasks(VintageBuild
+ModelController.java:71)
+	at org.gradle.internal.build.DefaultBuildLifecycleController.lambda$prepareToScheduleTasks$6
+(DefaultBuildLifecycleController.java:172)
+	at org.gradle.internal.model.StateTransitionController.lambda$doTransition$14(StateTransitio
+nController.java:255)
+	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionControlle
+r.java:266)
+	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionControlle
+r.java:254)
+	at org.gradle.internal.model.StateTransitionController.lambda$maybeTransition$9(StateTransit
+ionController.java:190)
+	at org.gradle.internal.work.DefaultSynchronizer.withLock(DefaultSynchronizer.java:34)
+	at org.gradle.internal.model.StateTransitionController.maybeTransition(StateTransitionContro
+ller.java:186)
+	at org.gradle.internal.build.DefaultBuildLifecycleController.prepareToScheduleTasks(DefaultB
+uildLifecycleController.java:170)
+	at org.gradle.internal.buildtree.DefaultBuildTreeWorkPreparer.scheduleRequestedTasks(Default
+BuildTreeWorkPreparer.java:36)
+	at org.gradle.configurationcache.VintageBuildTreeWorkController$scheduleAndRunRequestedTasks
+$1.apply(VintageBuildTreeWorkController.kt:36)
+	at org.gradle.configurationcache.VintageBuildTreeWorkController$scheduleAndRunRequestedTasks
+$1.apply(VintageBuildTreeWorkController.kt:35)
+	at org.gradle.composite.internal.DefaultIncludedBuildTaskGraph.withNewWorkGraph(DefaultInclu
+dedBuildTaskGraph.java:112)
+	at org.gradle.configurationcache.VintageBuildTreeWorkController.scheduleAndRunRequestedTasks
+(VintageBuildTreeWorkController.kt:35)
+	at org.gradle.internal.buildtree.DefaultBuildTreeLifecycleController.lambda$scheduleAndRunTa
+sks$1(DefaultBuildTreeLifecycleController.java:68)
+	at org.gradle.internal.buildtree.DefaultBuildTreeLifecycleController.lambda$runBuild$4(Defau
+ltBuildTreeLifecycleController.java:98)
+	at org.gradle.internal.model.StateTransitionController.lambda$transition$6(StateTransitionCo
+ntroller.java:169)
+	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionControlle
+r.java:266)
+	at org.gradle.internal.model.StateTransitionController.lambda$transition$7(StateTransitionCo
+ntroller.java:169)
+	at org.gradle.internal.work.DefaultSynchronizer.withLock(DefaultSynchronizer.java:44)
+	at org.gradle.internal.model.StateTransitionController.transition(StateTransitionController.
+java:169)
+	at org.gradle.internal.buildtree.DefaultBuildTreeLifecycleController.runBuild(DefaultBuildTr
+eeLifecycleController.java:95)
+	at org.gradle.internal.buildtree.DefaultBuildTreeLifecycleController.scheduleAndRunTasks(Def
+aultBuildTreeLifecycleController.java:68)
+	at org.gradle.internal.buildtree.DefaultBuildTreeLifecycleController.scheduleAndRunTasks(Def
+aultBuildTreeLifecycleController.java:63)
+	at org.gradle.tooling.internal.provider.ExecuteBuildActionRunner.run(ExecuteBuildActionRunne
+r.java:31)
+	at org.gradle.launcher.exec.ChainingBuildActionRunner.run(ChainingBuildActionRunner.java:35)
+	at org.gradle.internal.buildtree.ProblemReportingBuildActionRunner.run(ProblemReportingBuild
+ActionRunner.java:49)
+	at org.gradle.launcher.exec.BuildOutcomeReportingBuildActionRunner.run(BuildOutcomeReporting
+BuildActionRunner.java:65)
+	at org.gradle.tooling.internal.provider.FileSystemWatchingBuildActionRunner.run(FileSystemWa
+tchingBuildActionRunner.java:140)
+	at org.gradle.launcher.exec.BuildCompletionNotifyingBuildActionRunner.run(BuildCompletionNot
+ifyingBuildActionRunner.java:41)
+	at org.gradle.launcher.exec.RootBuildLifecycleBuildActionExecutor.lambda$execute$0(RootBuild
+LifecycleBuildActionExecutor.java:40)
+	at org.gradle.composite.internal.DefaultRootBuildState.run(DefaultRootBuildState.java:123)
+	at org.gradle.launcher.exec.RootBuildLifecycleBuildActionExecutor.execute(RootBuildLifecycle
+BuildActionExecutor.java:40)
+	at org.gradle.internal.buildtree.InitDeprecationLoggingActionExecutor.execute(InitDeprecatio
+nLoggingActionExecutor.java:58)
+	at org.gradle.internal.buildtree.DefaultBuildTreeContext.execute(DefaultBuildTreeContext.jav
+a:40)
+	at org.gradle.launcher.exec.BuildTreeLifecycleBuildActionExecutor.lambda$execute$0(BuildTree
+LifecycleBuildActionExecutor.java:65)
+	at org.gradle.internal.buildtree.BuildTreeState.run(BuildTreeState.java:58)
+	at org.gradle.launcher.exec.BuildTreeLifecycleBuildActionExecutor.execute(BuildTreeLifecycle
+BuildActionExecutor.java:65)
+	at org.gradle.launcher.exec.RunAsBuildOperationBuildActionExecutor$3.call(RunAsBuildOperatio
+nBuildActionExecutor.java:61)
+	at org.gradle.launcher.exec.RunAsBuildOperationBuildActionExecutor$3.call(RunAsBuildOperatio
+nBuildActionExecutor.java:57)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.e
+xecute(DefaultBuildOperationRunner.java:204)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.e
+xecute(DefaultBuildOperationRunner.java:199)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperatio
+nRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperatio
+nRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationR
+unner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationR
+unner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunn
+er.java:53)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.call(DefaultBuildOperationEx
+ecutor.java:73)
+	at org.gradle.launcher.exec.RunAsBuildOperationBuildActionExecutor.execute(RunAsBuildOperati
+onBuildActionExecutor.java:57)
+	at org.gradle.launcher.exec.RunAsWorkerThreadBuildActionExecutor.lambda$execute$0(RunAsWorke
+rThreadBuildActionExecutor.java:36)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.ja
+va:264)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseSe
+rvice.java:128)
+	at org.gradle.launcher.exec.RunAsWorkerThreadBuildActionExecutor.execute(RunAsWorkerThreadBu
+ildActionExecutor.java:36)
+	at org.gradle.tooling.internal.provider.continuous.ContinuousBuildActionExecutor.execute(Con
+tinuousBuildActionExecutor.java:110)
+	at org.gradle.tooling.internal.provider.SubscribableBuildActionExecutor.execute(Subscribable
+BuildActionExecutor.java:64)
+	at org.gradle.internal.session.DefaultBuildSessionContext.execute(DefaultBuildSessionContext
+.java:46)
+	at org.gradle.tooling.internal.provider.BuildSessionLifecycleBuildActionExecuter$ActionImpl.
+apply(BuildSessionLifecycleBuildActionExecuter.java:92)
+	at org.gradle.tooling.internal.provider.BuildSessionLifecycleBuildActionExecuter$ActionImpl.
+apply(BuildSessionLifecycleBuildActionExecuter.java:80)
+	at org.gradle.internal.session.BuildSessionState.run(BuildSessionState.java:69)
+	at org.gradle.tooling.internal.provider.BuildSessionLifecycleBuildActionExecuter.execute(Bui
+ldSessionLifecycleBuildActionExecuter.java:62)
+	at org.gradle.tooling.internal.provider.BuildSessionLifecycleBuildActionExecuter.execute(Bui
+ldSessionLifecycleBuildActionExecuter.java:41)
+	at org.gradle.tooling.internal.provider.StartParamsValidatingActionExecuter.execute(StartPar
+amsValidatingActionExecuter.java:64)
+	at org.gradle.tooling.internal.provider.StartParamsValidatingActionExecuter.execute(StartPar
+amsValidatingActionExecuter.java:32)
+	at org.gradle.tooling.internal.provider.SessionFailureReportingActionExecuter.execute(Sessio
+nFailureReportingActionExecuter.java:51)
+	at org.gradle.tooling.internal.provider.SessionFailureReportingActionExecuter.execute(Sessio
+nFailureReportingActionExecuter.java:39)
+	at org.gradle.tooling.internal.provider.SetupLoggingActionExecuter.execute(SetupLoggingActio
+nExecuter.java:47)
+	at org.gradle.tooling.internal.provider.SetupLoggingActionExecuter.execute(SetupLoggingActio
+nExecuter.java:31)
+	at org.gradle.launcher.daemon.server.exec.ExecuteBuild.doBuild(ExecuteBuild.java:65)
+	at org.gradle.launcher.daemon.server.exec.BuildCommandOnly.execute(BuildCommandOnly.java:37)
+	at org.gradle.launcher.daemon.server.api.DaemonCommandExecution.proceed(DaemonCommandExecuti
+on.java:104)
+	at org.gradle.launcher.daemon.server.exec.WatchForDisconnection.execute(WatchForDisconnectio
+n.java:39)
+	at org.gradle.launcher.daemon.server.api.DaemonCommandExecution.proceed(DaemonCommandExecuti
+on.java:104)
+	at org.gradle.launcher.daemon.server.exec.ResetDeprecationLogger.execute(ResetDeprecationLog
+ger.java:29)
+	at org.gradle.launcher.daemon.server.api.DaemonCommandExecution.proceed(DaemonCommandExecuti
+on.java:104)
+	at org.gradle.launcher.daemon.server.exec.RequestStopIfSingleUsedDaemon.execute(RequestStopI
+fSingleUsedDaemon.java:35)
+	at org.gradle.launcher.daemon.server.api.DaemonCommandExecution.proceed(DaemonCommandExecuti
+on.java:104)
+	at org.gradle.launcher.daemon.server.exec.ForwardClientInput$2.create(ForwardClientInput.jav
+a:78)
+	at org.gradle.launcher.daemon.server.exec.ForwardClientInput$2.create(ForwardClientInput.jav
+a:75)
+	at org.gradle.util.internal.Swapper.swap(Swapper.java:38)
+	at org.gradle.launcher.daemon.server.exec.ForwardClientInput.execute(ForwardClientInput.java
+:75)
+	at org.gradle.launcher.daemon.server.api.DaemonCommandExecution.proceed(DaemonCommandExecuti
+on.java:104)
+	at org.gradle.launcher.daemon.server.exec.LogAndCheckHealth.execute(LogAndCheckHealth.java:6
+4)
+	at org.gradle.launcher.daemon.server.api.DaemonCommandExecution.proceed(DaemonCommandExecuti
+on.java:104)
+	at org.gradle.launcher.daemon.server.exec.LogToClient.doBuild(LogToClient.java:63)
+	at org.gradle.launcher.daemon.server.exec.BuildCommandOnly.execute(BuildCommandOnly.java:37)
+	at org.gradle.launcher.daemon.server.api.DaemonCommandExecution.proceed(DaemonCommandExecuti
+on.java:104)
+	at org.gradle.launcher.daemon.server.exec.EstablishBuildEnvironment.doBuild(EstablishBuildEn
+vironment.java:84)
+	at org.gradle.launcher.daemon.server.exec.BuildCommandOnly.execute(BuildCommandOnly.java:37)
+	at org.gradle.launcher.daemon.server.api.DaemonCommandExecution.proceed(DaemonCommandExecuti
+on.java:104)
+5 actionable tasks: 5 executed
+Watched directory hierarchies: [E:\rtmusicbox\mobile\node_modules\@react-native\gradle-plugin, E:\rtmusicbox\mobile\android]
+	at org.gradle.launcher.daemon.server.exec.StartBuildOrRespondWithBusy$1.run(StartBuildOrResp
+ondWithBusy.java:52)
+	at org.gradle.launcher.daemon.server.DaemonStateCoordinator$1.run(DaemonStateCoordinator.jav
+a:297)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPo
+licy.java:64)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java
+:47)
+Caused by: org.gradle.api.InvalidUserCodeException: Cannot run Project.afterEvaluate(Closure)
+ when the project is already evaluated.
+	at org.gradle.api.internal.project.DefaultProject.failAfterProjectIsEvaluated(DefaultProject
+.java:1098)
+	at org.gradle.api.internal.project.DefaultProject.afterEvaluate(DefaultProject.java:1092)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(Unknown Source)
+	at org.gradle.internal.metaobject.BeanDynamicObject$MetaClassAdapter.invokeMethod(BeanDynami
+cObject.java:489)
+	at org.gradle.internal.metaobject.BeanDynamicObject.tryInvokeMethod(BeanDynamicObject.java:1
+96)
+	at org.gradle.internal.metaobject.CompositeDynamicObject.tryInvokeMethod(CompositeDynamicObj
+ect.java:98)
+	at org.gradle.internal.extensibility.MixInClosurePropertiesAsMethodsDynamicObject.tryInvokeM
+ethod(MixInClosurePropertiesAsMethodsDynamicObject.java:36)
+	at org.gradle.internal.metaobject.ConfigureDelegate.invokeMethod(ConfigureDelegate.java:61)
+	at build_bmh5obrt40jtgz0akgwbvv7i0$_run_closure1.doCall(E:\rtmusicbox\mobile\android\build.g
+radle:24)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(Unknown Source)
+	at org.gradle.util.internal.ClosureBackedAction.execute(ClosureBackedAction.java:73)
+	at org.gradle.util.internal.ConfigureUtil.configureTarget(ConfigureUtil.java:155)
+	at org.gradle.util.internal.ConfigureUtil.configure(ConfigureUtil.java:106)
+	at org.gradle.util.internal.ConfigureUtil$WrappedConfigureAction.execute(ConfigureUtil.java:
+167)
+	at org.gradle.api.internal.DefaultMutationGuard$1.execute(DefaultMutationGuard.java:45)
+	at org.gradle.internal.Actions.with(Actions.java:206)
+	at org.gradle.api.internal.project.BuildOperationCrossProjectConfigurator$1.run(BuildOperati
+onCrossProjectConfigurator.java:69)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperatio
+nRunner.java:29)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperatio
+nRunner.java:26)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperatio
+nRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperatio
+nRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationR
+unner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationR
+unner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.run(DefaultBuildOperationRunne
+r.java:47)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.run(DefaultBuildOperationExe
+cutor.java:68)
+	at org.gradle.api.internal.project.BuildOperationCrossProjectConfigurator.lambda$runProjectC
+onfigureAction$0(BuildOperationCrossProjectConfigurator.java:66)
+	at org.gradle.api.internal.project.DefaultProjectStateRegistry$ProjectStateImpl.lambda$apply
+ToMutableState$1(DefaultProjectStateRegistry.java:395)
+	at org.gradle.api.internal.project.DefaultProjectStateRegistry$ProjectStateImpl.fromMutableS
+tate(DefaultProjectStateRegistry.java:413)
+	at org.gradle.api.internal.project.DefaultProjectStateRegistry$ProjectStateImpl.applyToMutab
+leState(DefaultProjectStateRegistry.java:394)
+	at org.gradle.api.internal.project.BuildOperationCrossProjectConfigurator.runProjectConfigur
+eAction(BuildOperationCrossProjectConfigurator.java:66)
+	at org.gradle.api.internal.project.BuildOperationCrossProjectConfigurator.access$100(BuildOp
+erationCrossProjectConfigurator.java:32)
+	at org.gradle.api.internal.project.BuildOperationCrossProjectConfigurator$BlockConfigureBuil
+dOperation.run(BuildOperationCrossProjectConfigurator.java:111)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperatio
+nRunner.java:29)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperatio
+nRunner.java:26)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperatio
+nRunner.java:66)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperatio
+nRunner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationR
+unner.java:157)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationR
+unner.java:59)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.run(DefaultBuildOperationRunne
+r.java:47)
+	at org.gradle.internal.operations.DefaultBuildOperationExecutor.run(DefaultBuildOperationExe
+cutor.java:68)
+	at org.gradle.api.internal.project.BuildOperationCrossProjectConfigurator.runBlockConfigureA
+ction(BuildOperationCrossProjectConfigurator.java:62)
+	at org.gradle.api.internal.project.BuildOperationCrossProjectConfigurator.subprojects(BuildO
+perationCrossProjectConfigurator.java:48)
+	at org.gradle.api.internal.project.DefaultProject.subprojects(DefaultProject.java:754)
+	at org.gradle.api.internal.project.DefaultProject.subprojects(DefaultProject.java:744)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(Unknown Source)
+	at org.gradle.internal.metaobject.BeanDynamicObject$MetaClassAdapter.invokeMethod(BeanDynami
+cObject.java:489)
+	at org.gradle.internal.metaobject.BeanDynamicObject.tryInvokeMethod(BeanDynamicObject.java:1
+96)
+	at org.gradle.internal.metaobject.CompositeDynamicObject.tryInvokeMethod(CompositeDynamicObj
+ect.java:98)
+	at org.gradle.internal.extensibility.MixInClosurePropertiesAsMethodsDynamicObject.tryInvokeM
+ethod(MixInClosurePropertiesAsMethodsDynamicObject.java:36)
+	at org.gradle.groovy.scripts.BasicScript$ScriptDynamicObject.tryInvokeMethod(BasicScript.jav
+a:138)
+	at org.gradle.internal.metaobject.AbstractDynamicObject.invokeMethod(AbstractDynamicObject.j
+ava:163)
+	at org.gradle.api.internal.project.DefaultDynamicLookupRoutine.invokeMethod(DefaultDynamicLo
+okupRoutine.java:58)
+	at org.gradle.groovy.scripts.BasicScript.invokeMethod(BasicScript.java:87)
+	at build_bmh5obrt40jtgz0akgwbvv7i0.run(E:\rtmusicbox\mobile\android\build.gradle:23)
+	at org.gradle.groovy.scripts.internal.DefaultScriptRunnerFactory$ScriptRunnerImpl.run(Defaul
+tScriptRunnerFactory.java:91)
+	... 163 more
+
+
+BUILD FAILED in 13s
