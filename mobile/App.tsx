@@ -7,10 +7,15 @@ import { RootNavigator } from './src/navigation/RootNavigator';
 import { COLORS } from './src/theme/theme';
 import { MetadataProvider } from './src/context/MetadataContext';
 import { ChannelProvider } from './src/context/ChannelContext';
+import { AuthProvider } from './src/context/AuthContext';
 
 import MiniPlayer from './src/components/MiniPlayer';
+import SplashScreen from './src/screens/SplashScreen';
 
 function App(): React.JSX.Element {
+  const [showSplash, setShowSplash] = React.useState(true);
+  const handleSplashFinish = React.useCallback(() => setShowSplash(false), []);
+
   useEffect(() => {
     const setupPlayer = async () => {
       try {
@@ -43,15 +48,22 @@ function App(): React.JSX.Element {
 
   return (
     <SafeAreaProvider>
-      <MetadataProvider>
-        <ChannelProvider>
-          <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
-          <NavigationContainer>
-            <RootNavigator />
-            <MiniPlayer />
-          </NavigationContainer>
-        </ChannelProvider>
-      </MetadataProvider>
+      <AuthProvider>
+        <MetadataProvider>
+          <ChannelProvider>
+            <StatusBar
+              barStyle="light-content"
+              backgroundColor="transparent"
+              translucent={true}
+            />
+            <NavigationContainer>
+              <RootNavigator />
+              <MiniPlayer />
+            </NavigationContainer>
+            {showSplash && <SplashScreen onFinish={handleSplashFinish} />}
+          </ChannelProvider>
+        </MetadataProvider>
+      </AuthProvider>
     </SafeAreaProvider>
   );
 }

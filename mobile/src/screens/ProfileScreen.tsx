@@ -1,290 +1,469 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Image, ScrollView, TouchableOpacity, TextInput, Alert, FlatList } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  Alert,
+  Dimensions,
+  Platform,
+  ActivityIndicator,
+  useWindowDimensions,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { COLORS, SPACING } from '../theme/theme';
 import { addRssFeed, getStoredRssFeeds, removeRssFeed } from '../utils/storage';
 import { useNavigation } from '@react-navigation/native';
+import { useAuth } from '../context/AuthContext';
+import { launchImageLibrary } from 'react-native-image-picker';
+import axios from 'axios';
 
 const ProfileScreen = () => {
-    const navigation = useNavigation<any>();
-    const [isAdmin, setIsAdmin] = useState(false); // Toggle for demo
-    const [rssUrl, setRssUrl] = useState('');
-    const [savedFeeds, setSavedFeeds] = useState<string[]>([]);
+  const { width } = useWindowDimensions();
+  const navigation = useNavigation<any>();
+  const { user, logout } = useAuth();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [rssUrl, setRssUrl] = useState('');
+  const [savedFeeds, setSavedFeeds] = useState<string[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [localAvatar, setLocalAvatar] = useState<string | null>(null);
 
-    useEffect(() => {
-        loadFeeds();
-    }, []);
+  useEffect(() => {
+    loadFeeds();
+  }, []);
 
-    const loadFeeds = async () => {
-        const feeds = await getStoredRssFeeds();
-        setSavedFeeds(feeds);
-    };
+  const loadFeeds = async () => {
+    const feeds = await getStoredRssFeeds();
+    setSavedFeeds(feeds);
+  };
 
-    const handleAddRss = async () => {
-        if (!rssUrl.trim()) return;
+  const handleAddRss = async () => {
+    if (!rssUrl.trim()) return;
 
-        // Basic URL validation
-        if (!rssUrl.startsWith('http')) {
-            Alert.alert('Hata', 'Geçerli bir URL giriniz.');
-            return;
+    if (!rssUrl.startsWith('http')) {
+      Alert.alert('Hata', 'Geçerli bir URL giriniz.');
+      return;
+    }
+
+    const success = await addRssFeed(rssUrl.trim());
+    if (success) {
+      Alert.alert('Başarılı', 'RSS kaynağı eklendi.');
+      setRssUrl('');
+      loadFeeds();
+    } else {
+      Alert.alert('Hata', 'Bu kaynak zaten ekli veya bir hata oluştu.');
+    }
+  };
+
+  const handleRemoveFeed = async (url: string) => {
+    Alert.alert('Sil', 'Bu kaynağı silmek istediğinize emin misiniz?', [
+      { text: 'İptal', style: 'cancel' },
+      {
+        text: 'Sil',
+        style: 'destructive',
+        onPress: async () => {
+          await removeRssFeed(url);
+          loadFeeds();
+        },
+      },
+    ]);
+  };
+
+  const handleAvatarChange = async () => {
+    const result = await launchImageLibrary({
+      mediaType: 'photo',
+      quality: 0.8,
+    });
+
+    if (result.assets && result.assets[0]) {
+      const asset = result.assets[0];
+
+      setIsUploading(true);
+      try {
+        const formData = new FormData();
+        formData.append('avatar', {
+          uri: Platform.OS === 'android' ? asset.uri : asset.uri?.replace('file://', ''),
+          type: asset.type,
+          name: asset.fileName || 'avatar.jpg',
+        } as any);
+
+        const API_URL = 'http://10.0.2.2:3000/api/v1';
+        const response = await axios.post(`${API_URL}/auth/upload-avatar`, formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        });
+
+        if (response.data.avatar_url) {
+          Alert.alert('Başarılı', 'Profil fotoğrafın güncellendi.');
+          setLocalAvatar(`http://10.0.2.2:3000${response.data.avatar_url}`);
         }
+      } catch (error) {
+        console.error('Upload error:', error);
+        Alert.alert('Hata', 'Fotoğraf yüklenirken bir sorun oluştu.');
+      } finally {
+        setIsUploading(false);
+      }
+    }
+  };
 
-        const success = await addRssFeed(rssUrl.trim());
-        if (success) {
-            Alert.alert('Başarılı', 'RSS kaynağı eklendi.');
-            setRssUrl('');
-            loadFeeds();
-        } else {
-            Alert.alert('Hata', 'Bu kaynak zaten ekli veya bir hata oluştu.');
-        }
-    };
+  const currentAvatar = localAvatar || (user?.avatar_url ? `http://10.0.2.2:3000${user.avatar_url}` : 'https://ui-avatars.com/api/?name=User&background=E31E24&color=fff&size=200');
 
-    const handleRemoveFeed = async (url: string) => {
-        Alert.alert(
-            'Sil',
-            'Bu kaynağı silmek istediğinize emin misiniz?',
-            [
-                { text: 'İptal', style: 'cancel' },
-                {
-                    text: 'Sil',
-                    style: 'destructive',
-                    onPress: async () => {
-                        await removeRssFeed(url);
-                        loadFeeds();
-                    }
-                }
-            ]
-        );
-    };
+  return (
+    <SafeAreaView style={styles.container}>
+      {/* Premium Navbar */}
+      <View style={styles.navbar}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}>
+          <Icon name="chevron-left" size={32} color={COLORS.text} />
+        </TouchableOpacity>
+        <Text style={styles.navbarTitle}>Profil</Text>
+        <View style={{ width: 44 }} />
+      </View>
 
-    return (
-        <SafeAreaView style={styles.container}>
-            <View style={styles.navbar}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                    <Icon name="arrow-left" size={28} color="#000" />
-                </TouchableOpacity>
-                <Text style={styles.navbarTitle}>Profil</Text>
-                <View style={{ width: 28 }} />
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Profile Header Card */}
+        <View style={styles.headerCard}>
+          <TouchableOpacity
+            style={styles.avatarContainer}
+            onPress={handleAvatarChange}
+            disabled={isUploading}
+          >
+            <Image
+              source={{ uri: currentAvatar }}
+              style={styles.avatar}
+            />
+            {isUploading ? (
+              <View style={[styles.badge, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+                <ActivityIndicator size="small" color="#fff" />
+              </View>
+            ) : (
+              <View style={styles.badge}>
+                <Icon name="camera" size={18} color="#fff" />
+              </View>
+            )}
+          </TouchableOpacity>
+          <View style={styles.userInfo}>
+            <Text style={styles.name}>{user?.display_name || 'Misafir Kullanıcı'}</Text>
+            <Text style={styles.role}>{user ? 'Üye' : 'Yayın Dinleyicisi'}</Text>
+          </View>
+        </View>
+
+        {/* Stats Row */}
+        <View style={styles.statsRow}>
+          <View style={styles.statCard}>
+            <Text style={styles.statNumber}>12</Text>
+            <Text style={styles.statLabel}>Katkı</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statNumber}>148</Text>
+            <Text style={styles.statLabel}>Beğeni</Text>
+          </View>
+          <View style={styles.statCard}>
+            <Text style={styles.statNumber}>#1</Text>
+            <Text style={styles.statLabel}>Sıralama</Text>
+          </View>
+        </View>
+
+        {/* Menu Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Yönetim</Text>
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => setIsAdmin(!isAdmin)}>
+            <View style={[styles.menuIconContainer, { backgroundColor: 'rgba(227, 30, 36, 0.1)' }]}>
+              <Icon name="shield-account" size={24} color={COLORS.primary} />
             </View>
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-                {/* Profile Header */}
-                <View style={styles.header}>
-                    <View style={styles.avatarContainer}>
-                        <Image
-                            source={{ uri: 'https://ui-avatars.com/api/?name=Admin+User&background=random' }}
-                            style={styles.avatar}
-                        />
-                        <View style={styles.badge}>
-                            <Icon name="shield-check" size={16} color={COLORS.surface} />
-                        </View>
-                    </View>
-                    <Text style={styles.name}>Admin User</Text>
-                    <Text style={styles.role}>Station Manager</Text>
-                </View>
+            <Text style={styles.menuText}>Admin Paneli</Text>
+            <Icon
+              name={isAdmin ? 'chevron-up' : 'chevron-right'}
+              size={24}
+              color={COLORS.textMuted}
+            />
+          </TouchableOpacity>
 
-                {/* Stats Section */}
-                <View style={styles.statsContainer}>
-                    <View style={styles.statItem}>
-                        <Text style={styles.statNumber}>12</Text>
-                        <Text style={styles.statLabel}>Eklenen</Text>
-                    </View>
-                    <View style={styles.divider} />
-                    <View style={styles.statItem}>
-                        <Text style={styles.statNumber}>148</Text>
-                        <Text style={styles.statLabel}>Beğeni</Text>
-                    </View>
-                    <View style={styles.divider} />
-                    <View style={styles.statItem}>
-                        <Text style={styles.statNumber}>#1</Text>
-                        <Text style={styles.statLabel}>Sıralama</Text>
-                    </View>
-                </View>
-
-                {/* Admin Section Toggle */}
-                <TouchableOpacity
-                    style={styles.adminToggle}
-                    onPress={() => setIsAdmin(!isAdmin)}
-                >
-                    <Icon name={isAdmin ? "chevron-up" : "chevron-down"} size={24} color={COLORS.textMuted} />
-                    <Text style={styles.sectionTitle}>Admin Paneli ({isAdmin ? 'Açık' : 'Kapalı'})</Text>
+          {isAdmin && (
+            <View style={styles.adminPanel}>
+              <Text style={styles.adminTitle}>Podcast RSS Ekle</Text>
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="https://example.com/feed.xml"
+                  placeholderTextColor={COLORS.textMuted}
+                  value={rssUrl}
+                  onChangeText={setRssUrl}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity style={styles.addBtn} onPress={handleAddRss}>
+                  <Icon name="plus" size={24} color="#fff" />
                 </TouchableOpacity>
+              </View>
 
-                {isAdmin && (
-                    <View style={styles.adminSection}>
-                        <Text style={styles.adminHint}>Podcast RSS Ekle</Text>
-                        <View style={styles.inputContainer}>
-                            <TextInput
-                                style={styles.input}
-                                placeholder="https://example.com/feed.xml"
-                                placeholderTextColor={COLORS.textMuted}
-                                value={rssUrl}
-                                onChangeText={setRssUrl}
-                                autoCapitalize="none"
-                            />
-                            <TouchableOpacity style={styles.addButton} onPress={handleAddRss}>
-                                <Icon name="plus" size={24} color={COLORS.surface} />
-                            </TouchableOpacity>
-                        </View>
-
-                        <Text style={[styles.adminHint, { marginTop: SPACING.lg }]}>Ekli Kaynaklar</Text>
-                        {savedFeeds.length === 0 ? (
-                            <Text style={styles.emptyText}>Ekli kaynak yok.</Text>
-                        ) : (
-                            savedFeeds.map((feed, index) => (
-                                <View key={index} style={styles.feedItem}>
-                                    <Icon name="rss" size={20} color={COLORS.primary} />
-                                    <Text style={styles.feedUrl} numberOfLines={1}>{feed}</Text>
-                                    <TouchableOpacity onPress={() => handleRemoveFeed(feed)}>
-                                        <Icon name="delete" size={20} color={COLORS.error || '#FF5252'} />
-                                    </TouchableOpacity>
-                                </View>
-                            ))
-                        )}
-                    </View>
-                )}
-
-                {/* Settings Items Stub */}
-                <View style={styles.settingsSection}>
-                    <TouchableOpacity style={styles.settingItem}>
-                        <Icon name="cog" size={24} color={COLORS.text} />
-                        <Text style={styles.settingText}>Ayarlar</Text>
-                        <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
+              <Text style={[styles.adminTitle, { marginTop: SPACING.lg }]}>Aktif Kaynaklar</Text>
+              {savedFeeds.length === 0 ? (
+                <Text style={styles.emptyText}>Henüz bir RSS kaynağı eklenmemiş.</Text>
+              ) : (
+                savedFeeds.map((feed, index) => (
+                  <View key={index} style={styles.feedRow}>
+                    <Icon name="rss" size={20} color={COLORS.primary} />
+                    <Text style={styles.feedText} numberOfLines={1}>{feed}</Text>
+                    <TouchableOpacity onPress={() => handleRemoveFeed(feed)}>
+                      <Icon name="trash-can-outline" size={20} color={COLORS.error} />
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.settingItem}>
-                        <Icon name="bell-outline" size={24} color={COLORS.text} />
-                        <Text style={styles.settingText}>Bildirimler</Text>
-                        <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.settingItem}>
-                        <Icon name="logout" size={24} color={COLORS.error || '#FF5252'} />
-                        <Text style={[styles.settingText, { color: COLORS.error || '#FF5252' }]}>Çıkış Yap</Text>
-                    </TouchableOpacity>
-                </View>
+                  </View>
+                ))
+              )}
+            </View>
+          )}
+        </View>
 
-            </ScrollView>
-        </SafeAreaView>
-    );
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Uygulama</Text>
+          <TouchableOpacity style={styles.menuItem}>
+            <View style={[styles.menuIconContainer, { backgroundColor: 'rgba(255, 255, 255, 0.05)' }]}>
+              <Icon name="cog-outline" size={24} color={COLORS.text} />
+            </View>
+            <Text style={styles.menuText}>Ayarlar</Text>
+            <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.menuItem}>
+            <View style={[styles.menuIconContainer, { backgroundColor: 'rgba(255, 255, 255, 0.05)' }]}>
+              <Icon name="bell-outline" size={24} color={COLORS.text} />
+            </View>
+            <Text style={styles.menuText}>Bildirimler</Text>
+            <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.menuItem, { marginTop: SPACING.md }]}
+            onPress={logout}
+          >
+            <View style={[styles.menuIconContainer, { backgroundColor: 'rgba(255, 59, 48, 0.1)' }]}>
+              <Icon name="logout-variant" size={24} color={COLORS.error} />
+            </View>
+            <Text style={[styles.menuText, { color: COLORS.error }]}>Çıkış Yap</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
 };
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: COLORS.background },
-    navbar: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: SPACING.md,
-        paddingVertical: SPACING.sm,
-        borderBottomWidth: 1,
-        borderBottomColor: COLORS.border,
-    },
-    backButton: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: '#fff',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 10,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        elevation: 4,
-    },
-    navbarTitle: { fontSize: 20, fontWeight: 'bold', color: COLORS.text },
-    scrollContent: { paddingBottom: SPACING.xl },
-    header: { alignItems: 'center', padding: SPACING.xl },
-    avatarContainer: { position: 'relative', marginBottom: SPACING.md },
-    avatar: { width: 100, height: 100, borderRadius: 50 },
-    badge: {
-        position: 'absolute',
-        bottom: 0,
-        right: 0,
-        backgroundColor: COLORS.primary,
-        borderRadius: 12,
-        width: 24,
-        height: 24,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderWidth: 2,
-        borderColor: COLORS.background,
-    },
-    name: { fontSize: 24, fontWeight: 'bold', color: COLORS.text, marginBottom: 4 },
-    role: { fontSize: 16, color: COLORS.primary },
-
-    statsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-around',
-        backgroundColor: COLORS.surface,
-        margin: SPACING.lg,
-        padding: SPACING.lg,
-        borderRadius: 16,
-        elevation: 4,
-    },
-    statItem: { alignItems: 'center' },
-    statNumber: { fontSize: 20, fontWeight: 'bold', color: COLORS.text },
-    statLabel: { fontSize: 12, color: COLORS.textMuted, marginTop: 4 },
-    divider: { width: 1, backgroundColor: COLORS.border },
-
-    adminToggle: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: SPACING.md,
-        backgroundColor: COLORS.surface,
-        marginHorizontal: SPACING.lg,
-        borderRadius: 12,
-        marginBottom: SPACING.md,
-    },
-    sectionTitle: { fontSize: 16, fontWeight: 'bold', color: COLORS.text, marginLeft: SPACING.sm },
-
-    adminSection: {
-        marginHorizontal: SPACING.lg,
-        padding: SPACING.lg,
-        backgroundColor: COLORS.surface,
-        borderRadius: 12,
-        marginBottom: SPACING.lg,
-        borderWidth: 1,
-        borderColor: COLORS.primary,
-    },
-    adminHint: { color: COLORS.textMuted, marginBottom: SPACING.sm, fontWeight: 'bold' },
-    inputContainer: { flexDirection: 'row', alignItems: 'center' },
-    input: {
-        flex: 1,
-        backgroundColor: COLORS.background,
-        padding: SPACING.md,
-        borderRadius: 8,
-        color: COLORS.text,
-        marginRight: SPACING.sm,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-    },
-    addButton: {
-        backgroundColor: COLORS.primary,
-        width: 48,
-        height: 48,
-        borderRadius: 8,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    feedItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.background,
-        padding: SPACING.sm,
-        borderRadius: 8,
-        marginTop: SPACING.sm,
-    },
-    feedUrl: { flex: 1, color: COLORS.text, marginHorizontal: SPACING.sm, fontSize: 12 },
-    emptyText: { color: COLORS.textMuted, fontStyle: 'italic', fontSize: 12 },
-
-    settingsSection: { marginHorizontal: SPACING.lg },
-    settingItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: SPACING.lg,
-        borderBottomWidth: 1,
-        borderBottomColor: COLORS.border,
-    },
-    settingText: { flex: 1, marginLeft: SPACING.md, fontSize: 16, color: COLORS.text },
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  navbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  navbarTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    letterSpacing: 0.5,
+  },
+  scrollContent: {
+    paddingHorizontal: SPACING.lg,
+    paddingBottom: SPACING.xl,
+  },
+  headerCard: {
+    alignItems: 'center',
+    paddingVertical: SPACING.xl,
+    backgroundColor: COLORS.surface,
+    borderRadius: 24,
+    marginTop: SPACING.md,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.3,
+        shadowRadius: 20,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
+  },
+  avatarContainer: {
+    position: 'relative',
+    marginBottom: SPACING.md,
+  },
+  avatar: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    borderWidth: 3,
+    borderColor: COLORS.primary,
+  },
+  badge: {
+    position: 'absolute',
+    bottom: 5,
+    right: 5,
+    backgroundColor: COLORS.primary,
+    borderRadius: 15,
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: COLORS.surface,
+  },
+  userInfo: {
+    alignItems: 'center',
+  },
+  name: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+  role: {
+    fontSize: 15,
+    color: COLORS.primary,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: SPACING.lg,
+  },
+  statCard: {
+    backgroundColor: COLORS.card,
+    flex: 1,
+    marginHorizontal: SPACING.xs,
+    paddingVertical: SPACING.md,
+    borderRadius: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  statNumber: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: COLORS.text,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    marginTop: 4,
+  },
+  section: {
+    marginTop: SPACING.xl,
+  },
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: COLORS.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+    marginBottom: SPACING.md,
+    marginLeft: SPACING.xs,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: SPACING.md,
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    marginBottom: SPACING.sm,
+  },
+  menuIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.md,
+  },
+  menuText: {
+    flex: 1,
+    fontSize: 16,
+    color: COLORS.text,
+    fontWeight: '500',
+  },
+  adminPanel: {
+    backgroundColor: 'rgba(227, 30, 36, 0.05)',
+    padding: SPACING.md,
+    borderRadius: 16,
+    marginTop: SPACING.xs,
+    marginBottom: SPACING.md,
+    borderWidth: 1,
+    borderColor: 'rgba(227, 30, 36, 0.2)',
+  },
+  adminTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginBottom: SPACING.sm,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  input: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+    height: 48,
+    borderRadius: 12,
+    paddingHorizontal: SPACING.md,
+    color: COLORS.text,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  addBtn: {
+    backgroundColor: COLORS.primary,
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: SPACING.sm,
+  },
+  feedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.background,
+    padding: SPACING.sm,
+    borderRadius: 10,
+    marginTop: SPACING.xs,
+  },
+  feedText: {
+    flex: 1,
+    color: COLORS.textMuted,
+    marginHorizontal: SPACING.sm,
+    fontSize: 13,
+  },
+  emptyText: {
+    color: COLORS.textMuted,
+    fontStyle: 'italic',
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: SPACING.sm,
+  },
 });
 
 export default ProfileScreen;
