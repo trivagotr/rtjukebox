@@ -28,6 +28,7 @@ app.use(rateLimit({ windowMs: 60000, max: 100 }));
 
 // Static: Kiosk Web App
 app.use('/kiosk', express.static(path.join(__dirname, '../../kiosk-web')));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Routes
 app.use('/api/v1/auth', authRoutes);
