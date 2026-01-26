@@ -6,80 +6,319 @@ import {
   FlatList,
   TouchableOpacity,
   TextInput,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Image,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, SPACING } from '../../theme/theme';
 import io from 'socket.io-client';
-
+import { useAuth } from '../../context/AuthContext';
+import api from '../../services/api';
 import GlobalHeader from '../../components/GlobalHeader';
 import PageTransition from '../../components/PageTransition';
 
+const { width } = Dimensions.get('window');
+
 const JukeboxScreen = ({ route }: any) => {
-  const deviceCodeFromLink = route.params?.deviceCode;
-  const [queue, setQueue] = useState([]);
+  const { user, guestLogin } = useAuth();
+  const navigation = useNavigation<any>();
+  const deviceCodeFromLink = route.params?.deviceCode || 'RADIO-01';
+
+  const [queue, setQueue] = useState<any[]>([]);
+  const [nowPlaying, setNowPlaying] = useState<any>(null);
   const [search, setSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
   const [device, setDevice] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+
+  // Guest Logic States
+  const [showGuestModal, setShowGuestModal] = useState(false);
+  const [guestName, setGuestName] = useState('');
+  const [pendingSong, setPendingSong] = useState<any>(null);
 
   useEffect(() => {
     const connectToDevice = async () => {
-      if (deviceCodeFromLink) {
-        try {
-          // In a real app, API_URL would be in a config file
-          const response = await fetch(`http://10.0.2.2:3000/jukebox/connect`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ device_code: deviceCodeFromLink }),
-          });
-          const data = await response.json();
-          if (data.device) {
-            setDevice(data.device);
-            setQueue(data.queue.queue);
-          }
-        } catch (error) {
-          console.error('Failed to connect to device:', error);
-        }
+      try {
+        setIsLoading(true);
+        const response = await api.post('/jukebox/connect', { device_code: deviceCodeFromLink });
+        const { device: deviceData, queue: queueData } = response.data.data;
+        setDevice(deviceData);
+        setQueue(queueData.queue || []);
+        setNowPlaying(queueData.now_playing);
+      } catch (error) {
+        console.error('Failed to connect to device:', error);
+      } finally {
+        setIsLoading(false);
       }
     };
 
     connectToDevice();
 
-    const socket = io('http://10.0.2.2:3000');
+    const socket = io(api.defaults.baseURL?.split('/api/v1')[0] || '');
 
-    if (device?.id) {
+    // JOIN THE DEVICE ROOM
+    if (device) {
       socket.emit('join_device', device.id);
     }
 
     socket.on('queue_updated', newQueueData => {
-      setQueue(newQueueData.queue);
+      setQueue(newQueueData.queue || []);
+      setNowPlaying(newQueueData.now_playing);
+    });
+
+    socket.on('song_skipped', () => {
+      Alert.alert('Şarkı Geçildi', 'Topluluk oylaması sonucu şarkı geçildi.');
     });
 
     return () => {
       socket.disconnect();
     };
-  }, [deviceCodeFromLink, device?.id]);
+  }, [deviceCodeFromLink, device]);
 
-  const renderQueueItem = ({ item, index }: { item: any; index: number }) => (
-    <View style={styles.queueItem}>
-      <Text style={styles.index}>{index + 1}</Text>
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      if (search) {
+        performSearch();
+      } else {
+        setSearchResults([]);
+      }
+    }, 500);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [search]);
+
+  const performSearch = async () => {
+    try {
+      setIsSearching(true);
+      const response = await api.get(`/jukebox/songs?search=${search}`);
+      setSearchResults(response.data.data.items);
+    } catch (error: any) {
+      console.error('Search failed:', error);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleRequestSong = async (song: any) => {
+    if (!device) {
+      Alert.alert('Hata', 'Lütfen önce bir müzik kutusuna bağlanın.');
+      return;
+    }
+
+    if (user) {
+      return addSongToQueue(song.id);
+    }
+
+    const guestUsed = await AsyncStorage.getItem('guest_request_used');
+    if (guestUsed === 'true') {
+      Alert.alert(
+        'Limit Aşıldı',
+        'Misafir olarak ücretsiz şarkı hakkınızı kullandınız. Daha fazla şarkı eklemek için lütfen giriş yapın.',
+        [
+          { text: 'İptal', style: 'cancel' },
+          { text: 'Giriş Yap', onPress: () => navigation.navigate('Auth', { screen: 'Login' }) }
+        ]
+      );
+    } else {
+      setPendingSong(song);
+      setShowGuestModal(true);
+    }
+  };
+
+  const handleGuestSubmit = async () => {
+    if (!guestName.trim()) {
+      Alert.alert('Hata', 'Lütfen bir isim girin.');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      await guestLogin(guestName);
+      await AsyncStorage.setItem('guest_request_used', 'true');
+      setShowGuestModal(false);
+      setGuestName('');
+
+      if (pendingSong) {
+        await addSongToQueue(pendingSong.id);
+        setPendingSong(null);
+      }
+    } catch (error: any) {
+      Alert.alert('Hata', error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const addSongToQueue = async (songId: string) => {
+    try {
+      setIsLoading(true);
+      await api.post('/jukebox/queue', {
+        device_id: device.id,
+        song_id: songId
+      });
+      Alert.alert('Başarılı', 'Şarkı kuyruğa eklendi.');
+      setSearch('');
+      setSearchResults([]);
+    } catch (error: any) {
+      Alert.alert('Hata', error.response?.data?.error || 'Şarkı eklenemedi.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVote = async (item: any, voteType: number) => {
+    try {
+      await api.post('/jukebox/vote', {
+        queue_item_id: item.id.startsWith('autoplay') ? null : item.id,
+        song_id: item.song_id,
+        vote: voteType
+      });
+    } catch (error: any) {
+      Alert.alert('Hata', error.response?.data?.error || 'Oy verilemedi.');
+    }
+  };
+
+  const renderQueueItem = ({ item, index }: { item: any; index: number }) => {
+    const storageApi = 'http://192.168.0.13:3000';
+
+    let coverUrl = item.cover_url;
+    if (coverUrl && coverUrl.startsWith('/')) {
+      coverUrl = storageApi + coverUrl;
+    } else if (!coverUrl) {
+      coverUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(item.title)}&background=random&color=fff`;
+    }
+
+    return (
+      <View style={styles.queueItem}>
+        <Text style={styles.index}>{index + 1}</Text>
+        <Image source={{ uri: coverUrl }} style={styles.queueArt} />
+
+        <View style={styles.songInfo}>
+          <Text style={styles.songTitle} numberOfLines={1}>{item.title}</Text>
+          <Text style={styles.songArtist} numberOfLines={1}>{item.artist}</Text>
+          <Text style={styles.addedBy}>
+            {item.added_by_name || 'Radio TEDU'} tarafından
+          </Text>
+        </View>
+
+        <View style={styles.voteControls}>
+          <TouchableOpacity onPress={() => handleVote(item, 1)} style={styles.miniVoteContext}>
+            <Icon name="chevron-up" size={24} color={COLORS.textMuted} />
+            <Text style={styles.miniVoteText}>{item.upvotes || 0}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  const renderSearchResult = ({ item }: { item: any }) => (
+    <TouchableOpacity style={styles.searchResultItem} onPress={() => handleRequestSong(item)}>
       <View style={styles.songInfo}>
         <Text style={styles.songTitle}>{item.title}</Text>
         <Text style={styles.songArtist}>{item.artist}</Text>
       </View>
-      {index === 0 && (
-        <View style={styles.nowPlayingBadge}>
-          <Text style={styles.nowPlayingText}>ŞİMDİ</Text>
-        </View>
-      )}
-    </View>
+      <Icon name="plus-circle" size={24} color={COLORS.primary} />
+    </TouchableOpacity>
   );
 
-  // ...
+  const NowPlayingHero = ({ song }: { song: any }) => {
+    if (!song) return (
+      <View style={styles.heroContainer}>
+        <View style={styles.idleDisc}>
+          <Icon name="music-note" size={40} color={COLORS.textMuted} />
+        </View>
+        <Text style={styles.idleText}>Şarkı bekleniyor...</Text>
+      </View>
+    );
+
+    const storageApi = 'http://192.168.0.13:3000';
+    let coverUrl = song.cover_url;
+    if (coverUrl && coverUrl.startsWith('/')) coverUrl = storageApi + coverUrl;
+    else if (!coverUrl) coverUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(song.title)}&background=random&color=fff`;
+
+    return (
+      <View style={styles.heroContainer}>
+        <View style={styles.heroContent}>
+          <Image source={{ uri: coverUrl }} style={styles.heroArt} />
+          <View style={styles.heroInfo}>
+            <View style={styles.playingTag}>
+              <View style={styles.pulsingDot} />
+              <Text style={styles.playingTagText}>ŞU AN ÇALIYOR</Text>
+            </View>
+            <Text style={styles.heroTitle} numberOfLines={2}>{song.title}</Text>
+            <Text style={styles.heroArtist} numberOfLines={1}>{song.artist}</Text>
+            <Text style={styles.heroRequester}>
+              <Icon name="account" size={12} /> {song.added_by_name || 'Otomatik'}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.voteBar}>
+          <TouchableOpacity style={styles.voteBtn} onPress={() => handleVote(song, 1)}>
+            <Icon name="thumb-up" size={24} color="#4ADE80" />
+            <Text style={[styles.voteBtnText, { color: '#4ADE80' }]}>Beğen</Text>
+          </TouchableOpacity>
+
+          <View style={styles.voteDivider} />
+
+          <TouchableOpacity style={styles.voteBtn} onPress={() => handleVote(song, -1)}>
+            <Icon name="thumb-down" size={24} color="#F87171" />
+            <Text style={[styles.voteBtnText, { color: '#F87171' }]}>Beğenme</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
 
   return (
     <PageTransition>
       <SafeAreaView style={styles.container}>
         <GlobalHeader />
+
+        <Modal
+          visible={showGuestModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowGuestModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Ücretsiz Şarkı Hakkı!</Text>
+              <Text style={styles.modalText}>
+                RadyoTEDU'da ilk şarkınızı misafir olarak ücretsiz isteyebilirsiniz. Lütfen isminizi girin:
+              </Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="İsminiz"
+                placeholderTextColor={COLORS.textMuted}
+                value={guestName}
+                onChangeText={setGuestName}
+                autoFocus
+              />
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalButton, { backgroundColor: 'transparent' }]}
+                  onPress={() => setShowGuestModal(false)}
+                >
+                  <Text style={[styles.modalButtonText, { color: COLORS.textMuted }]}>İptal</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.modalButton}
+                  onPress={handleGuestSubmit}
+                >
+                  <Text style={styles.modalButtonText}>Devam Et</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         {device ? (
           <View style={styles.deviceBanner}>
@@ -88,35 +327,56 @@ const JukeboxScreen = ({ route }: any) => {
           </View>
         ) : (
           <View style={styles.deviceBanner}>
-            <Text style={styles.deviceText}>Henüz bir cihaz seçilmedi.</Text>
+            <Text style={styles.deviceText}>Cihaz: {deviceCodeFromLink}</Text>
           </View>
         )}
 
         <View style={styles.searchContainer}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Şarkı iste..."
-            placeholderTextColor={COLORS.textMuted}
-            value={search}
-            onChangeText={setSearch}
-          />
-          <TouchableOpacity style={styles.searchButton}>
-            <Icon name="magnify" size={24} color="#fff" />
-          </TouchableOpacity>
+          <View style={styles.searchWrapper}>
+            <Icon name="magnify" size={20} color={COLORS.textMuted} style={{ marginLeft: 10 }} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Şarkı ara..."
+              placeholderTextColor={COLORS.textMuted}
+              value={search}
+              onChangeText={setSearch}
+            />
+            {isSearching && <ActivityIndicator size="small" color={COLORS.primary} style={{ marginRight: 10 }} />}
+          </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Müzik Kuyruğu</Text>
-        <FlatList
-          data={queue}
-          keyExtractor={(item: any) => item.id}
-          renderItem={renderQueueItem}
-          contentContainerStyle={styles.listContent}
-          ListEmptyComponent={() => (
-            <Text style={styles.emptyText}>
-              Kuyruk boş. İlk isteği sen yap!
-            </Text>
-          )}
-        />
+        {searchResults.length > 0 ? (
+          <View style={{ flex: 1, paddingHorizontal: SPACING.md }}>
+            <Text style={styles.sectionTitle}>Sonuçlar</Text>
+            <FlatList
+              data={searchResults}
+              keyExtractor={item => item.id}
+              renderItem={renderSearchResult}
+            />
+          </View>
+        ) : (
+          <FlatList
+            data={queue}
+            ListHeaderComponent={
+              <>
+                <NowPlayingHero song={nowPlaying} />
+                <View style={styles.queueHeader}>
+                  <Text style={styles.sectionTitle}>Müzik Kuyruğu</Text>
+                  <View style={styles.queueCountBadge}>
+                    <Text style={styles.queueCountText}>{queue.length}</Text>
+                  </View>
+                </View>
+              </>
+            }
+            keyExtractor={(item: any) => item.id}
+            renderItem={renderQueueItem}
+            contentContainerStyle={styles.listContent}
+            ListEmptyComponent={() => (
+              <Text style={styles.emptyText}>Kuyruk boş. İlk isteği sen yap!</Text>
+            )}
+          />
+        )}
+
       </SafeAreaView>
     </PageTransition>
   );
@@ -124,60 +384,273 @@ const JukeboxScreen = ({ route }: any) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
-  searchContainer: {
+  searchContainer: { padding: SPACING.md },
+  searchWrapper: {
     flexDirection: 'row',
-    padding: SPACING.md,
-    gap: SPACING.sm,
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    height: 50,
   },
   searchInput: {
     flex: 1,
-    backgroundColor: COLORS.surface,
-    borderRadius: 12,
-    paddingHorizontal: SPACING.md,
     color: '#fff',
-    height: 50,
+    paddingHorizontal: SPACING.sm,
+  },
+
+  // Hero Styles
+  heroContainer: {
+    backgroundColor: COLORS.surface,
+    margin: SPACING.md,
+    borderRadius: 20,
+    padding: SPACING.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    marginTop: 0,
+  },
+  heroContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  heroArt: {
+    width: 100,
+    height: 100,
+    borderRadius: 12,
+    backgroundColor: '#333',
+  },
+  heroInfo: {
+    flex: 1,
+    marginLeft: SPACING.md,
+    justifyContent: 'center',
+  },
+  playingTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(227, 30, 36, 0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+    marginBottom: 6,
+  },
+  pulsingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: COLORS.primary,
+    marginRight: 6,
+  },
+  playingTagText: {
+    color: COLORS.primary,
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  heroTitle: {
+    color: COLORS.text,
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  heroArtist: {
+    color: COLORS.textMuted,
+    fontSize: 15,
+    marginBottom: 6,
+  },
+  heroRequester: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+  },
+  voteBar: {
+    flexDirection: 'row',
+    marginTop: SPACING.md,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderRadius: 12,
+    padding: 4,
+  },
+  voteBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+  },
+  voteBtnText: {
+    fontWeight: 'bold',
+    marginLeft: 8,
+    fontSize: 14,
+  },
+  voteDivider: {
+    width: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    marginVertical: 4,
+  },
+
+  // List Styles
+  sectionTitle: {
+    color: COLORS.text,
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginLeft: SPACING.md,
+    marginBottom: SPACING.sm,
+  },
+  queueHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: SPACING.md,
+  },
+  queueCountBadge: {
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 8,
+    marginBottom: SPACING.sm, // align with input
+  },
+  queueCountText: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  listContent: { paddingBottom: 100 },
+  queueItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    padding: SPACING.md,
+    marginHorizontal: SPACING.md,
+    marginBottom: SPACING.sm,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-  searchButton: {
-    width: 50,
+  queueArt: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: '#333',
+  },
+  index: {
+    color: COLORS.textMuted,
+    width: 24,
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  songInfo: { flex: 1, marginLeft: SPACING.md },
+  songTitle: { color: COLORS.text, fontSize: 15, fontWeight: 'bold' },
+  songArtist: { color: COLORS.textMuted, fontSize: 13 },
+  addedBy: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginTop: 2,
+  },
+  voteControls: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingLeft: SPACING.sm,
+  },
+  miniVoteContext: {
+    alignItems: 'center',
+  },
+  miniVoteText: {
+    color: COLORS.textMuted,
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginTop: -2,
+  },
+
+  // Misc
+  emptyText: { color: COLORS.textMuted, textAlign: 'center', marginTop: 50 },
+  deviceBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    padding: SPACING.sm,
+    marginHorizontal: SPACING.md,
+    borderRadius: 8,
+    marginBottom: SPACING.sm,
+  },
+  deviceText: { color: COLORS.text, fontSize: 13, marginLeft: 6 },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    padding: SPACING.md,
+    marginHorizontal: SPACING.md,
+    marginBottom: 4,
+    borderRadius: 8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.xl,
+  },
+  modalContent: {
+    backgroundColor: COLORS.surface,
+    padding: SPACING.xl,
+    borderRadius: 24,
+    width: '100%',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  modalTitle: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: SPACING.md,
+    textAlign: 'center',
+  },
+  modalText: {
+    color: COLORS.textMuted,
+    fontSize: 16,
+    lineHeight: 24,
+    marginBottom: SPACING.xl,
+    textAlign: 'center',
+  },
+  modalInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    height: 56,
+    paddingHorizontal: SPACING.md,
+    color: '#fff',
+    fontSize: 18,
+    marginBottom: SPACING.xl,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: SPACING.md,
+  },
+  modalButton: {
+    flex: 1,
     height: 50,
     backgroundColor: COLORS.primary,
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  sectionTitle: {
-    color: COLORS.text,
-    fontSize: 20,
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 16,
     fontWeight: 'bold',
-    marginLeft: SPACING.md,
-    marginTop: SPACING.md,
-    marginBottom: SPACING.sm,
   },
-  listContent: { padding: SPACING.md },
-  queueItem: {
-    flexDirection: 'row',
+  idleDisc: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: COLORS.surface,
-    padding: SPACING.md,
-    borderRadius: 12,
     marginBottom: SPACING.sm,
-    borderWidth: 1,
-    borderColor: COLORS.border,
   },
-  index: { color: COLORS.primary, fontSize: 18, fontWeight: 'bold', width: 30 },
-  songInfo: { flex: 1 },
-  songTitle: { color: COLORS.text, fontSize: 16, fontWeight: 'bold' },
-  songArtist: { color: COLORS.textMuted, fontSize: 14 },
-  nowPlayingBadge: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  nowPlayingText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
-  emptyText: { color: COLORS.textMuted, textAlign: 'center', marginTop: 50 },
+  idleText: {
+    color: COLORS.textMuted,
+    fontStyle: 'italic',
+  }
 });
 
 export default JukeboxScreen;

@@ -21,10 +21,22 @@ const io = new Server(httpServer, {
 
 // Middleware
 app.use(helmet({
-    contentSecurityPolicy: false, // Allow inline scripts for kiosk
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
-app.use(cors());
+
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
+
+// Request logger
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    next();
+});
 app.use(rateLimit({ windowMs: 60000, max: 100 }));
 
 // Static: Kiosk Web App
@@ -39,8 +51,8 @@ app.use('/api/v1/radio', radioRoutes);
 // Jukebox: Kiosk endpoints (no auth required)
 app.use('/jukebox', jukeboxRoutes);
 
-// Jukebox: User endpoints (auth required) 
-app.use('/api/v1/jukebox', authMiddleware, jukeboxRoutes);
+// Jukebox: User endpoints (auth handled per-route in jukeboxRoutes)
+app.use('/api/v1/jukebox', jukeboxRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok' }));

@@ -26,19 +26,27 @@ const ProfileScreen = () => {
   const { width } = useWindowDimensions();
   const navigation = useNavigation<any>();
   const { user, logout } = useAuth();
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [showAdminTab, setShowAdminTab] = useState(false);
   const [rssUrl, setRssUrl] = useState('');
   const [savedFeeds, setSavedFeeds] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [localAvatar, setLocalAvatar] = useState<string | null>(null);
+
+  // Use centralized API address
+  const BASE_API = 'http://192.168.0.13:3000/api/v1';
+  const STORAGE_API = 'http://192.168.0.13:3000';
 
   useEffect(() => {
     loadFeeds();
   }, []);
 
   const loadFeeds = async () => {
-    const feeds = await getStoredRssFeeds();
-    setSavedFeeds(feeds);
+    try {
+      const feeds = await getStoredRssFeeds();
+      setSavedFeeds(feeds);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const handleAddRss = async () => {
@@ -74,6 +82,11 @@ const ProfileScreen = () => {
   };
 
   const handleAvatarChange = async () => {
+    if (!user || user.is_guest) {
+      Alert.alert('Üyelik Gerekli', 'Profil fotoğrafı değiştirmek için giriş yapmalısınız.');
+      return;
+    }
+
     const result = await launchImageLibrary({
       mediaType: 'photo',
       quality: 0.8,
@@ -91,16 +104,15 @@ const ProfileScreen = () => {
           name: asset.fileName || 'avatar.jpg',
         } as any);
 
-        const API_URL = 'http://10.0.2.2:3000/api/v1';
-        const response = await axios.post(`${API_URL}/auth/upload-avatar`, formData, {
+        const response = await axios.post(`${BASE_API}/auth/upload-avatar`, formData, {
           headers: {
             'Content-Type': 'multipart/form-data',
           },
         });
 
-        if (response.data.avatar_url) {
+        if (response.data.data?.avatar_url) {
           Alert.alert('Başarılı', 'Profil fotoğrafın güncellendi.');
-          setLocalAvatar(`http://10.0.2.2:3000${response.data.avatar_url}`);
+          setLocalAvatar(`${STORAGE_API}${response.data.data.avatar_url}`);
         }
       } catch (error) {
         console.error('Upload error:', error);
@@ -111,7 +123,9 @@ const ProfileScreen = () => {
     }
   };
 
-  const currentAvatar = localAvatar || (user?.avatar_url ? `http://10.0.2.2:3000${user.avatar_url}` : 'https://ui-avatars.com/api/?name=User&background=E31E24&color=fff&size=200');
+  const currentAvatar = localAvatar || (user?.avatar_url ? `${STORAGE_API}${user.avatar_url}` : 'https://ui-avatars.com/api/?name=User&background=E31E24&color=fff&size=200');
+
+  const isUserAdmin = user?.role === 'admin' || user?.role === 'moderator';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -152,94 +166,102 @@ const ProfileScreen = () => {
             )}
           </TouchableOpacity>
           <View style={styles.userInfo}>
-            <Text style={styles.name}>{user?.display_name || 'Misafir Kullanıcı'}</Text>
-            <Text style={styles.role}>{user ? 'Üye' : 'Yayın Dinleyicisi'}</Text>
+            <Text style={styles.name}>{user?.display_name || 'Misafir'}</Text>
+            <Text style={styles.role}>{user?.role === 'admin' ? 'YÖNETİCİ' : user?.is_guest ? 'MİSAFİR' : 'ÜYE'}</Text>
           </View>
         </View>
 
         {/* Stats Row */}
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>12</Text>
+            <Text style={styles.statNumber}>{user?.total_songs_added || 0}</Text>
             <Text style={styles.statLabel}>Katkı</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>148</Text>
-            <Text style={styles.statLabel}>Beğeni</Text>
+            <Text style={styles.statNumber}>{user?.total_upvotes_received || 0}</Text>
+            <Text style={styles.statLabel}>Puan</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>#1</Text>
-            <Text style={styles.statLabel}>Sıralama</Text>
+            <Text style={styles.statNumber}>#{user?.rank_score || 0}</Text>
+            <Text style={styles.statLabel}>Skor</Text>
           </View>
         </View>
 
         {/* Menu Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Yönetim</Text>
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => setIsAdmin(!isAdmin)}>
-            <View style={[styles.menuIconContainer, { backgroundColor: 'rgba(227, 30, 36, 0.1)' }]}>
-              <Icon name="shield-account" size={24} color={COLORS.primary} />
-            </View>
-            <Text style={styles.menuText}>Admin Paneli</Text>
-            <Icon
-              name={isAdmin ? 'chevron-up' : 'chevron-right'}
-              size={24}
-              color={COLORS.textMuted}
-            />
-          </TouchableOpacity>
-
-          {isAdmin && (
-            <View style={styles.adminPanel}>
-              <Text style={styles.adminTitle}>Podcast RSS Ekle</Text>
-              <View style={styles.inputWrapper}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="https://example.com/feed.xml"
-                  placeholderTextColor={COLORS.textMuted}
-                  value={rssUrl}
-                  onChangeText={setRssUrl}
-                  autoCapitalize="none"
-                />
-                <TouchableOpacity style={styles.addBtn} onPress={handleAddRss}>
-                  <Icon name="plus" size={24} color="#fff" />
-                </TouchableOpacity>
+        {isUserAdmin && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Yönetim</Text>
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => setShowAdminTab(!showAdminTab)}>
+              <View style={[styles.menuIconContainer, { backgroundColor: 'rgba(227, 30, 36, 0.1)' }]}>
+                <Icon name="shield-account" size={24} color={COLORS.primary} />
               </View>
+              <Text style={styles.menuText}>Admin Paneli</Text>
+              <Icon
+                name={showAdminTab ? 'chevron-up' : 'chevron-right'}
+                size={24}
+                color={COLORS.textMuted}
+              />
+            </TouchableOpacity>
 
-              <Text style={[styles.adminTitle, { marginTop: SPACING.lg }]}>Aktif Kaynaklar</Text>
-              {savedFeeds.length === 0 ? (
-                <Text style={styles.emptyText}>Henüz bir RSS kaynağı eklenmemiş.</Text>
-              ) : (
-                savedFeeds.map((feed, index) => (
-                  <View key={index} style={styles.feedRow}>
-                    <Icon name="rss" size={20} color={COLORS.primary} />
-                    <Text style={styles.feedText} numberOfLines={1}>{feed}</Text>
-                    <TouchableOpacity onPress={() => handleRemoveFeed(feed)}>
-                      <Icon name="trash-can-outline" size={20} color={COLORS.error} />
-                    </TouchableOpacity>
-                  </View>
-                ))
-              )}
-            </View>
-          )}
-        </View>
+            {showAdminTab && (
+              <View style={styles.adminPanel}>
+                <Text style={styles.adminTitle}>Podcast RSS Ekle</Text>
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="https://example.com/feed.xml"
+                    placeholderTextColor={COLORS.textMuted}
+                    value={rssUrl}
+                    onChangeText={setRssUrl}
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity style={styles.addBtn} onPress={handleAddRss}>
+                    <Icon name="plus" size={24} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={[styles.adminTitle, { marginTop: SPACING.lg }]}>Aktif Kaynaklar</Text>
+                {savedFeeds.length === 0 ? (
+                  <Text style={styles.emptyText}>Henüz bir RSS kaynağı eklenmemiş.</Text>
+                ) : (
+                  savedFeeds.map((feed, index) => (
+                    <View key={index} style={styles.feedRow}>
+                      <Icon name="rss" size={20} color={COLORS.primary} />
+                      <Text style={styles.feedText} numberOfLines={1}>{feed}</Text>
+                      <TouchableOpacity onPress={() => handleRemoveFeed(feed)}>
+                        <Icon name="trash-can-outline" size={20} color={COLORS.error} />
+                      </TouchableOpacity>
+                    </View>
+                  ))
+                )}
+              </View>
+            )}
+          </View>
+        )}
 
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Uygulama</Text>
+
+          {(!user || user.is_guest) ? (
+            <TouchableOpacity
+              style={[styles.menuItem, { backgroundColor: COLORS.primary }]}
+              onPress={() => navigation.navigate('Auth', { screen: 'Login' })}
+            >
+              <View style={styles.menuIconContainer}>
+                <Icon name="login" size={24} color="#fff" />
+              </View>
+              <Text style={[styles.menuText, { color: '#fff' }]}>Giriş Yap / Kayıt Ol</Text>
+              <Icon name="chevron-right" size={24} color="#fff" />
+            </TouchableOpacity>
+          ) : null}
+
           <TouchableOpacity style={styles.menuItem}>
             <View style={[styles.menuIconContainer, { backgroundColor: 'rgba(255, 255, 255, 0.05)' }]}>
               <Icon name="cog-outline" size={24} color={COLORS.text} />
             </View>
             <Text style={styles.menuText}>Ayarlar</Text>
-            <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.menuItem}>
-            <View style={[styles.menuIconContainer, { backgroundColor: 'rgba(255, 255, 255, 0.05)' }]}>
-              <Icon name="bell-outline" size={24} color={COLORS.text} />
-            </View>
-            <Text style={styles.menuText}>Bildirimler</Text>
             <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
           </TouchableOpacity>
 

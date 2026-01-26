@@ -4,31 +4,31 @@ services:
   app:
     build: .
     ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=production
-      - DATABASE_URL=postgres://user:password@db:5432/radiotedu
-      - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=${JWT_SECRET}
-      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - "${PORT}:3000"
+    env_file: .env
     depends_on:
       - db
       - redis
+    restart: always
+    volumes:
+      - ./uploads:/app/uploads
 
   db:
     image: postgres:15-alpine
     environment:
-      - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=radiotedu
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./src/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    restart: always
 
   redis:
     image: redis:7-alpine
     volumes:
       - redis_data:/data
+    restart: always
 
 volumes:
   postgres_data:

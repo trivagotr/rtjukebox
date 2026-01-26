@@ -4,7 +4,7 @@ const API_BASE = `${window.location.protocol}//${window.location.hostname}:3000`
 
 const CONFIG = {
     // Cihaz kodu - her kiosk için benzersiz olmalı
-    DEVICE_CODE: 'CAFE-001',
+    DEVICE_CODE: 'RADIO-01',
 
     // Backend API URL
     API_URL: API_BASE,
@@ -14,7 +14,7 @@ const CONFIG = {
 
     // QR kod için web URL formatı
     // Kullanıcı bu URL'yi tarayarak şarkı ekleyecek
-    QR_LINK_FORMAT: `${window.location.protocol}//${window.location.hostname}:5173/?code={DEVICE_CODE}`,
+    QR_LINK_FORMAT: `http://192.168.0.13:5173/?code={DEVICE_CODE}`,
 
     // Alternatif: Web URL (mobil uygulama yoksa)
     // QR_LINK_FORMAT: 'https://radiotedu.com/jukebox/{DEVICE_CODE}',

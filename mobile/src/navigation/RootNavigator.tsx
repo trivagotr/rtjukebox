@@ -1,4 +1,6 @@
 import React from 'react';
+// Replace with your local network IP for physical device testing
+const API_URL = 'http://192.168.0.13:3000/api/v1';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -121,7 +123,7 @@ export function RootNavigator() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MainTabs" component={MainTabs} />
       <Stack.Screen name="Profile" component={ProfileScreen} />
-      <Stack.Screen name="Auth" component={AuthStack} />
+      {!user && <Stack.Screen name="Auth" component={AuthStack} />}
     </Stack.Navigator>
   );
 }

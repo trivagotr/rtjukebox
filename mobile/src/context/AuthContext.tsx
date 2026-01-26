@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
 // Replace with your local network IP for physical device testing
-const API_URL = 'http://10.0.2.2:3000/api/v1'; // Android Emulator default host loopback
+const API_URL = 'http://192.168.0.13:3000/api/v1';
 
 interface User {
     id: string;
@@ -11,6 +11,10 @@ interface User {
     display_name: string;
     avatar_url?: string;
     rank_score: number;
+    role: string;
+    is_guest: boolean;
+    total_songs_added: number;
+    total_upvotes_received: number;
 }
 
 interface AuthContextType {
@@ -41,7 +45,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
                 // Fetch profile to verify token
                 const response = await axios.get(`${API_URL}/auth/me`);
-                setUser(response.data);
+                setUser(response.data.data);
             }
         } catch (error) {
             console.log('[AuthContext] No valid session found');
@@ -54,7 +58,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const login = async (email: string, password: string) => {
         try {
             const response = await axios.post(`${API_URL}/auth/login`, { email, password });
-            const { user: userData, access_token, refresh_token } = response.data;
+            const { user: userData, access_token, refresh_token } = response.data.data;
 
             await AsyncStorage.setItem('access_token', access_token);
             await AsyncStorage.setItem('refresh_token', refresh_token);
@@ -73,7 +77,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 password,
                 display_name: displayName
             });
-            const { user: userData, access_token, refresh_token } = response.data;
+            const { user: userData, access_token, refresh_token } = response.data.data;
 
             await AsyncStorage.setItem('access_token', access_token);
             await AsyncStorage.setItem('refresh_token', refresh_token);
@@ -90,7 +94,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             const response = await axios.post(`${API_URL}/auth/guest`, {
                 display_name: displayName
             });
-            const { user: userData, access_token, refresh_token } = response.data;
+            const { user: userData, access_token, refresh_token } = response.data.data;
 
             await AsyncStorage.setItem('access_token', access_token);
             await AsyncStorage.setItem('refresh_token', refresh_token);

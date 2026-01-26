@@ -1,60 +1,45 @@
-# Windows Server Deployment Guide (RDP)
+# Backend Deployment Guide (Docker)
 
-Bu rehber, backend'i bir Windows sunucusuna kurmak için gereken adımları içerir.
+Bu rehber, backend'i Docker kullanarak herhangi bir Windows veya Linux sunucusuna kurmak için gereken adımları içerir.
 
-## 1. Hazırlık (Sunucu İçinde)
+## 1. Hazırlık
+Sunucuda şu yazılımların kurulu olduğundan emin olun:
+- **Docker Desktop** (Windows için) veya **Docker Engine** (Linux için)
+- **Git**
 
-RDP ile bağlandığınız sunucuda şu yazılımların kurulu olduğundan emin olun:
-- **Node.js (v20+):** [nodejs.org](https://nodejs.org/)
-- **PostgreSQL (v15+):** [postgresql.org](https://www.postgresql.org/download/windows/)
-- **Redis for Windows:** [Redis-Windows](https://github.com/tporadowski/redis/releases) (veya Docker kullanıyorsanız Docker Desktop)
-- **Git:** [git-scm.com](https://git-scm.com/download/win)
+## 2. Kurulum
+1. Projeyi sunucuya çekin:
+   ```powershell
+   git clone https://github.com/trivagotr/rtjukebox.git
+   cd rtjukebox/backend
+   ```
+2. `.env` dosyasını oluşturun (örnek dosyadan kopyalayarak):
+   ```powershell
+   copy .env.example .env
+   # .env içindeki şifreleri ve gizli anahtarları güncellemeyi unutmayın!
+   ```
 
-## 2. Proje Kurulumu
-
-Bir terminal (PowerShell/CMD) açın:
-
+## 3. Başlatma
+Sistemi tek bir komutla ayağa kaldırın:
 ```powershell
-# Projeyi çekin (veya dosyaları kopyalayın)
-cd C:\inetpub\wwwroot\
-git clone https://github.com/your-repo/rtmusicbox.git
-cd rtmusicbox\backend
-
-# Bağımlılıkları yükleyin
-npm install
-
-# .env dosyasını oluşturun ve düzenleyin
-copy .env.example .env
-# Not: .env içindeki şifreleri sunucunuza göre güncelleyin
+docker-compose up -d --build
 ```
 
-## 3. Veritabanı Yapılandırması
+Bu komut şunları yapar:
+- PostgreSQL 15 veritabanını kurar ve `schema.sql`'i içeri aktarır.
+- Redis 7 önbellek servisini kurar.
+- Backend uygulamasını derler ve çalıştırır.
 
-PostgreSQL (pgAdmin veya psql) üzerinden `radiotedu` adında bir veritabanı oluşturun ve `src/db/schema.sql` dosyasındaki SQL komutlarını çalıştırın.
-
-## 4. Uygulamayı Derleme (Build)
-
+## 4. Sorun Giderme
+Konteyner durumlarını kontrol etmek için:
 ```powershell
-npm run build
+docker ps
+```
+Logları incelemek için:
+```powershell
+docker-compose logs -f app
 ```
 
-## 5. Arka Planda Çalıştırma (PM2)
-
-Uygulamanın sunucu kapansa bile çalışmaya devam etmesi için PM2 kullanacağız:
-
-```powershell
-# PM2 yükleyin
-npm install -g pm2
-
-# Başlatın
-pm2 start ecosystem.config.js --env production
-
-# Kaydedin (Sunucu restart olduğunda otomatik açılması için)
-pm2 save
-pm2 startup
-```
-
-## 6. Güvenlik ve Port Açma
-
-- Windows Firewall üzerinden `3000` portuna (veya seçtiğiniz porta) gelen istekleri kabul etmek için bir "Inbound Rule" ekleyin.
-- Dışarıya 80/443 (SSL) üzerinden açmak için **Nginx for Windows** veya **IIS Reverse Proxy** kullanmanız önerilir.
+## 5. Dış Erişime Açma
+- Sunucu güvenliği için Windows Firewall üzerinden `3000` portuna izin verin.
+- Üretim ortamında Nginx gibi bir Reverse Proxy kullanılması önerilir.

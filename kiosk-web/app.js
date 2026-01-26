@@ -14,7 +14,42 @@ class KioskApp {
         this.waveformCanvas = document.getElementById('waveformCanvas');
         this.waveformCtx = this.waveformCanvas?.getContext('2d');
 
+        // Autoplay Logic
+        this.autoplayTriggered = false;
+
+        // Debug Log
+        this.logs = [];
+        this.debugEl = this.createDebugOverlay();
+
         this.init();
+    }
+
+    log(msg, type = 'info') {
+        const entry = { time: new Date().toLocaleTimeString(), msg, type };
+        console.log(`[${entry.time}] [${type}] ${msg}`);
+        this.logs.unshift(entry);
+        this.updateDebugOverlay();
+    }
+
+    createDebugOverlay() {
+        const div = document.createElement('div');
+        div.id = 'debugOverlay';
+        div.style = 'position:fixed; bottom:10px; left:10px; width:300px; max-height:200px; background:rgba(0,0,0,0.8); color:#0f0; font-size:10px; padding:10px; overflow-y:auto; z-index:9999; border-radius:8px; display:none; pointer-events:none;';
+        document.body.appendChild(div);
+
+        // Toggle with 'D' key
+        document.addEventListener('keydown', (e) => {
+            if (e.key.toLowerCase() === 'd') {
+                div.style.display = div.style.display === 'none' ? 'block' : 'none';
+            }
+        });
+        return div;
+    }
+
+    updateDebugOverlay() {
+        if (!this.debugEl) return;
+        this.debugEl.innerHTML = '<b>Debug (Press D to Toggle)</b><br>' +
+            this.logs.slice(0, 20).map(l => `<span style="color:${l.type === 'error' ? 'red' : 'inherit'}">[${l.time}] ${l.msg}</span>`).join('<br>');
     }
 
     // ===== Initialization =====
@@ -37,8 +72,28 @@ class KioskApp {
         // Setup fullscreen on double click
         this.setupFullscreenToggle();
 
+        // Interaction Overlay
+        this.showStartupOverlay();
+
         // Setup window resize handler
         window.addEventListener('resize', () => this.setupWaveform());
+    }
+
+    showStartupOverlay() {
+        const div = document.createElement('div');
+        div.id = 'startupOverlay';
+        div.style = 'position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:10000; display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; backdrop-filter:blur(10px);';
+        div.innerHTML = `
+            <div style="font-size:80px; margin-bottom:20px; animation: pulse 2s infinite">🎵</div>
+            <h2 style="color:white; margin:0">Jukebox'u Başlatmak İçın Tıklayın</h2>
+            <p style="color:rgba(255,255,255,0.5); margin-top:10px;">Tarayıcı ses kısıtlamasını aşmak için gereklidir</p>
+        `;
+        div.onclick = () => {
+            div.remove();
+            this.log('🚀 Jukebox kullanıcı tarafından başlatıldı');
+            this.checkAndPlayNext();
+        };
+        document.body.appendChild(div);
     }
 
     // ===== Waveform Visualization =====
@@ -86,52 +141,104 @@ class KioskApp {
         const qrContainer = document.getElementById('qrCode');
         const qrLink = CONFIG.QR_LINK_FORMAT.replace('{DEVICE_CODE}', CONFIG.DEVICE_CODE);
 
-        if (typeof QRCode === 'undefined') {
-            console.warn('QRCode library not loaded');
-            return;
+        this.log(`🔗 QR Linki: ${qrLink}`);
+
+        // Set initial state
+        qrContainer.innerHTML = '<div style="font-size:10px">QR Yükleniyor...</div>';
+
+        // Direct Text Link (Always visible)
+        const hint = document.querySelector('.qr-hint');
+        if (hint) {
+            hint.innerHTML = `Tarayın veya adresi girin:<br>
+            <a href="${qrLink}" style="color:var(--accent-red); text-decoration:none; font-weight:bold; word-break:break-all; display:block; margin-top:5px;">${qrLink}</a>`;
         }
 
-        QRCode.toCanvas(document.createElement('canvas'), qrLink, {
-            width: 160,
-            margin: 0,
-            color: {
-                dark: '#1a1a2e',
-                light: '#ffffff'
-            }
-        }, (error, canvas) => {
-            if (error) {
-                console.error('QR Code error:', error);
-                return;
-            }
+        if (typeof QRCode !== 'undefined') {
+            QRCode.toCanvas(document.createElement('canvas'), qrLink, {
+                width: 200,
+                margin: 2,
+                color: { dark: '#1a1a2e', light: '#ffffff' }
+            }, (error, canvas) => {
+                if (!error) {
+                    this.log('✅ QR Code (JS) başarıyla oluşturuldu');
+                    qrContainer.innerHTML = '';
+                    qrContainer.appendChild(canvas);
+                    canvas.style.width = '100%';
+                    canvas.style.height = '100%';
+                    canvas.style.borderRadius = '12px';
+                    return;
+                }
+                this.log(`⚠️ QR JS Hatası: ${error.message}`, 'error');
+                this.useQRFallback(qrLink);
+            });
+        } else {
+            this.log('⚠️ QRCode kütüphanesi bulunamadı, API deneniyor', 'error');
+            this.useQRFallback(qrLink);
+        }
+    }
+
+    useQRFallback(link) {
+        const qrContainer = document.getElementById('qrCode');
+        const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(link)}`;
+
+        const img = new Image();
+        img.src = qrApiUrl;
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.borderRadius = '12px';
+        img.onload = () => {
+            this.log('✅ QR Code (API) başarıyla yüklendi');
             qrContainer.innerHTML = '';
-            qrContainer.appendChild(canvas);
-        });
+            qrContainer.appendChild(img);
+        };
+        img.onerror = () => {
+            this.log('❌ QR API de başarısız!', 'error');
+            qrContainer.innerHTML = '<div style="font-size:12px; color:red">QR Yüklenemedi</div>';
+        };
     }
 
     // ===== Device Registration =====
     async registerDevice() {
         try {
-            const response = await fetch(`${CONFIG.API_URL}/jukebox/kiosk/register`, {
+            const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ device_code: CONFIG.DEVICE_CODE })
             });
 
-            if (!response.ok) throw new Error('Registration failed');
+            if (!response.ok) {
+                const errData = await response.json().catch(() => ({}));
+                throw new Error(`Registration failed (${response.status}): ${errData.error || 'Unknown'}`);
+            }
 
             const data = await response.json();
-            this.device = data.device;
+
+            // Backend sends { success: true, data: { device: ... } }
+            const deviceData = data.data ? data.data.device : data.device;
+
+            if (!deviceData) {
+                throw new Error('Device data missing in response');
+            }
+
+            this.device = deviceData;
 
             // Update UI
-            document.getElementById('deviceLocation').textContent =
-                this.device.location || this.device.name || CONFIG.DEVICE_CODE;
+            const locationEl = document.getElementById('deviceLocation');
+            if (locationEl) {
+                locationEl.textContent = this.device.location || this.device.name || CONFIG.DEVICE_CODE;
+            }
 
-            console.log('✅ Cihaz kayıtlı:', this.device);
+            this.log('✅ Cihaz kayıtlı:', this.device);
 
         } catch (error) {
-            console.error('❌ Kayıt hatası:', error);
+            this.log(`❌ Kayıt hatası: ${error.message}`, 'error');
             this.updateConnectionStatus('error', 'Bağlantı hatası');
 
+            // Helpful debug for user
+            const qrContainer = document.getElementById('qrCode');
+            if (qrContainer && qrContainer.innerHTML.includes('Oluşturuluyor')) {
+                qrContainer.innerHTML = `<div style="font-size:10px; color:gray">Backend'e ulaşılamıyor:<br>${CONFIG.API_URL}</div>`;
+            }
             // Retry after delay
             setTimeout(() => this.registerDevice(), CONFIG.RECONNECT_INTERVAL);
         }
@@ -147,11 +254,12 @@ class KioskApp {
         this.socket = io(CONFIG.WS_URL);
 
         this.socket.on('connect', () => {
-            console.log('🔌 Socket bağlandı');
+            this.log('🔌 Socket bağlandı');
             this.updateConnectionStatus('connected', 'Bağlı');
 
             if (this.device) {
                 this.socket.emit('join_device', this.device.id);
+                this.log(`🏠 ${this.device.id} odasına katıldı`);
                 this.loadInitialQueue();
             }
         });
@@ -179,7 +287,7 @@ class KioskApp {
         if (!this.device) return;
 
         try {
-            const response = await fetch(`${CONFIG.API_URL}/jukebox/queue/${this.device.id}`);
+            const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/queue/${this.device.id}`);
             if (!response.ok) throw new Error('Queue fetch failed');
 
             this.queueData = await response.json();
@@ -199,6 +307,9 @@ class KioskApp {
         });
 
         this.audioPlayer.addEventListener('error', (e) => {
+            // Don't retry if we deliberately cleared the source (stopPlayback)
+            if (!this.audioPlayer.src || this.audioPlayer.src.includes('://:')) return;
+
             console.error('Audio error:', e);
             setTimeout(() => this.playNextFromQueue(), 2000);
         });
@@ -220,42 +331,86 @@ class KioskApp {
 
     // ===== Playback Control =====
     checkAndPlayNext() {
-        if (!this.isPlaying && !this.queueData.now_playing && this.queueData.queue.length > 0) {
+        if (document.getElementById('startupOverlay')) {
+            this.log('⏳ Başlatma bekleniyor (Tıklayın)...');
+            return;
+        }
+
+        if (!this.isPlaying && this.queueData.now_playing) {
+            this.playSong(this.queueData.now_playing);
+        } else if (!this.isPlaying && this.queueData.queue && this.queueData.queue.length > 0) {
             this.playSong(this.queueData.queue[0]);
         }
     }
 
     playNextFromQueue() {
-        if (this.queueData.queue.length > 0) {
+        if (this.queueData.queue && this.queueData.queue.length > 0) {
             this.playSong(this.queueData.queue[0]);
         } else {
+            this.log('🔄 Kuyruk bitti, durum güncelleniyor...');
+            // Notify server we finished
             this.stopPlayback();
+
+            // Wait for DB update then reload (which will trigger autoplay if empty)
+            setTimeout(() => {
+                this.loadInitialQueue();
+            }, 1000);
         }
     }
 
     async playSong(song) {
         console.log('▶️ Çalınıyor:', song.title);
+        this.isPlaying = true; // Lock immediately
 
         try {
-            this.audioPlayer.src = song.file_url;
-            await this.audioPlayer.play();
+            // Ensure URL is absolute
+            let audioUrl = song.file_url;
 
-            this.showPlayingState(song);
+            // Reset autoplay flag for new song
+            this.autoplayTriggered = false;
+            if (audioUrl.startsWith('/')) {
+                audioUrl = CONFIG.API_URL + audioUrl;
+            }
+
+            // Prevent loop: Don't re-play if same URL is already playing
+            if (this.audioPlayer.src.includes(audioUrl) && this.isPlaying) {
+                console.log('⏭️ Şarkı zaten çalıyor, atlandı');
+                return;
+            }
+
+            // LOCK: Set isPlaying immediately to prevent other triggers while loading
+            this.isPlaying = true;
+            this.audioPlayer.src = audioUrl;
+
+            const playPromise = this.audioPlayer.play();
+            if (playPromise !== undefined) {
+                playPromise.then(() => {
+                    this.log('✅ Çalma başladı');
+                    this.showPlayingState(song);
+                }).catch(error => {
+                    this.isPlaying = false; // Reset on failure
+                    this.log(`❌ Çalma başarısız: ${error.message}`, 'error');
+                    if (error.name === 'NotAllowedError') {
+                        this.log('👉 Lütfen ekrana bir kez tıklayın!');
+                        this.showStartupOverlay();
+                    }
+                });
+            }
 
             // Notify server
             if (this.device) {
-                await fetch(`${CONFIG.API_URL}/jukebox/kiosk/now-playing`, {
+                fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/now-playing`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         device_id: this.device.id,
-                        song_id: song.song_id
+                        song_id: song.song_id || (song.id.includes('autoplay') ? song.id.split('autoplay-')[1] : song.id)
                     })
-                });
+                }).catch(e => this.log(`⚠️ Sunucu bildirim hatası: ${e.message}`, 'error'));
             }
 
         } catch (error) {
-            console.error('Playback error:', error);
+            this.log(`❌ Beklenmedik hata: ${error.message}`, 'error');
         }
     }
 
@@ -266,7 +421,7 @@ class KioskApp {
         this.showIdleState();
 
         if (this.device) {
-            fetch(`${CONFIG.API_URL}/jukebox/kiosk/now-playing`, {
+            fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/now-playing`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -294,6 +449,23 @@ class KioskApp {
         const current = this.audioPlayer.currentTime;
         const total = this.audioPlayer.duration || 0;
         const percent = total > 0 ? (current / total) * 100 : 0;
+
+        // Check for Autoplay Trigger (80% Rule)
+        // If 80% played, queue is empty, and we haven't triggered yet
+        if (total > 0 && percent > 80 && this.queueData.queue.length === 0 && !this.autoplayTriggered) {
+            console.log('⏳ 80% Kuralı: Otomatik sonraki şarkı tetikleniyor...');
+            this.autoplayTriggered = true;
+
+            if (this.device) {
+                fetch(`${CONFIG.API_URL}/api/v1/jukebox/autoplay/trigger`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ device_id: this.device.id })
+                }).then(r => r.json())
+                    .then(d => this.log(`🤖 Otomatik eklendi: ${d.data?.song_title || 'Şarkı'}`))
+                    .catch(e => console.error(e));
+            }
+        }
 
         // Update progress overlay
         const overlay = document.getElementById('progressOverlay');

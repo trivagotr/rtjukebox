@@ -19,13 +19,13 @@ const registerSchema = z.object({
 // Helper to generate and store tokens
 async function createAuthSession(userId: string, email: string, role: string) {
     const accessToken = jwt.sign(
-        { userId, email, role },
+        { id: userId, email, role },
         process.env.JWT_SECRET || 'your-secret-key',
         { expiresIn: '1h' }
     );
 
     const refreshToken = jwt.sign(
-        { userId, email, role },
+        { id: userId, email, role },
         process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key',
         { expiresIn: '30d' }
     );
@@ -159,7 +159,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
         // Verify token exists in DB
         const result = await db.query(
             'SELECT id, token_hash FROM refresh_tokens WHERE user_id = $1 AND expires_at > NOW()',
-            [decoded.userId]
+            [decoded.id]
         );
 
         // Find match (tokens are rotated, so there might be multiple if handled incorrectly, 
@@ -180,7 +180,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
         // Token Rotation: Delete old token, create new pair
         await db.query('DELETE FROM refresh_tokens WHERE id = $1', [matchedTokenId]);
 
-        const tokens = await createAuthSession(decoded.userId, decoded.email, decoded.role);
+        const tokens = await createAuthSession(decoded.id, decoded.email, decoded.role);
         return sendSuccess(res, tokens, 'Token refreshed');
     } catch (error) {
         return sendError(res, 'Invalid refresh token', 401);

@@ -41,7 +41,11 @@ const RegisterScreen = () => {
         setIsLoading(true);
         try {
             await register(email, password, displayName);
-            // Navigation state will automatically update via AuthContext
+            Alert.alert(
+                'Başarılı',
+                'Hesabınız oluşturuldu! Şimdi giriş yapabilirsiniz.',
+                [{ text: 'Tamam', onPress: () => navigation.navigate('Login') }]
+            );
         } catch (error: any) {
             Alert.alert('Hata', error.message);
         } finally {

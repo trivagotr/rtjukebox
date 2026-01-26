@@ -639,7 +639,14 @@ body {
     background: white;
     padding: 15px;
     border-radius: var(--radius-md);
-    display: inline-block;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-width: 200px;
+    min-height: 200px;
+    border: 2px dashed var(--accent-red);
+    color: #333;
+    font-size: 12px;
 }
 
 .qr-code canvas {

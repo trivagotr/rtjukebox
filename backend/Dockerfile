@@ -16,6 +16,9 @@ COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/dist ./dist
 RUN npm install --production
 
+# Install FFmpeg for audio processing
+RUN apk add --no-cache ffmpeg
+
 EXPOSE 3000
 
 CMD ["npm", "start"]
