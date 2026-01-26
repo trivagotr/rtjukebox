@@ -18,6 +18,7 @@ interface AuthContextType {
     isLoading: boolean;
     login: (email: string, password: string) => Promise<void>;
     register: (email: string, password: string, displayName: string) => Promise<void>;
+    guestLogin: (displayName: string) => Promise<void>;
     logout: () => Promise<void>;
 }
 
@@ -84,6 +85,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
+    const guestLogin = async (displayName: string) => {
+        try {
+            const response = await axios.post(`${API_URL}/auth/guest`, {
+                display_name: displayName
+            });
+            const { user: userData, access_token, refresh_token } = response.data;
+
+            await AsyncStorage.setItem('access_token', access_token);
+            await AsyncStorage.setItem('refresh_token', refresh_token);
+
+            axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+            setUser(userData);
+        } catch (error: any) {
+            throw new Error(error.response?.data?.error || 'Guest login failed');
+        }
+    };
+
     const logout = async () => {
         await AsyncStorage.removeItem('access_token');
         await AsyncStorage.removeItem('refresh_token');
@@ -92,7 +110,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     return (
-        <AuthContext.Provider value={{ user, isLoading, login, register, logout }}>
+        <AuthContext.Provider value={{ user, isLoading, login, register, guestLogin, logout }}>
             {children}
         </AuthContext.Provider>
     );

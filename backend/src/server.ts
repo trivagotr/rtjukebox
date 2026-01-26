@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -46,6 +47,16 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 // Socket.IO
 setupSocketHandlers(io);
+
+// Global Error Handler
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('Global Error Handler:', err);
+    return res.status(err.status || 500).json({
+        success: false,
+        error: err.name || 'InternalServerError',
+        message: err.message || 'An unexpected error occurred'
+    });
+});
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {

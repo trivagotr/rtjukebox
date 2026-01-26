@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import axios from 'axios';
+import { sendSuccess, sendError } from '../utils/response';
 
 const router = Router();
 const WP_API_URL = process.env.WORDPRESS_API_URL || 'https://radiotedu.com/wp-json/wp/v2';
@@ -29,14 +30,14 @@ router.get('/', async (req: Request, res: Response) => {
             published_at: post.date
         }));
 
-        res.json({
+        return sendSuccess(res, {
             items,
             total: parseInt(response.headers['x-wp-total'] || '0'),
             total_pages: parseInt(response.headers['x-wp-totalpages'] || '0')
         });
     } catch (error) {
         console.error('WordPress API Error:', error);
-        res.status(500).json({ error: 'Failed to fetch podcasts' });
+        return sendError(res, 'Failed to fetch podcasts', 500);
     }
 });
 

@@ -5,6 +5,12 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <uses-feature android:name="android.hardware.type.automotive" android:required="false" />
+    <uses-feature android:name="android.software.car.templates_host" android:required="false" />
 
     <application
       android:name=".MainApplication"
@@ -26,6 +32,13 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
+
+        <intent-filter android:label="Jukebox İsteği">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="radiotedu" android:host="jukebox" />
+        </intent-filter>
       </activity>
       
       <meta-data
@@ -37,9 +50,19 @@
         android:name="com.doublesymmetry.trackplayer.service.MusicService"
         android:exported="true"
         android:stopWithTask="true"
+        android:foregroundServiceType="mediaPlayback"
         tools:replace="android:stopWithTask">
         <intent-filter>
           <action android:name="android.intent.action.MEDIA_BUTTON" />
+          <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+        </intent-filter>
+      </service>
+
+      <!-- Android Auto Browsing Bridge -->
+      <service
+        android:name=".AutoBrowserService"
+        android:exported="true">
+        <intent-filter>
           <action android:name="android.media.browse.MediaBrowserService" />
         </intent-filter>
       </service>

@@ -1,18 +1,20 @@
 // Kiosk Configuration
 // Bu dosyayı her cihaza göre düzenleyin
+const API_BASE = `${window.location.protocol}//${window.location.hostname}:3000`;
+
 const CONFIG = {
     // Cihaz kodu - her kiosk için benzersiz olmalı
     DEVICE_CODE: 'CAFE-001',
 
     // Backend API URL
-    API_URL: 'http://localhost:3000',
+    API_URL: API_BASE,
 
     // WebSocket URL (genellikle API_URL ile aynı)
-    WS_URL: 'http://localhost:3000',
+    WS_URL: API_BASE,
 
-    // QR kod için deep link formatı
-    // Mobil uygulama bu URL'yi yakalayacak
-    QR_LINK_FORMAT: 'radiotedu://jukebox/{DEVICE_CODE}',
+    // QR kod için web URL formatı
+    // Kullanıcı bu URL'yi tarayarak şarkı ekleyecek
+    QR_LINK_FORMAT: `${window.location.protocol}//${window.location.hostname}:5173/?code={DEVICE_CODE}`,
 
     // Alternatif: Web URL (mobil uygulama yoksa)
     // QR_LINK_FORMAT: 'https://radiotedu.com/jukebox/{DEVICE_CODE}',

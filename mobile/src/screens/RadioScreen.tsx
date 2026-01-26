@@ -12,6 +12,7 @@ import {
   Platform,
   UIManager,
   useWindowDimensions,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TrackPlayer, {
@@ -101,36 +102,56 @@ const RadioScreen = () => {
       clearMetadata();
     }
 
-    let url = channel.streamUrl;
-    if (channel.streams) {
-      const quality = qualityOverride || streamQuality;
-      if (quality === 'low' && channel.streams.low) {
-        url = channel.streams.low;
-      } else if (quality === 'medium' && channel.streams.medium) {
-        url = channel.streams.medium;
-      } else if (quality === 'high' && channel.streams.high) {
-        url = channel.streams.high;
-      }
-    }
+    const queue = await TrackPlayer.getQueue();
+    const channelIndex = RADIO_CHANNELS.findIndex(c => c.id === channel.id);
 
-    const trackObject = {
-      id: channel.id,
-      url: url,
-      title: channel.name,
-      artist: channel.description,
-      artwork: 'https://radiotedu.com/logo.png',
-      isLiveStream: true,
-    };
-
-    if (isQualitySwitch) {
-      await TrackPlayer.add(trackObject);
-      await TrackPlayer.skipToNext();
-    } else {
+    // If queue is empty or significantly different, repopulate
+    if (queue.length !== RADIO_CHANNELS.length) {
       await TrackPlayer.reset();
-      await TrackPlayer.add(trackObject);
-      await TrackPlayer.play();
+      const tracks = RADIO_CHANNELS.map(c => {
+        let url = c.streamUrl;
+        const quality = qualityOverride || streamQuality;
+        if (c.streams) {
+          if (quality === 'low' && c.streams.low) url = c.streams.low;
+          else if (quality === 'medium' && c.streams.medium) url = c.streams.medium;
+          else if (quality === 'high' && c.streams.high) url = c.streams.high;
+        }
+        return {
+          id: c.id,
+          url: url,
+          title: c.name,
+          artist: c.description,
+          artwork: 'https://radiotedu.com/logo.png',
+          isLiveStream: true,
+        };
+      });
+      await TrackPlayer.add(tracks);
+    } else if (isQualitySwitch) {
+      // Update the Specific track in queue if quality changed
+      let url = channel.streamUrl;
+      const quality = qualityOverride || streamQuality;
+      if (channel.streams) {
+        if (quality === 'low' && channel.streams.low) url = channel.streams.low;
+        else if (quality === 'medium' && channel.streams.medium) url = channel.streams.medium;
+        else if (quality === 'high' && channel.streams.high) url = channel.streams.high;
+      }
+
+      // Since it's a live stream, we actually need to replace or re-add to refresh the buffer with new URL
+      // But for simplicity in AA, we'll just skip to it. 
+      // Actually, to change URL we must update the track.
+      await TrackPlayer.remove(channelIndex);
+      await TrackPlayer.add({
+        id: channel.id,
+        url: url,
+        title: channel.name,
+        artist: channel.description,
+        artwork: 'https://radiotedu.com/logo.png',
+        isLiveStream: true,
+      }, channelIndex);
     }
 
+    await TrackPlayer.skip(channelIndex);
+    await TrackPlayer.play();
     setCurrentPlayingId(channel.id);
   };
 
@@ -241,7 +262,8 @@ const RadioScreen = () => {
           style={[
             styles.channelChipText,
             isActive && styles.channelChipTextActive,
-          ]}>
+          ]}
+          maxFontSizeMultiplier={1.1}>
           {item.name}
         </Text>
         {isChannelPlaying && (
@@ -286,121 +308,135 @@ const RadioScreen = () => {
             />
           </View>
 
-          <View style={styles.playerArea}>
-            <View style={styles.artworkSection}>
-              <View style={styles.artworkContainer}>
-                {hasArtwork ? (
-                  <Image source={{ uri: displayArtwork }} style={styles.artwork} />
-                ) : (
-                  <Image
-                    source={{ uri: 'https://radiotedu.com/logo.png' }}
-                    style={styles.artwork}
-                  />
-                )}
-              </View>
-            </View>
-
-            <View style={styles.controlsSection}>
-              <View style={styles.trackInfo}>
-                <Text style={styles.trackTitle} numberOfLines={1}>
-                  {displayTitle}
-                </Text>
-                <Text style={styles.trackArtist} numberOfLines={1}>
-                  {displayArtist}
-                </Text>
-              </View>
-
-              <View style={styles.badgesRow}>
-                <View style={styles.liveBadge}>
-                  <View style={styles.liveDot} />
-                  <Text style={styles.liveText}>LIVE</Text>
-                </View>
-
-                <TouchableOpacity
-                  onPress={cycleQuality}
-                  style={[
-                    styles.techBadge,
-                    {
-                      borderColor: qProps.borderColor,
-                      backgroundColor: qProps.bg,
-                    },
-                  ]}
-                  activeOpacity={0.7}>
-                  <Icon
-                    name={qProps.icon}
-                    size={14}
-                    color={qProps.color}
-                    style={{ marginRight: 6 }}
-                  />
-                  <Text style={[styles.techBadgeText, { color: qProps.color }]}>
-                    {qProps.text}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.votingRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.voteButton,
-                    currentVote === 'down' && styles.voteButtonActive,
-                  ]}
-                  onPress={() => {
-                    setCurrentVote(currentVote === 'down' ? null : 'down');
-                  }}>
-                  <Icon
-                    name={
-                      currentVote === 'down' ? 'thumb-down' : 'thumb-down-outline'
-                    }
-                    size={24}
-                    color={currentVote === 'down' ? COLORS.primary : '#888'}
-                  />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.voteButton,
-                    currentVote === 'up' && styles.voteButtonActive,
-                  ]}
-                  onPress={() => {
-                    setCurrentVote(currentVote === 'up' ? null : 'up');
-                  }}>
-                  <Icon
-                    name={currentVote === 'up' ? 'thumb-up' : 'thumb-up-outline'}
-                    size={24}
-                    color={currentVote === 'up' ? '#4CAF50' : '#888'}
-                  />
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.controls}>
-                <TouchableOpacity
-                  style={styles.controlButton}
-                  onPress={skipToPreviousChannel}>
-                  <Icon name="skip-previous" size={36} color="#b3b3b3" />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.playButton}
-                  onPress={togglePlayback}>
-                  {isBuffering ? (
-                    <ActivityIndicator color="#fff" size="large" />
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}>
+            <View style={styles.playerArea}>
+              <View style={styles.artworkSection}>
+                <View style={styles.artworkContainer}>
+                  {hasArtwork ? (
+                    <Image source={{ uri: displayArtwork }} style={styles.artwork} />
                   ) : (
-                    <Icon
-                      name={isPlaying ? 'pause' : 'play'}
-                      size={36}
-                      color="#fff"
+                    <Image
+                      source={{ uri: 'https://radiotedu.com/logo.png' }}
+                      style={styles.artwork}
                     />
                   )}
-                </TouchableOpacity>
+                </View>
+              </View>
 
-                <TouchableOpacity
-                  style={styles.controlButton}
-                  onPress={skipToNextChannel}>
-                  <Icon name="skip-next" size={36} color="#b3b3b3" />
-                </TouchableOpacity>
+              <View style={styles.controlsSection}>
+                <View style={styles.trackInfo}>
+                  <Text
+                    style={styles.trackTitle}
+                    numberOfLines={1}
+                    maxFontSizeMultiplier={1.2}>
+                    {displayTitle}
+                  </Text>
+                  <Text
+                    style={styles.trackArtist}
+                    numberOfLines={1}
+                    maxFontSizeMultiplier={1.2}>
+                    {displayArtist}
+                  </Text>
+                </View>
+
+                <View style={styles.badgesRow}>
+                  <View style={styles.liveBadge}>
+                    <View style={styles.liveDot} />
+                    <Text style={styles.liveText} maxFontSizeMultiplier={1.1}>
+                      LIVE
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={cycleQuality}
+                    style={[
+                      styles.techBadge,
+                      {
+                        borderColor: qProps.borderColor,
+                        backgroundColor: qProps.bg,
+                      },
+                    ]}
+                    activeOpacity={0.7}>
+                    <Icon
+                      name={qProps.icon}
+                      size={14}
+                      color={qProps.color}
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text
+                      style={[styles.techBadgeText, { color: qProps.color }]}
+                      maxFontSizeMultiplier={1.1}>
+                      {qProps.text}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.votingRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.voteButton,
+                      currentVote === 'down' && styles.voteButtonActive,
+                    ]}
+                    onPress={() => {
+                      setCurrentVote(currentVote === 'down' ? null : 'down');
+                    }}>
+                    <Icon
+                      name={
+                        currentVote === 'down' ? 'thumb-down' : 'thumb-down-outline'
+                      }
+                      size={24}
+                      color={currentVote === 'down' ? COLORS.primary : '#888'}
+                    />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.voteButton,
+                      currentVote === 'up' && styles.voteButtonActive,
+                    ]}
+                    onPress={() => {
+                      setCurrentVote(currentVote === 'up' ? null : 'up');
+                    }}>
+                    <Icon
+                      name={currentVote === 'up' ? 'thumb-up' : 'thumb-up-outline'}
+                      size={24}
+                      color={currentVote === 'up' ? '#4CAF50' : '#888'}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.controls}>
+                  <TouchableOpacity
+                    style={styles.controlButton}
+                    onPress={skipToPreviousChannel}>
+                    <Icon name="skip-previous" size={36} color="#b3b3b3" />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.playButton}
+                    onPress={togglePlayback}>
+                    {isBuffering ? (
+                      <ActivityIndicator color="#fff" size="large" />
+                    ) : (
+                      <Icon
+                        name={isPlaying ? 'pause' : 'play'}
+                        size={36}
+                        color="#fff"
+                      />
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.controlButton}
+                    onPress={skipToNextChannel}>
+                    <Icon name="skip-next" size={36} color="#b3b3b3" />
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
-          </View>
+          </ScrollView>
         </SafeAreaView>
       </View>
     </PageTransition>
@@ -455,11 +491,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   playerArea: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 32,
-    marginVertical: 10,
+    paddingHorizontal: 24,
+    paddingBottom: 120,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   artworkSection: {
     alignItems: 'center',
@@ -471,12 +510,11 @@ const styles = StyleSheet.create({
     width: '100%',
     backgroundColor: 'rgba(255, 255, 255, 0.03)',
     borderRadius: 32,
-    padding: 24,
+    padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   artworkContainer: {
-    shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.4,
     shadowRadius: 24,
@@ -486,35 +524,37 @@ const styles = StyleSheet.create({
   artwork: {
     width: 280,
     height: 280,
+    maxWidth: '85%',
+    aspectRatio: 1,
     borderRadius: 24,
     borderWidth: 4,
     borderColor: 'rgba(255,255,255,0.1)',
   },
   trackInfo: {
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 8,
     width: '100%',
   },
   trackTitle: {
     color: '#fff',
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '800',
     textAlign: 'center',
     letterSpacing: -0.5,
   },
   trackArtist: {
     color: COLORS.primary,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '600',
-    marginTop: 4,
+    marginTop: 2,
     textAlign: 'center',
     opacity: 0.9,
   },
   badgesRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 24,
-    gap: 12,
+    marginBottom: 12,
+    gap: 8,
   },
   liveBadge: {
     flexDirection: 'row',
@@ -555,13 +595,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 48,
-    marginBottom: 32,
+    gap: 24,
+    marginBottom: 16,
   },
   voteButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -576,12 +616,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 40,
+    gap: 24,
   },
   playButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     backgroundColor: COLORS.primary,
     justifyContent: 'center',
     alignItems: 'center',

@@ -8,3 +8,9 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Add any project specific keep options here:
+
+# Keep TrackPlayer and KotlinAudio fields for Android Auto reflection
+-keep class com.doublesymmetry.trackplayer.** { *; }
+-keep class com.doublesymmetry.kotlinaudio.** { *; }
+-keep interface com.doublesymmetry.kotlinaudio.** { *; }
+-keep class android.support.v4.media.** { *; }

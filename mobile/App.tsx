@@ -11,6 +11,22 @@ import { AuthProvider } from './src/context/AuthContext';
 
 import MiniPlayer from './src/components/MiniPlayer';
 import SplashScreen from './src/screens/SplashScreen';
+import { RADIO_CHANNELS } from './src/data/radioChannels';
+
+const linking: any = {
+  prefixes: ['radiotedu://', 'https://radiotedu.com'],
+  config: {
+    screens: {
+      MainTabs: {
+        screens: {
+          Jukebox: 'jukebox/:deviceCode',
+        },
+      },
+      Profile: 'profile',
+      Auth: 'auth',
+    },
+  },
+};
 
 function App(): React.JSX.Element {
   const [showSplash, setShowSplash] = React.useState(true);
@@ -29,9 +45,45 @@ function App(): React.JSX.Element {
             Capability.SkipToNext,
             Capability.SkipToPrevious,
             Capability.Stop,
+            Capability.SeekTo,
+            Capability.PlayFromSearch,
           ],
-          compactCapabilities: [Capability.Play, Capability.Pause],
+          compactCapabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.SkipToNext,
+            Capability.SkipToPrevious
+          ],
+          // @ts-ignore
+          notificationCapabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.SkipToNext,
+            Capability.SkipToPrevious,
+            Capability.Stop,
+            Capability.PlayFromSearch,
+          ],
+          android: {
+            // @ts-ignore
+            alwaysPauseOnInterruption: true,
+            // @ts-ignore
+            appKilledPlaybackBehavior: 'stop-playback-and-remove-notification',
+          },
         });
+
+        // Pre-populate queue for Android Auto browsing
+        const queue = await TrackPlayer.getQueue();
+        if (queue.length === 0) {
+          const tracks = RADIO_CHANNELS.map(c => ({
+            id: c.id,
+            url: c.streamUrl, // Use default stream for pre-load
+            title: c.name,
+            artist: c.description,
+            artwork: 'https://radiotedu.com/logo.png',
+            isLiveStream: true,
+          }));
+          await TrackPlayer.add(tracks);
+        }
       } catch (e) {
         console.log('Player already setup or error:', e);
       }
@@ -56,7 +108,7 @@ function App(): React.JSX.Element {
               backgroundColor="transparent"
               translucent={true}
             />
-            <NavigationContainer>
+            <NavigationContainer linking={linking}>
               <RootNavigator />
               <MiniPlayer />
             </NavigationContainer>

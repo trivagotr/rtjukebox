@@ -3,6 +3,8 @@ import { db } from '../db';
 import { io } from '../server';
 import { calculatePriorityScore } from '../services/ranking';
 import { AuthRequest } from '../middleware/auth';
+import { sendSuccess, sendError } from '../utils/response';
+import { ROLES } from '../middleware/rbac';
 
 const router = Router();
 
@@ -10,21 +12,22 @@ const router = Router();
 
 // Connect to device via QR code
 router.post('/connect', async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    const { device_code } = req.body;
-    const userId = authReq.user!.id;
+    try {
+        const { device_code } = req.body;
+        const device = await db.query(
+            'SELECT * FROM devices WHERE device_code = $1 AND is_active = true',
+            [device_code]
+        );
 
-    const device = await db.query(
-        'SELECT * FROM devices WHERE device_code = $1 AND is_active = true',
-        [device_code]
-    );
+        if (!device.rows[0]) {
+            return sendError(res, 'Device not found', 404);
+        }
 
-    if (!device.rows[0]) {
-        return res.status(404).json({ error: 'Device not found' });
+        const queue = await getQueueForDevice(device.rows[0].id);
+        return sendSuccess(res, { device: device.rows[0], queue }, 'Connected to device');
+    } catch (error) {
+        return sendError(res, 'Connection failed', 500);
     }
-
-    const queue = await getQueueForDevice(device.rows[0].id);
-    res.json({ device: device.rows[0], queue });
 });
 
 // Get song catalog
@@ -46,9 +49,9 @@ router.get('/songs', async (req: Request, res: Response) => {
 
     try {
         const result = await db.query(query, params);
-        res.json({ items: result.rows });
+        return sendSuccess(res, { items: result.rows });
     } catch (error) {
-        res.status(500).json({ error: 'Search failed ' });
+        return sendError(res, 'Search failed', 500);
     }
 });
 
@@ -56,9 +59,37 @@ router.get('/songs', async (req: Request, res: Response) => {
 router.post('/queue', async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
     const { device_id, song_id } = req.body;
-    const userId = authReq.user!.id;
+    const userId = authReq.user?.id;
+
+    if (!userId) {
+        return res.status(401).json({ error: 'Authentication required to add songs' });
+    }
 
     try {
+        // Check user and role
+        const userResult = await db.query('SELECT role, total_songs_added, is_guest FROM users WHERE id = $1', [userId]);
+        const dbUser = userResult.rows[0];
+
+        if (!dbUser) return sendError(res, 'User not found', 404);
+
+        // Per-user queue limit (to ensure fairness)
+        const activeUserSongs = await db.query(
+            "SELECT COUNT(id) FROM queue_items WHERE device_id = $1 AND added_by = $2 AND status = 'pending'",
+            [device_id, userId]
+        );
+        const songCount = parseInt(activeUserSongs.rows[0].count);
+
+        const GUEST_LIMIT = 1;
+        const USER_LIMIT = 5;
+
+        if (dbUser.role === ROLES.GUEST && songCount >= GUEST_LIMIT) {
+            return sendError(res, `Guest limit reached (${GUEST_LIMIT} song)`, 403, 'Misafir olarak sadece 1 aktif şarkınız olabilir.');
+        }
+
+        if (dbUser.role === ROLES.USER && songCount >= USER_LIMIT) {
+            return sendError(res, `Queue limit reached (${USER_LIMIT} songs)`, 403, `Kuyrukta en fazla ${USER_LIMIT} aktif şarkınız olabilir.`);
+        }
+
         // Check if song is already in pending queue for this device
         const existing = await db.query(
             "SELECT id FROM queue_items WHERE device_id = $1 AND song_id = $2 AND status = 'pending'",
@@ -66,7 +97,7 @@ router.post('/queue', async (req: Request, res: Response) => {
         );
 
         if (existing.rows.length > 0) {
-            return res.status(400).json({ error: 'Song is already in queue' });
+            return sendError(res, 'Song is already in queue', 400);
         }
 
         // Get user rank for priority calculation
@@ -81,13 +112,16 @@ router.post('/queue', async (req: Request, res: Response) => {
             [device_id, song_id, userId, priorityScore]
         );
 
+        // Update user stats
+        await db.query('UPDATE users SET total_songs_added = total_songs_added + 1 WHERE id = $1', [userId]);
+
         // Broadcast to all connected clients
         io.to(`device:${device_id}`).emit('queue_updated', await getQueueForDevice(device_id));
 
-        res.status(201).json(result.rows[0]);
+        return sendSuccess(res, result.rows[0], 'Song added to queue', null, 201);
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: 'Failed to add song' });
+        return sendError(res, 'Failed to add song', 500);
     }
 });
 
@@ -95,7 +129,11 @@ router.post('/queue', async (req: Request, res: Response) => {
 router.post('/vote', async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
     const { queue_item_id, vote } = req.body; // vote: 1 or -1
-    const userId = authReq.user!.id;
+    const userId = authReq.user?.id;
+
+    if (!userId) {
+        return res.status(401).json({ error: 'Authentication required to vote' });
+    }
 
     try {
         // Insert or update vote
@@ -118,7 +156,7 @@ router.post('/vote', async (req: Request, res: Response) => {
 
         // Update queue item and recalculate priority
         const queueItem = await db.query('SELECT * FROM queue_items WHERE id = $1', [queue_item_id]);
-        if (!queueItem.rows[0]) return res.status(404).json({ error: 'Item not found' });
+        if (!queueItem.rows[0]) return sendError(res, 'Item not found', 404);
 
         const user = await db.query('SELECT rank_score FROM users WHERE id = $1', [queueItem.rows[0].added_by]);
 
@@ -145,10 +183,10 @@ router.post('/vote', async (req: Request, res: Response) => {
             await getQueueForDevice(queueItem.rows[0].device_id)
         );
 
-        res.json({ upvotes, downvotes, priority_score: newPriority });
+        return sendSuccess(res, { upvotes, downvotes, priority_score: newPriority }, 'Vote cast successfully');
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: 'Vote failed' });
+        return sendError(res, 'Vote failed', 500);
     }
 });
 
@@ -171,10 +209,10 @@ router.post('/kiosk/register', async (req: Request, res: Response) => {
     );
 
     if (device.rows.length === 0) {
-        return res.status(404).json({ error: 'Device code invalid' });
+        return sendError(res, 'Device code invalid', 404);
     }
 
-    res.json({ device: device.rows[0] });
+    return sendSuccess(res, { device: device.rows[0] }, 'Kiosk registered');
 });
 
 router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
@@ -209,10 +247,10 @@ router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
         // Broadcast
         io.to(`device:${device_id}`).emit('queue_updated', await getQueueForDevice(device_id));
 
-        res.json({ success: true });
+        return sendSuccess(res, null, 'Now playing updated');
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: 'Update failed' });
+        return sendError(res, 'Update failed', 500);
     }
 });
 

@@ -7,10 +7,13 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255), -- NULL for guests
     display_name VARCHAR(100) NOT NULL,
     avatar_url VARCHAR(500),
+    is_guest BOOLEAN DEFAULT FALSE,
+    role VARCHAR(20) DEFAULT 'user', -- guest, user, moderator, admin
     rank_score INTEGER DEFAULT 0,
+    vote_weight DECIMAL(5,2) DEFAULT 1.0,
     total_songs_added INTEGER DEFAULT 0,
     total_upvotes_received INTEGER DEFAULT 0,
     total_downvotes_received INTEGER DEFAULT 0,
@@ -106,3 +109,19 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     created_at TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action);
+
+-- Radio Schedule Table
+CREATE TABLE IF NOT EXISTS radio_schedule (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    day_of_week SMALLINT NOT NULL, -- 0-6 (Sunday-Saturday)
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+    show_name VARCHAR(200) NOT NULL,
+    dj_name VARCHAR(100),
+    description TEXT,
+    is_live BOOLEAN DEFAULT TRUE,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_schedule_day ON radio_schedule(day_of_week);

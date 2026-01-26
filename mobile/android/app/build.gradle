@@ -129,6 +129,9 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+
+    implementation("androidx.car.app:app:1.4.0")
+    implementation("androidx.media:media:1.7.0")
 }
 
 apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")

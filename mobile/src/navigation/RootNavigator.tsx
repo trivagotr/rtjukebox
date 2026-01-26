@@ -11,7 +11,7 @@ import LeaderboardScreen from '../screens/LeaderboardScreen';
 import LoginScreen from '../screens/auth/LoginScreen';
 import RegisterScreen from '../screens/auth/RegisterScreen';
 import { useAuth } from '../context/AuthContext';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Text } from 'react-native';
 import AuthGuard from '../components/AuthGuard';
 
 const Tab = createBottomTabNavigator();
@@ -48,11 +48,29 @@ function MainTabs() {
         },
         tabBarActiveTintColor: COLORS.primary,
         tabBarInactiveTintColor: 'gray',
+        tabBarLabelStyle: {
+          fontSize: 10,
+        },
+        tabBarLabel: ({ focused, color }) => (
+          <Text
+            style={{
+              color,
+              fontSize: 10,
+              textAlign: 'center',
+              fontWeight: focused ? 'bold' : 'normal'
+            }}
+            maxFontSizeMultiplier={1.1}
+            numberOfLines={1}>
+            {route.name === 'Radio' ? 'Yayınlar' :
+              route.name === 'Podcasts' ? 'Podcastler' :
+                route.name === 'Jukebox' ? 'Müzik Kutusu' : 'Sıralama'}
+          </Text>
+        ),
         tabBarStyle: {
           backgroundColor: COLORS.background,
           borderTopColor: COLORS.border,
-          height: 60,
-          paddingBottom: 10,
+          height: 70,
+          paddingBottom: 12,
         },
         headerStyle: {
           backgroundColor: COLORS.background,

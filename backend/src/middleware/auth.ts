@@ -1,10 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { sendError } from '../utils/response';
 
 export interface AuthRequest extends Request {
     user?: {
         id: string;
         email: string;
+        role: string;
     };
 }
 
@@ -12,16 +14,16 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
     const authHeader = req.headers.authorization;
 
     if (!authHeader) {
-        return res.status(401).json({ error: 'No token provided' });
+        return sendError(res, 'No token provided', 401);
     }
 
     const token = authHeader.split(' ')[1];
 
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET!);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
         req.user = decoded as any;
         next();
     } catch (error) {
-        return res.status(401).json({ error: 'Invalid token' });
+        return sendError(res, 'Invalid or expired token', 401);
     }
 };

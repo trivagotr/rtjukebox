@@ -26,7 +26,9 @@ const GlobalHeader = () => {
         style={styles.logo}
         resizeMode="contain"
       />
-      <TouchableOpacity onPress={handleProfilePress}>
+      <TouchableOpacity
+        onPress={handleProfilePress}
+        activeOpacity={0.7}>
         <Icon name="account-circle" size={28} color="#fff" />
       </TouchableOpacity>
     </View>

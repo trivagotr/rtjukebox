@@ -5,6 +5,8 @@ import jwt from 'jsonwebtoken';
 import { db } from '../db';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { upload } from '../middleware/upload';
+import { sendSuccess, sendError } from '../utils/response';
+import { ROLES } from '../middleware/rbac';
 
 const router = Router();
 
@@ -15,15 +17,15 @@ const registerSchema = z.object({
 });
 
 // Helper to generate and store tokens
-async function createAuthSession(userId: string, email: string) {
+async function createAuthSession(userId: string, email: string, role: string) {
     const accessToken = jwt.sign(
-        { userId, email },
+        { userId, email, role },
         process.env.JWT_SECRET || 'your-secret-key',
         { expiresIn: '1h' }
     );
 
     const refreshToken = jwt.sign(
-        { userId, email },
+        { userId, email, role },
         process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key',
         { expiresIn: '30d' }
     );
@@ -51,24 +53,24 @@ router.post('/register', async (req: Request, res: Response) => {
         // Check if user exists
         const existing = await db.query('SELECT id FROM users WHERE email = $1', [email]);
         if (existing.rows[0]) {
-            return res.status(400).json({ error: 'Email already registered' });
+            return sendError(res, 'Email already registered', 400);
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
         const result = await db.query(
-            `INSERT INTO users (email, password_hash, display_name) 
-             VALUES ($1, $2, $3) RETURNING id, email, display_name`,
-            [email, hashedPassword, display_name]
+            `INSERT INTO users (email, password_hash, display_name, role) 
+             VALUES ($1, $2, $3, $4) RETURNING id, email, display_name, role`,
+            [email, hashedPassword, display_name, ROLES.USER]
         );
 
         const user = result.rows[0];
-        const tokens = await createAuthSession(user.id, user.email);
+        const tokens = await createAuthSession(user.id, user.email, user.role);
 
-        res.status(201).json({ user, ...tokens });
+        return sendSuccess(res, { user, ...tokens }, 'Registration successful', null, 201);
     } catch (error) {
         console.error('Registration failed:', error);
-        res.status(400).json({ error: 'Registration failed' });
+        return sendError(res, 'Registration failed', 400);
     }
 });
 
@@ -85,23 +87,62 @@ router.post('/login', async (req: Request, res: Response) => {
         const valid = await bcrypt.compare(password, user.password_hash);
 
         if (!valid) {
-            return res.status(401).json({ error: 'Invalid credentials' });
+            return sendError(res, 'Invalid credentials', 401);
         }
 
-        const tokens = await createAuthSession(user.id, user.email);
-        res.json({
+        const tokens = await createAuthSession(user.id, user.email, user.role);
+        return sendSuccess(res, {
             user: {
                 id: user.id,
                 email: user.email,
                 display_name: user.display_name,
                 avatar_url: user.avatar_url,
-                rank_score: user.rank_score
+                rank_score: user.rank_score,
+                is_guest: user.is_guest,
+                role: user.role
             },
             ...tokens
-        });
+        }, 'Login successful');
     } catch (error) {
         console.error('Login failed:', error);
-        res.status(500).json({ error: 'Login failed' });
+        return sendError(res, 'Login failed', 500);
+    }
+});
+
+router.post('/guest', async (req: Request, res: Response) => {
+    try {
+        const { display_name } = req.body;
+        if (!display_name || display_name.length < 2) {
+            return res.status(400).json({ error: 'Display name required' });
+        }
+
+        // Generate a random guest email
+        const guestId = Math.random().toString(36).substring(7);
+        const email = `guest_${guestId}@radiotedu.internal`;
+
+        const result = await db.query(
+            `INSERT INTO users (email, password_hash, display_name, is_guest) 
+             VALUES ($1, NULL, $2, TRUE) RETURNING *`,
+            [email, display_name]
+        );
+
+        const user = result.rows[0];
+        const tokens = await createAuthSession(user.id, user.email, ROLES.GUEST);
+
+        return sendSuccess(res, {
+            user: {
+                id: user.id,
+                email: user.email,
+                display_name: user.display_name,
+                is_guest: true,
+                rank_score: 0,
+                role: ROLES.GUEST
+            },
+            ...tokens
+        }, 'Guest login successful', null, 201);
+    } catch (error) {
+        console.error('Guest login failed:', error);
+        return sendError(res, 'Guest login failed', 500);
     }
 });
 
@@ -133,33 +174,33 @@ router.post('/refresh', async (req: Request, res: Response) => {
         }
 
         if (!matchedTokenId) {
-            return res.status(401).json({ error: 'Invalid or expired refresh token' });
+            return sendError(res, 'Invalid or expired refresh token', 401);
         }
 
         // Token Rotation: Delete old token, create new pair
         await db.query('DELETE FROM refresh_tokens WHERE id = $1', [matchedTokenId]);
 
-        const tokens = await createAuthSession(decoded.userId, decoded.email);
-        res.json(tokens);
+        const tokens = await createAuthSession(decoded.userId, decoded.email, decoded.role);
+        return sendSuccess(res, tokens, 'Token refreshed');
     } catch (error) {
-        res.status(401).json({ error: 'Invalid refresh token' });
+        return sendError(res, 'Invalid refresh token', 401);
     }
 });
 
 router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
     try {
         const result = await db.query(
-            'SELECT id, email, display_name, avatar_url, rank_score, total_songs_added FROM users WHERE id = $1',
+            'SELECT id, email, display_name, avatar_url, rank_score, total_songs_added, role FROM users WHERE id = $1',
             [req.user?.id]
         );
 
         if (!result.rows[0]) {
-            return res.status(404).json({ error: 'User not found' });
+            return sendError(res, 'User not found', 404);
         }
 
-        res.json(result.rows[0]);
+        return sendSuccess(res, result.rows[0]);
     } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch profile' });
+        return sendError(res, 'Failed to fetch profile', 500);
     }
 });
 

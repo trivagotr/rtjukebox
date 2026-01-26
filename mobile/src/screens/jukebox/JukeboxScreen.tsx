@@ -1,4 +1,4 @@
-import React, {useState, useEffect} from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,32 +7,59 @@ import {
   TouchableOpacity,
   TextInput,
 } from 'react-native';
-import {SafeAreaView} from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import {COLORS, SPACING} from '../../theme/theme';
+import { COLORS, SPACING } from '../../theme/theme';
 import io from 'socket.io-client';
 
 import GlobalHeader from '../../components/GlobalHeader';
 import PageTransition from '../../components/PageTransition';
 
-const JukeboxScreen = () => {
+const JukeboxScreen = ({ route }: any) => {
+  const deviceCodeFromLink = route.params?.deviceCode;
   const [queue, setQueue] = useState([]);
   const [search, setSearch] = useState('');
+  const [device, setDevice] = useState<any>(null);
 
   useEffect(() => {
-    // Connect to backend socket
+    const connectToDevice = async () => {
+      if (deviceCodeFromLink) {
+        try {
+          // In a real app, API_URL would be in a config file
+          const response = await fetch(`http://10.0.2.2:3000/jukebox/connect`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_code: deviceCodeFromLink }),
+          });
+          const data = await response.json();
+          if (data.device) {
+            setDevice(data.device);
+            setQueue(data.queue.queue);
+          }
+        } catch (error) {
+          console.error('Failed to connect to device:', error);
+        }
+      }
+    };
+
+    connectToDevice();
+
     const socket = io('http://10.0.2.2:3000');
 
-    socket.on('queueUpdate', newQueue => {
-      setQueue(newQueue);
+    if (device?.id) {
+      socket.emit('join_device', device.id);
+    }
+
+    socket.on('queue_updated', newQueueData => {
+      setQueue(newQueueData.queue);
     });
 
     return () => {
       socket.disconnect();
     };
-  }, []);
+  }, [deviceCodeFromLink, device?.id]);
 
-  const renderQueueItem = ({item, index}: {item: any; index: number}) => (
+  const renderQueueItem = ({ item, index }: { item: any; index: number }) => (
     <View style={styles.queueItem}>
       <Text style={styles.index}>{index + 1}</Text>
       <View style={styles.songInfo}>
@@ -53,6 +80,18 @@ const JukeboxScreen = () => {
     <PageTransition>
       <SafeAreaView style={styles.container}>
         <GlobalHeader />
+
+        {device ? (
+          <View style={styles.deviceBanner}>
+            <Icon name="map-marker-radius" size={16} color={COLORS.primary} />
+            <Text style={styles.deviceText}>{device.location || device.name}</Text>
+          </View>
+        ) : (
+          <View style={styles.deviceBanner}>
+            <Text style={styles.deviceText}>Henüz bir cihaz seçilmedi.</Text>
+          </View>
+        )}
+
         <View style={styles.searchContainer}>
           <TextInput
             style={styles.searchInput}
@@ -84,7 +123,7 @@ const JukeboxScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {flex: 1, backgroundColor: COLORS.background},
+  container: { flex: 1, backgroundColor: COLORS.background },
   searchContainer: {
     flexDirection: 'row',
     padding: SPACING.md,
@@ -116,7 +155,7 @@ const styles = StyleSheet.create({
     marginTop: SPACING.md,
     marginBottom: SPACING.sm,
   },
-  listContent: {padding: SPACING.md},
+  listContent: { padding: SPACING.md },
   queueItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -127,18 +166,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-  index: {color: COLORS.primary, fontSize: 18, fontWeight: 'bold', width: 30},
-  songInfo: {flex: 1},
-  songTitle: {color: COLORS.text, fontSize: 16, fontWeight: 'bold'},
-  songArtist: {color: COLORS.textMuted, fontSize: 14},
+  index: { color: COLORS.primary, fontSize: 18, fontWeight: 'bold', width: 30 },
+  songInfo: { flex: 1 },
+  songTitle: { color: COLORS.text, fontSize: 16, fontWeight: 'bold' },
+  songArtist: { color: COLORS.textMuted, fontSize: 14 },
   nowPlayingBadge: {
     backgroundColor: COLORS.primary,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 4,
   },
-  nowPlayingText: {color: '#fff', fontSize: 10, fontWeight: 'bold'},
-  emptyText: {color: COLORS.textMuted, textAlign: 'center', marginTop: 50},
+  nowPlayingText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
+  emptyText: { color: COLORS.textMuted, textAlign: 'center', marginTop: 50 },
 });
 
 export default JukeboxScreen;
