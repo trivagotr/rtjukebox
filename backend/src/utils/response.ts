@@ -17,10 +17,10 @@ export const sendSuccess = <T>(res: Response, data: T, message?: string, meta?: 
     });
 };
 
-export const sendError = (res: Response, error: string, status = 400, message?: string) => {
+export const sendError = (res: Response, error: string, status = 400, code?: string) => {
     return res.status(status).json({
         success: false,
         error,
-        message
+        code
     });
 };

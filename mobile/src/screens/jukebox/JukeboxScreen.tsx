@@ -28,7 +28,7 @@ const { width } = Dimensions.get('window');
 const JukeboxScreen = ({ route }: any) => {
   const { user, guestLogin } = useAuth();
   const navigation = useNavigation<any>();
-  const deviceCodeFromLink = route.params?.deviceCode || 'RADIO-01';
+  const deviceCodeFromLink = route.params?.deviceCode;
 
   const [queue, setQueue] = useState<any[]>([]);
   const [nowPlaying, setNowPlaying] = useState<any>(null);
@@ -38,20 +38,41 @@ const JukeboxScreen = ({ route }: any) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
 
+  // Multi-device states
+  const [deviceList, setDeviceList] = useState<any[]>([]);
+  const [showDeviceSelector, setShowDeviceSelector] = useState(false);
+
   // Guest Logic States
   const [showGuestModal, setShowGuestModal] = useState(false);
   const [guestName, setGuestName] = useState('');
   const [pendingSong, setPendingSong] = useState<any>(null);
 
+
+  // Fetch available devices on mount
   useEffect(() => {
-    const connectToDevice = async () => {
+    const fetchDevices = async () => {
+      try {
+        const response = await api.get('/jukebox/devices');
+        setDeviceList(response.data.data.devices || []);
+      } catch (error) {
+        console.error('Failed to fetch devices:', error);
+      }
+    };
+    fetchDevices();
+  }, []);
+
+  // Connect to device when code is available
+  useEffect(() => {
+    const connectToDevice = async (code: string) => {
       try {
         setIsLoading(true);
-        const response = await api.post('/jukebox/connect', { device_code: deviceCodeFromLink });
+        const response = await api.post('/jukebox/connect', { device_code: code });
         const { device: deviceData, queue: queueData } = response.data.data;
         setDevice(deviceData);
         setQueue(queueData.queue || []);
         setNowPlaying(queueData.now_playing);
+        // Save last connected device
+        await AsyncStorage.setItem('last_jukebox_code', code);
       } catch (error) {
         console.error('Failed to connect to device:', error);
       } finally {
@@ -59,9 +80,31 @@ const JukeboxScreen = ({ route }: any) => {
       }
     };
 
-    connectToDevice();
+    const initConnection = async () => {
+      if (deviceCodeFromLink) {
+        connectToDevice(deviceCodeFromLink);
+      } else {
+        // Try to use last connected device
+        const lastCode = await AsyncStorage.getItem('last_jukebox_code');
+        if (lastCode) {
+          connectToDevice(lastCode);
+        } else if (deviceList.length > 0) {
+          // Auto-select first device
+          connectToDevice(deviceList[0].device_code);
+        } else {
+          setShowDeviceSelector(true);
+        }
+      }
+    };
+
+    initConnection();
+  }, [deviceCodeFromLink, deviceList]);
+
+  useEffect(() => {
+    if (!device) return;
 
     const socket = io(api.defaults.baseURL?.split('/api/v1')[0] || '');
+
 
     // JOIN THE DEVICE ROOM
     if (device) {
@@ -320,16 +363,77 @@ const JukeboxScreen = ({ route }: any) => {
           </View>
         </Modal>
 
-        {device ? (
-          <View style={styles.deviceBanner}>
-            <Icon name="map-marker-radius" size={16} color={COLORS.primary} />
-            <Text style={styles.deviceText}>{device.location || device.name}</Text>
+        {/* Device Selector Modal */}
+        <Modal
+          visible={showDeviceSelector}
+          transparent
+          animationType="slide"
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Müzik Kutusu Seçin</Text>
+              {deviceList.length === 0 ? (
+                <Text style={{ color: COLORS.textMuted, textAlign: 'center', marginVertical: 20 }}>
+                  Aktif cihaz bulunamadı
+                </Text>
+              ) : (
+                deviceList.map((d) => (
+                  <TouchableOpacity
+                    key={d.id}
+                    style={[
+                      styles.deviceOption,
+                      device?.id === d.id && { borderColor: COLORS.primary, borderWidth: 2 }
+                    ]}
+                    onPress={async () => {
+                      try {
+                        setIsLoading(true);
+                        const response = await api.post('/jukebox/connect', { device_code: d.device_code });
+                        const { device: deviceData, queue: queueData } = response.data.data;
+                        setDevice(deviceData);
+                        setQueue(queueData.queue || []);
+                        setNowPlaying(queueData.now_playing);
+                        await AsyncStorage.setItem('last_jukebox_code', d.device_code);
+                        setShowDeviceSelector(false);
+                      } catch (error) {
+                        Alert.alert('Hata', 'Cihaza bağlanılamadı');
+                      } finally {
+                        setIsLoading(false);
+                      }
+                    }}
+                  >
+                    <Icon name="radio" size={24} color={COLORS.primary} />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={{ color: COLORS.text, fontWeight: 'bold' }}>{d.name}</Text>
+                      {d.location && (
+                        <Text style={{ color: COLORS.textMuted, fontSize: 12 }}>{d.location}</Text>
+                      )}
+                    </View>
+                    {device?.id === d.id && (
+                      <Icon name="check-circle" size={20} color={COLORS.primary} />
+                    )}
+                  </TouchableOpacity>
+                ))
+              )}
+              {device && (
+                <TouchableOpacity
+                  style={[styles.modalButton, { marginTop: 16 }]}
+                  onPress={() => setShowDeviceSelector(false)}
+                >
+                  <Text style={styles.modalButtonText}>Kapat</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
-        ) : (
-          <View style={styles.deviceBanner}>
-            <Text style={styles.deviceText}>Cihaz: {deviceCodeFromLink}</Text>
-          </View>
-        )}
+        </Modal>
+
+        {/* Tappable Device Banner */}
+        <TouchableOpacity style={styles.deviceBanner} onPress={() => setShowDeviceSelector(true)}>
+          <Icon name="map-marker-radius" size={16} color={COLORS.primary} />
+          <Text style={styles.deviceText}>
+            {device ? (device.location || device.name) : 'Cihaz Seçin'}
+          </Text>
+          <Icon name="chevron-down" size={16} color={COLORS.textMuted} />
+        </TouchableOpacity>
 
         <View style={styles.searchContainer}>
           <View style={styles.searchWrapper}>
@@ -650,7 +754,17 @@ const styles = StyleSheet.create({
   idleText: {
     color: COLORS.textMuted,
     fontStyle: 'italic',
-  }
+  },
+  deviceOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    padding: SPACING.md,
+    marginBottom: SPACING.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
 });
 
 export default JukeboxScreen;

@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'http';
-import { Server } from 'socket.io';
+import { initIO } from './socket';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -15,9 +15,7 @@ import { setupSocketHandlers } from './sockets';
 
 const app = express();
 const httpServer = createServer(app);
-const io = new Server(httpServer, {
-    cors: { origin: process.env.CORS_ORIGIN || '*' }
-});
+const io = initIO(httpServer);
 
 // Middleware
 app.use(helmet({
@@ -37,7 +35,7 @@ app.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
     next();
 });
-app.use(rateLimit({ windowMs: 60000, max: 100 }));
+app.use(rateLimit({ windowMs: 60000, max: 500 }));
 
 // Static: Kiosk Web App
 app.use('/kiosk', express.static(path.join(__dirname, '../../kiosk-web')));
@@ -75,4 +73,4 @@ httpServer.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
 
-export { io };
+// io is now accessed via getIO() in other modules

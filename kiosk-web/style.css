@@ -584,7 +584,7 @@ body {
     height: 100%;
     width: 0%;
     background: linear-gradient(90deg, rgba(227, 30, 38, 0.3), rgba(255, 71, 87, 0.3));
-    transition: width 0.3s linear;
+    transition: width 0.1s linear;
 }
 
 .time-display {
@@ -899,4 +899,31 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.2);
+}
+
+/* ===== Logout Button ===== */
+.logout-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-left: 12px;
+}
+
+.logout-btn:hover {
+    background: rgba(227, 30, 38, 0.2);
+    border-color: var(--accent-red);
+    color: var(--accent-red);
+}
+
+.logout-btn .material-symbols-rounded {
+    font-size: 20px;
 }

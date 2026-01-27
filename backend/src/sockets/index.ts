@@ -1,29 +1,37 @@
 import { Server, Socket } from 'socket.io';
-import { db } from '../db';
-
-interface QueueUpdate {
-    device_id: string;
-    // additional fields based on your queue structure
-}
 
 export function setupSocketHandlers(io: Server) {
     io.on('connection', (socket: Socket) => {
-        console.log(`Client connected: ${socket.id}`);
+        console.log(`[SOCKET] New connection: ${socket.id}`);
 
-        // Join a device room to listen for queue updates
         socket.on('join_device', (deviceId: string) => {
-            console.log(`Socket ${socket.id} joined device room: device:${deviceId}`);
-            socket.join(`device:${deviceId}`);
+            if (!deviceId) return;
+            const roomName = `device:${deviceId}`;
+            socket.join(roomName);
+            console.log(`[SOCKET] ${socket.id} joined room: ${roomName}`);
         });
 
-        // Leave a device room
         socket.on('leave_device', (deviceId: string) => {
-            console.log(`Socket ${socket.id} left device room: device:${deviceId}`);
-            socket.leave(`device:${deviceId}`);
+            const roomName = `device:${deviceId}`;
+            socket.leave(roomName);
+            console.log(`[SOCKET] ${socket.id} left room: ${roomName}`);
+        });
+
+        socket.on('playback_progress', (data: any) => {
+            if (!data || !data.device_id) return;
+            const roomName = `device:${data.device_id}`;
+            // Relay to everyone in the room (including sender is fine for debug)
+            io.to(roomName).emit('playback_progress', data);
+        });
+
+        socket.on('kiosk_heartbeat', (data: any) => {
+            if (!data || !data.device_id) return;
+            const roomName = `device:${data.device_id}`;
+            io.to(roomName).emit('kiosk_heartbeat', data);
         });
 
         socket.on('disconnect', () => {
-            console.log(`Client disconnected: ${socket.id}`);
+            console.log(`[SOCKET] Disconnected: ${socket.id}`);
         });
     });
 }

@@ -21,7 +21,7 @@ async function createAuthSession(userId: string, email: string, role: string) {
     const accessToken = jwt.sign(
         { id: userId, email, role },
         process.env.JWT_SECRET || 'your-secret-key',
-        { expiresIn: '1h' }
+        { expiresIn: '24h' }
     );
 
     const refreshToken = jwt.sign(

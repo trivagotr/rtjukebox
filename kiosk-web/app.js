@@ -16,6 +16,7 @@ class KioskApp {
 
         // Autoplay Logic
         this.autoplayTriggered = false;
+        this.lastEmitTime = 0;
 
         // Debug Log
         this.logs = [];
@@ -56,6 +57,12 @@ class KioskApp {
     async init() {
         console.log('🎵 RadioTEDU Kiosk başlatılıyor...');
 
+        // Check if device code exists
+        if (!CONFIG.DEVICE_CODE) {
+            this.showDeviceSetupOverlay();
+            return;
+        }
+
         // Setup canvas size
         this.setupWaveform();
 
@@ -66,17 +73,101 @@ class KioskApp {
         this.setupAudioPlayer();
 
         // Connect to server
-        await this.registerDevice();
-        this.connectSocket();
+        try {
+            await this.registerDevice();
+            this.connectSocket();
+        } catch (err) {
+            this.log(`❌ Başlatma hatası: ${err.message}`, 'error');
+            // If registration fails (e.g. wrong password), show setup again
+            this.showDeviceSetupOverlay();
+        }
 
         // Setup fullscreen on double click
         this.setupFullscreenToggle();
+
+        // Setup logout button
+        this.setupLogoutButton();
 
         // Interaction Overlay
         this.showStartupOverlay();
 
         // Setup window resize handler
         window.addEventListener('resize', () => this.setupWaveform());
+    }
+
+    showDeviceSetupOverlay() {
+        const div = document.createElement('div');
+        div.id = 'deviceSetupOverlay';
+        div.style = 'position:fixed; inset:0; background:#1a1a2e; z-index:20000; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px; text-align:center;';
+        div.innerHTML = `
+            <div style="font-size:60px; margin-bottom:20px;">⚙️</div>
+            <h2 style="color:white; margin-bottom:10px;">Cihaz Kurulumu</h2>
+            <p style="color:rgba(255,255,255,0.6); margin-bottom:30px; max-width:400px;">Bu ekranın hangi Jukebox'u temsil ettiğini belirlemek için sistem panelindeki Cihaz Kodunu ve Şifresini girin.</p>
+            <div style="display:flex; flex-direction:column; gap:15px; width:100%; max-width:400px;">
+                <input type="text" id="setupDeviceCode" placeholder="Cihaz Kodu (Örn: KAFE-01)" style="width:100%; padding:15px; border-radius:12px; border:2px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-weight:bold; text-transform:uppercase;">
+                <input type="password" id="setupDevicePassword" placeholder="Cihaz Şifresi" style="width:100%; padding:15px; border-radius:12px; border:2px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-weight:bold;">
+                <button id="saveDeviceCode" style="padding:15px; border-radius:12px; background:var(--accent-red, #dc2626); color:white; font-weight:bold; border:none; cursor:pointer;">Kaydet ve Başlat</button>
+            </div>
+            <p style="color:rgba(255,255,255,0.4); margin-top:20px; font-size:12px;">Veya URL'ye <b>?code=KOD&pwd=SIFRE</b> ekleyerek açın.</p>
+        `;
+        document.body.appendChild(div);
+
+        const input = div.querySelector('#setupDeviceCode');
+        const pwdInput = div.querySelector('#setupDevicePassword');
+        const button = div.querySelector('#saveDeviceCode');
+
+        // Pre-fill if exists
+        input.value = localStorage.getItem('device_code') || '';
+        pwdInput.value = localStorage.getItem('device_pwd') || '';
+
+        const save = () => {
+            const code = input.value.trim().toUpperCase();
+            const pwd = pwdInput.value.trim();
+            if (code) {
+                localStorage.setItem('device_code', code);
+                localStorage.setItem('device_pwd', pwd);
+                window.location.reload();
+            }
+        };
+
+        button.onclick = save;
+        input.onkeydown = (e) => { if (e.key === 'Enter') pwdInput.focus(); };
+        pwdInput.onkeydown = (e) => { if (e.key === 'Enter') save(); };
+    }
+
+    // ===== Logout Button =====
+    setupLogoutButton() {
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.onclick = () => this.logout();
+        }
+    }
+
+    logout() {
+        this.log('🚪 Çıkış yapılıyor...');
+
+        // Stop audio
+        if (this.audioPlayer) {
+            this.audioPlayer.pause();
+            this.audioPlayer.src = '';
+        }
+
+        // Disconnect socket
+        if (this.socket) {
+            this.socket.disconnect();
+            this.socket = null;
+        }
+
+        // Clear device data
+        this.device = null;
+        this.queueData = { now_playing: null, queue: [] };
+
+        // Clear stored credentials
+        localStorage.removeItem('device_code');
+        localStorage.removeItem('device_pwd');
+
+        // Show setup overlay again
+        this.showDeviceSetupOverlay();
     }
 
     showStartupOverlay() {
@@ -203,7 +294,10 @@ class KioskApp {
             const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ device_code: CONFIG.DEVICE_CODE })
+                body: JSON.stringify({
+                    device_code: CONFIG.DEVICE_CODE,
+                    password: CONFIG.DEVICE_PWD
+                })
             });
 
             if (!response.ok) {
@@ -222,6 +316,12 @@ class KioskApp {
 
             this.device = deviceData;
 
+            // Ensure we join the room if socket is already connected
+            if (this.socket && this.socket.connected) {
+                this.socket.emit('join_device', this.device.id);
+                this.log(`🏠 ${this.device.id} odasına katıldı (kayıt sonrası)`);
+            }
+
             // Update UI
             const locationEl = document.getElementById('deviceLocation');
             if (locationEl) {
@@ -234,13 +334,31 @@ class KioskApp {
             this.log(`❌ Kayıt hatası: ${error.message}`, 'error');
             this.updateConnectionStatus('error', 'Bağlantı hatası');
 
+            if (error.message.includes('404')) {
+                // Invalid code - reset and show setup
+                const qrContainer = document.getElementById('qrCode');
+                if (qrContainer) {
+                    qrContainer.innerHTML = `
+                        <div style="font-size:12px; color:#ff4444; padding:10px;">
+                            <b>GEÇERSİZ KOD: ${CONFIG.DEVICE_CODE}</b><br><br>
+                            Bu kod sistemde kayıtlı değil.
+                            <button onclick="localStorage.removeItem('device_code'); location.reload();" 
+                                style="margin-top:10px; padding:5px 10px; background:#dc2626; color:white; border:none; border-radius:4px; font-size:10px; cursor:pointer;">
+                                Kodu Sıfırla
+                            </button>
+                        </div>`;
+                }
+            }
+
             // Helpful debug for user
             const qrContainer = document.getElementById('qrCode');
             if (qrContainer && qrContainer.innerHTML.includes('Oluşturuluyor')) {
                 qrContainer.innerHTML = `<div style="font-size:10px; color:gray">Backend'e ulaşılamıyor:<br>${CONFIG.API_URL}</div>`;
             }
-            // Retry after delay
-            setTimeout(() => this.registerDevice(), CONFIG.RECONNECT_INTERVAL);
+            // Retry after delay (only if not 404)
+            if (!error.message.includes('404')) {
+                setTimeout(() => this.registerDevice(), CONFIG.RECONNECT_INTERVAL);
+            }
         }
     }
 
@@ -261,6 +379,16 @@ class KioskApp {
                 this.socket.emit('join_device', this.device.id);
                 this.log(`🏠 ${this.device.id} odasına katıldı`);
                 this.loadInitialQueue();
+
+                // Heartbeat to test connectivity
+                if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+                this.heartbeatInterval = setInterval(() => {
+                    if (this.socket && this.socket.connected) {
+                        this.socket.emit('kiosk_heartbeat', { device_id: this.device.id, timestamp: Date.now() });
+                    }
+                }, 5000);
+            } else {
+                this.log('⚠️ Cihaz kaydı henüz tamamlanmadı, oda katılımı bekleniyor');
             }
         });
 
@@ -307,8 +435,12 @@ class KioskApp {
         });
 
         this.audioPlayer.addEventListener('error', (e) => {
-            // Don't retry if we deliberately cleared the source (stopPlayback)
-            if (!this.audioPlayer.src || this.audioPlayer.src.includes('://:')) return;
+            // Don't retry if we deliberately cleared the source (stopPlayback) 
+            // Also avoid infinite loop if no src
+            if (!this.audioPlayer.src || this.audioPlayer.src === window.location.href || this.audioPlayer.src.includes('://:')) {
+                this.isPlaying = false;
+                return;
+            }
 
             console.error('Audio error:', e);
             setTimeout(() => this.playNextFromQueue(), 2000);
@@ -340,6 +472,9 @@ class KioskApp {
             this.playSong(this.queueData.now_playing);
         } else if (!this.isPlaying && this.queueData.queue && this.queueData.queue.length > 0) {
             this.playSong(this.queueData.queue[0]);
+        } else if (!this.isPlaying && !this.queueData.now_playing) {
+            // Trigger autoplay if nothing is playing and no now_playing exists
+            this.triggerAutoplay();
         }
     }
 
@@ -347,15 +482,34 @@ class KioskApp {
         if (this.queueData.queue && this.queueData.queue.length > 0) {
             this.playSong(this.queueData.queue[0]);
         } else {
-            this.log('🔄 Kuyruk bitti, durum güncelleniyor...');
+            this.log('🔄 Kuyruk bitti, otomatik şarkı isteniyor...');
             // Notify server we finished
             this.stopPlayback();
 
-            // Wait for DB update then reload (which will trigger autoplay if empty)
-            setTimeout(() => {
-                this.loadInitialQueue();
-            }, 1000);
+            // Trigger autoplay immediately instead of waiting for 80% rule
+            this.triggerAutoplay();
         }
+    }
+
+    triggerAutoplay() {
+        if (!this.device || this.autoplayTriggered) return;
+
+        this.autoplayTriggered = true;
+        this.log('🤖 Autoplay tetikleniyor...');
+
+        fetch(`${CONFIG.API_URL}/api/v1/jukebox/autoplay/trigger`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_id: this.device.id })
+        }).then(r => r.json())
+            .then(d => {
+                this.log(`🤖 Otomatik eklendi: ${d.data?.song_title || 'Şarkı'}`);
+                // Resulting queue_updated broadcast will trigger playNext/checkNext
+            })
+            .catch(e => {
+                console.error(e);
+                this.autoplayTriggered = false; // Allow retry on failure
+            });
     }
 
     async playSong(song) {
@@ -418,6 +572,7 @@ class KioskApp {
         this.audioPlayer.pause();
         this.audioPlayer.src = '';
         this.isPlaying = false;
+        this.queueData.now_playing = null; // Clear local state immediately to prevent loop
         this.showIdleState();
 
         if (this.device) {
@@ -435,7 +590,8 @@ class KioskApp {
     // ===== Progress Bar =====
     startProgressUpdate() {
         this.stopProgressUpdate();
-        this.progressInterval = setInterval(() => this.updateProgress(), CONFIG.PROGRESS_UPDATE_INTERVAL);
+        this.updateProgress(); // Initial call
+        this.progressInterval = setInterval(() => this.updateProgress(), CONFIG.UI_UPDATE_INTERVAL);
     }
 
     stopProgressUpdate() {
@@ -449,6 +605,22 @@ class KioskApp {
         const current = this.audioPlayer.currentTime;
         const total = this.audioPlayer.duration || 0;
         const percent = total > 0 ? (current / total) * 100 : 0;
+
+        // Emit progress via socket only at larger intervals
+        const now = Date.now();
+        if (this.socket && this.device && (now - this.lastEmitTime >= CONFIG.SOCKET_EMIT_INTERVAL)) {
+            this.socket.emit('playback_progress', {
+                device_id: this.device.id,
+                currentTime: current,
+                duration: total,
+                percent: percent
+            });
+            console.info('📡 [SOCKET] Progress emitted (Throttled):', Math.floor(current));
+            this.lastEmitTime = now;
+        } else if (!this.socket && now - this.lastEmitTime > 10000) {
+            console.warn('⚠️ [SOCKET] Not connected yet');
+            this.lastEmitTime = now; // Prevent spam
+        }
 
         // Check for Autoplay Trigger (80% Rule)
         // If 80% played, queue is empty, and we haven't triggered yet

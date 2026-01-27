@@ -1,35 +1,152 @@
-import { Router, Request, Response } from 'express';
+// Jukebox Routes - Updated for Metadata Sync
+import { Router, Request, Response, NextFunction } from 'express';
+import fs from 'fs';
 import { db } from '../db';
-import { io } from '../server';
+import { getIO } from '../socket';
+import { MetadataService } from '../services/metadata';
 import { calculatePriorityScore } from '../services/ranking';
-import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { authMiddleware, optionalAuth, AuthRequest } from '../middleware/auth';
 import { sendSuccess, sendError } from '../utils/response';
 import { ROLES } from '../middleware/rbac';
 import { AudioService } from '../services/audio';
+import { songUpload } from '../middleware/upload';
 import path from 'path';
 
+// --- Helper Middlewares ---
+async function checkDeviceSession(req: AuthRequest, res: Response, next: NextFunction) {
+    const { device_id } = req.body;
+    const user_id = req.user?.id;
+
+    if (!device_id) return sendError(res, 'Device ID required', 400);
+    if (!user_id) return sendError(res, 'Unauthorized', 401);
+
+    // Admins have bypass
+    if (req.user?.role === ROLES.ADMIN) return next();
+
+    try {
+        const sessionRes = await db.query(
+            'SELECT 1 FROM device_sessions WHERE user_id = $1 AND device_id = $2',
+            [user_id, device_id]
+        );
+
+        if (sessionRes.rows.length === 0) {
+            return sendError(res, 'Session required for this device', 403, 'SESSION_REQUIRED');
+        }
+
+        next();
+    } catch (error) {
+        console.error('Session check error:', error);
+        return sendError(res, 'Internal server error during session check', 500);
+    }
+}
+
 const router = Router();
+console.log('--- Jukebox Routes Initializing ---');
+console.log('🚀 Jukebox Routes Registry Initializing...');
+
+// --- Admin Endpoints (High Priority) ---
+
+// Force logout all clients from a device
+router.post('/admin/devices/:id/logout-all', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    const { id } = req.params;
+
+    try {
+        console.log(`[Admin] Force logout all for device: ${id}`);
+
+        // Clear server-side sessions
+        await db.query('DELETE FROM device_sessions WHERE device_id = $1', [id]);
+
+        getIO()?.to(`device:${id}`).emit('force_logout');
+        return sendSuccess(res, null, 'Force logout signal sent and sessions cleared');
+    } catch (error) {
+        console.error('Logout all error:', error);
+        return sendError(res, 'Failed to trigger logout all', 500);
+    }
+});
 
 // --- User Endpoints ---
 
 // Connect to device via QR code
-router.post('/connect', async (req: Request, res: Response) => {
+router.post('/connect', optionalAuth, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    const isAdmin = authReq.user?.role === ROLES.ADMIN;
+
     try {
-        const { device_code } = req.body;
-        const device = await db.query(
+        const { device_code, password } = req.body;
+        const deviceRes = await db.query(
             'SELECT * FROM devices WHERE device_code = $1 AND is_active = true',
             [device_code]
         );
 
-        if (!device.rows[0]) {
+        const device = deviceRes.rows[0];
+
+        if (!device) {
             return sendError(res, 'Device not found', 404);
         }
 
-        const queue = await getQueueForDevice(device.rows[0].id);
+        // Password check (skipped for admins)
+        if (device.password && !isAdmin) {
+            if (!password) {
+                return sendError(res, 'Password required for this device', 403, 'PASSWORD_REQUIRED');
+            }
+            if (password !== device.password) {
+                return sendError(res, 'Invalid device password', 403, 'INVALID_PASSWORD');
+            }
+        }
+
+        const queue = await getQueueForDevice(device.id);
         console.log('Connect Response for', device_code, ':', JSON.stringify(queue.now_playing?.title));
-        return sendSuccess(res, { device: device.rows[0], queue }, 'Connected to device');
+
+        // Create session
+        if (authReq.user?.id) {
+            await db.query(
+                `INSERT INTO device_sessions (user_id, device_id) 
+                 VALUES ($1, $2) 
+                 ON CONFLICT (user_id, device_id) DO NOTHING`,
+                [authReq.user.id, device.id]
+            );
+        }
+
+        return sendSuccess(res, { device, queue }, 'Connected to device');
     } catch (error) {
         return sendError(res, 'Connection failed', 500);
+    }
+});
+
+// Disconnect from device (delete session, require password on reconnect)
+router.post('/disconnect', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    const { device_id } = req.body;
+
+    if (!device_id) return sendError(res, 'Device ID required', 400);
+    if (!authReq.user?.id) return sendError(res, 'Unauthorized', 401);
+
+    try {
+        await db.query(
+            'DELETE FROM device_sessions WHERE user_id = $1 AND device_id = $2',
+            [authReq.user.id, device_id]
+        );
+        console.log(`[SESSION] User ${authReq.user.id} disconnected from device ${device_id}`);
+        return sendSuccess(res, null, 'Disconnected from device');
+    } catch (error) {
+        console.error('Disconnect error:', error);
+        return sendError(res, 'Failed to disconnect', 500);
+    }
+});
+
+// Get active devices for selection (public)
+router.get('/devices', async (req: Request, res: Response) => {
+    try {
+        const devices = await db.query(
+            'SELECT id, device_code, name, location FROM devices WHERE is_active = true ORDER BY name'
+        );
+        return sendSuccess(res, { devices: devices.rows }, 'Devices fetched');
+    } catch (error) {
+        console.error('Fetch devices error:', error);
+        return sendError(res, 'Failed to fetch devices', 500);
     }
 });
 
@@ -59,7 +176,7 @@ router.get('/songs', async (req: Request, res: Response) => {
 });
 
 // Add song to queue
-router.post('/queue', authMiddleware, async (req: Request, res: Response) => {
+router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
     const { device_id, song_id } = req.body;
     const userId = authReq.user?.id;
@@ -85,11 +202,11 @@ router.post('/queue', authMiddleware, async (req: Request, res: Response) => {
         const GUEST_LIMIT = 1;
         const USER_LIMIT = 5;
 
-        if (dbUser.role === ROLES.GUEST && songCount >= GUEST_LIMIT) {
+        if (dbUser.role === ROLES.ADMIN) {
+            // Admins have no limits
+        } else if (dbUser.role === ROLES.GUEST && songCount >= GUEST_LIMIT) {
             return sendError(res, `Guest limit reached (${GUEST_LIMIT} song)`, 403, 'Misafir olarak sadece 1 aktif şarkınız olabilir.');
-        }
-
-        if (dbUser.role === ROLES.USER && songCount >= USER_LIMIT) {
+        } else if (dbUser.role === ROLES.USER && songCount >= USER_LIMIT) {
             return sendError(res, `Queue limit reached (${USER_LIMIT} songs)`, 403, `Kuyrukta en fazla ${USER_LIMIT} aktif şarkınız olabilir.`);
         }
 
@@ -99,7 +216,7 @@ router.post('/queue', authMiddleware, async (req: Request, res: Response) => {
             [device_id, song_id]
         );
 
-        if (existing.rows.length > 0) {
+        if (existing.rows.length > 0 && dbUser.role !== ROLES.ADMIN) {
             return sendError(res, 'Song is already in queue', 400);
         }
 
@@ -112,7 +229,7 @@ router.post('/queue', authMiddleware, async (req: Request, res: Response) => {
             [device_id, song_id]
         );
 
-        if (recentlyPlayed.rows.length > 0) {
+        if (recentlyPlayed.rows.length > 0 && dbUser.role !== ROLES.ADMIN) {
             return sendError(res, 'Song played recently', 400, 'Bu şarkı yakın zamanda çaldı. Lütfen biraz bekleyin.');
         }
 
@@ -132,7 +249,7 @@ router.post('/queue', authMiddleware, async (req: Request, res: Response) => {
         await db.query('UPDATE users SET total_songs_added = total_songs_added + 1 WHERE id = $1', [userId]);
 
         // Broadcast to all connected clients
-        io.to(`device:${device_id}`).emit('queue_updated', await getQueueForDevice(device_id));
+        getIO()?.to(`device:${device_id}`).emit('queue_updated', await getQueueForDevice(device_id));
 
         return sendSuccess(res, result.rows[0], 'Song added to queue', null, 201);
     } catch (error) {
@@ -142,7 +259,7 @@ router.post('/queue', authMiddleware, async (req: Request, res: Response) => {
 });
 
 // Vote on queue item or active song
-router.post('/vote', authMiddleware, async (req: Request, res: Response) => {
+router.post('/vote', authMiddleware, checkDeviceSession, async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
     const { queue_item_id, song_id, vote } = req.body; // vote: 1 or -1
     const userId = authReq.user?.id;
@@ -199,7 +316,7 @@ router.post('/vote', authMiddleware, async (req: Request, res: Response) => {
             // Heavy Penalty to Song
             await db.query('UPDATE songs SET score = score - 10 WHERE id = $1', [queueItem.rows[0].song_id]);
 
-            io.to(`device:${queueItem.rows[0].device_id}`).emit('song_skipped');
+            getIO()?.to(`device:${queueItem.rows[0].device_id}`).emit('song_skipped');
             return sendSuccess(res, { skipped: true }, 'Song skipped due to community vote');
         }
 
@@ -219,7 +336,7 @@ router.post('/vote', authMiddleware, async (req: Request, res: Response) => {
                 [upvotes, downvotes, targetQueueId]);
         }
 
-        io.to(`device:${queueItem.rows[0].device_id}`).emit('queue_updated',
+        getIO()?.to(`device:${queueItem.rows[0].device_id}`).emit('queue_updated',
             await getQueueForDevice(queueItem.rows[0].device_id)
         );
 
@@ -238,31 +355,358 @@ router.get('/queue/:deviceId', async (req: Request, res: Response) => {
 
 // --- Admin Endpoints ---
 
+
+
 // Force Skip Song
 router.post('/admin/skip', authMiddleware, async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
     if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
 
     const { device_id } = req.body;
+    if (!device_id) return sendError(res, 'Missing device_id', 400);
+
     try {
+        console.log('Admin force skip triggered for device:', device_id);
+
         // Find current playing
-        const current = await db.query("SELECT * FROM queue_items WHERE device_id = $1 AND status = 'playing'", [device_id]);
+        const current = await db.query("SELECT id FROM queue_items WHERE device_id = $1 AND status = 'playing'", [device_id]);
 
         if (current.rows.length > 0) {
+            console.log('Marking queue item as skipped:', current.rows[0].id);
             await db.query("UPDATE queue_items SET status = 'skipped' WHERE id = $1", [current.rows[0].id]);
-        } else {
-            // If no queue item is playing, it might be an autoplay song. Clear the device's current_song_id.
-            await db.query("UPDATE devices SET current_song_id = NULL WHERE id = $1", [device_id]);
         }
 
-        io.to(`device:${device_id}`).emit('song_skipped');
-        // Kiosk will auto-fetch next
+        // ALWAYS clear the device's current_song_id
+        await db.query("UPDATE devices SET current_song_id = NULL WHERE id = $1", [device_id]);
+
+        const updatedQueue = await getQueueForDevice(device_id);
+
+        const io = getIO();
+        if (io) {
+            io.to(`device:${device_id}`).emit('song_skipped');
+            io.to(`device:${device_id}`).emit('queue_updated', updatedQueue);
+        }
 
         return sendSuccess(res, null, 'Song skipped by admin');
     } catch (error) {
+        console.error('Admin skip error detail:', error);
         return sendError(res, 'Skip failed', 500);
     }
 });
+
+// Sync Song Metadata
+router.post('/admin/sync-metadata', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    const { song_id } = req.body;
+
+    try {
+        if (song_id) {
+            const updated = await MetadataService.syncSongMetadata(song_id);
+            if (!updated) return sendError(res, 'Song not found or no metadata found', 404);
+            return sendSuccess(res, updated, 'Metadata synced successfully');
+        } else {
+            const stats = await MetadataService.syncAllSongs();
+            return sendSuccess(res, stats, 'Full library sync initiated');
+        }
+    } catch (error) {
+        console.error('Metadata sync error:', error);
+        return sendError(res, 'Metadata sync failed', 500);
+    }
+});
+
+// Get all songs for admin
+router.get('/admin/songs', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    try {
+        const songs = await db.query(`
+            SELECT s.*, 
+                   (SELECT COUNT(*) FROM queue_items WHERE song_id = s.id AND status = 'played') as total_plays
+            FROM songs s
+            WHERE s.is_active = true
+            ORDER BY s.created_at DESC
+        `);
+        return sendSuccess(res, { songs: songs.rows }, 'Songs fetched');
+    } catch (error) {
+        console.error('Fetch songs error:', error);
+        return sendError(res, 'Failed to fetch songs', 500);
+    }
+});
+
+// Scan uploads folder for new songs
+router.post('/admin/scan-folder', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    const fs = require('fs');
+    const uploadsPath = path.join(__dirname, '../../uploads/songs');
+
+    try {
+        if (!fs.existsSync(uploadsPath)) {
+            fs.mkdirSync(uploadsPath, { recursive: true });
+        }
+
+        const files = fs.readdirSync(uploadsPath).filter((f: string) =>
+            f.endsWith('.mp3') || f.endsWith('.m4a') || f.endsWith('.wav')
+        );
+
+        let added = 0;
+        let skipped = 0;
+
+        for (const file of files) {
+            const fileUrl = `/uploads/songs/${file}`;
+
+            // Check if already exists
+            const existing = await db.query('SELECT id, is_active FROM songs WHERE file_url = $1', [fileUrl]);
+            if (existing.rows.length > 0) {
+                // If it was soft-deleted, reactivate it
+                if (!existing.rows[0].is_active) {
+                    await db.query('UPDATE songs SET is_active = true WHERE id = $1', [existing.rows[0].id]);
+                    added++; // Count as re-added
+                } else {
+                    skipped++;
+                }
+                continue;
+            }
+
+            // Extract basic info from filename
+            const baseName = file.replace(/\.(mp3|m4a|wav)$/i, '');
+            let title = baseName;
+            let artist = 'Unknown';
+
+            // Try to parse "Artist - Title" format
+            // Handle multiple " - " by splitting only on the first one
+            if (baseName.includes(' - ')) {
+                const firstDashIndex = baseName.indexOf(' - ');
+                artist = baseName.substring(0, firstDashIndex).trim();
+                title = baseName.substring(firstDashIndex + 3).trim();
+            }
+
+            const insertResult = await db.query(
+                'INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING id',
+                [title, artist, 180, fileUrl]
+            );
+
+            added++;
+        }
+
+        // Sync metadata for ALL songs in library
+        let syncStats: any = { success: 0, failed: 0, failedSongs: [] };
+        try {
+            syncStats = await MetadataService.syncAllSongs();
+        } catch (syncErr) {
+            console.log('Full metadata sync failed:', syncErr);
+        }
+
+        return sendSuccess(res, {
+            added,
+            skipped,
+            total: files.length,
+            synced: syncStats.success,
+            syncFailed: syncStats.failed,
+            failedSongs: syncStats.failedSongs
+        }, 'Folder scanned and all metadata synced');
+    } catch (error) {
+        console.error('Folder scan error:', error);
+        return sendError(res, 'Folder scan failed', 500);
+    }
+});
+
+// Upload song file
+router.post('/admin/upload-song', authMiddleware, songUpload.single('song'), async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    const file = req.file;
+    if (!file) {
+        return sendError(res, 'No file uploaded', 400);
+    }
+
+    try {
+        const fileUrl = `/uploads/songs/${file.filename}`;
+
+        // Check if already exists
+        const existing = await db.query('SELECT id, is_active FROM songs WHERE file_url = $1', [fileUrl]);
+        if (existing.rows.length > 0) {
+            // If soft-deleted, reactivate and sync
+            if (!existing.rows[0].is_active) {
+                await db.query('UPDATE songs SET is_active = true WHERE id = $1', [existing.rows[0].id]);
+                try {
+                    const synced = await MetadataService.syncSongMetadata(existing.rows[0].id);
+                    if (synced) {
+                        return sendSuccess(res, { song: synced, filename: file.filename }, 'Song reactivated and synced');
+                    }
+                } catch (e) { }
+                const reactivated = await db.query('SELECT * FROM songs WHERE id = $1', [existing.rows[0].id]);
+                return sendSuccess(res, { song: reactivated.rows[0], filename: file.filename }, 'Song reactivated');
+            }
+            return sendError(res, 'Song file already exists', 409);
+        }
+
+        // Extract info from filename
+        const baseName = file.filename.replace(/\.(mp3|m4a|wav)$/i, '');
+        let title = baseName;
+        let artist = 'Unknown';
+
+        if (baseName.includes(' - ')) {
+            const parts = baseName.split(' - ');
+            artist = parts[0].trim();
+            title = parts.slice(1).join(' - ').trim();
+        }
+
+        const result = await db.query(
+            'INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING *',
+            [title, artist, 180, fileUrl]
+        );
+
+        const newSong = result.rows[0];
+
+        // Auto-sync metadata from iTunes
+        try {
+            const synced = await MetadataService.syncSongMetadata(newSong.id);
+            if (synced) {
+                return sendSuccess(res, { song: synced, filename: file.filename }, 'Song uploaded and synced');
+            }
+        } catch (syncError) {
+            console.log('Metadata sync failed, using filename data:', syncError);
+        }
+
+        return sendSuccess(res, { song: newSong, filename: file.filename }, 'Song uploaded');
+    } catch (error) {
+        console.error('Upload song error:', error);
+        return sendError(res, 'Upload failed', 500);
+    }
+});
+
+// Delete song
+router.delete('/admin/songs/:id', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    const { id } = req.params;
+
+    try {
+        // Get file path first
+        const songRes = await db.query('SELECT file_url FROM songs WHERE id = $1', [id]);
+        if (songRes.rows.length > 0) {
+            const fileUrl = songRes.rows[0].file_url;
+            // Remove leading slash if exists for path.join
+            const relativePath = fileUrl.startsWith('/') ? fileUrl.substring(1) : fileUrl;
+            const filePath = path.join(__dirname, '../../', relativePath);
+
+            console.log(`[Admin] Deleting song: ${id}, Path: ${filePath}`);
+
+            // Delete physical file
+            if (fs.existsSync(filePath)) {
+                try {
+                    fs.unlinkSync(filePath);
+                    console.log(`[Admin] File deleted: ${filePath}`);
+                } catch (unlinkErr) {
+                    console.error(`[Admin] Failed to delete file: ${filePath}`, unlinkErr);
+                }
+            } else {
+                console.warn(`[Admin] File not found for deletion: ${filePath}`);
+            }
+
+            // Mark as inactive in DB (keeping for queue history)
+            await db.query('UPDATE songs SET is_active = false WHERE id = $1', [id]);
+        }
+
+        return sendSuccess(res, null, 'Song deleted from database and disk');
+    } catch (error) {
+        console.error('Delete song error:', error);
+        return sendError(res, 'Delete failed', 500);
+    }
+});
+
+// --- Device Management ---
+
+// Get all devices
+router.get('/admin/devices', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    try {
+        const devices = await db.query(`
+            SELECT d.*, 
+                   (SELECT COUNT(*) FROM queue_items WHERE device_id = d.id AND status = 'pending') as queue_count,
+                   s.title as current_song_title, s.artist as current_song_artist
+            FROM devices d
+            LEFT JOIN songs s ON d.current_song_id = s.id
+            ORDER BY d.created_at DESC
+        `);
+        return sendSuccess(res, { devices: devices.rows }, 'Devices fetched');
+    } catch (error) {
+        console.error('Fetch devices error:', error);
+        return sendError(res, 'Failed to fetch devices', 500);
+    }
+});
+
+// Create new device
+router.post('/admin/devices', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    const { device_code, name, location, password } = req.body;
+
+    if (!device_code || !name) {
+        return sendError(res, 'device_code and name are required', 400);
+    }
+
+    try {
+        const existing = await db.query('SELECT id FROM devices WHERE device_code = $1', [device_code]);
+        if (existing.rows.length > 0) {
+            return sendError(res, 'Device code already exists', 409);
+        }
+
+        const result = await db.query(
+            'INSERT INTO devices (device_code, name, location, password) VALUES ($1, $2, $3, $4) RETURNING *',
+            [device_code.toUpperCase(), name, location || null, password || null]
+        );
+        return sendSuccess(res, { device: result.rows[0] }, 'Device created');
+    } catch (error) {
+        console.error('Create device error:', error);
+        return sendError(res, 'Failed to create device', 500);
+    }
+});
+
+
+
+// Update device
+router.put('/admin/devices/:id', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    const { id } = req.params;
+    const { name, location, is_active, password } = req.body;
+
+    try {
+        const result = await db.query(
+            `UPDATE devices SET 
+                name = COALESCE($1, name),
+                location = COALESCE($2, location),
+                is_active = COALESCE($3, is_active),
+                password = COALESCE($4, password)
+             WHERE id = $5 RETURNING *`,
+            [name, location, is_active, password, id]
+        );
+
+        if (result.rows.length === 0) {
+            return sendError(res, 'Device not found', 404);
+        }
+
+        return sendSuccess(res, { device: result.rows[0] }, 'Device updated');
+    } catch (error) {
+        console.error('Update device error:', error);
+        return sendError(res, 'Failed to update device', 500);
+    }
+});
+
+
+
 
 // Manually trigger audio processing (e.g. after upload)
 router.post('/admin/process-song', authMiddleware, async (req: Request, res: Response) => {
@@ -297,20 +741,29 @@ router.post('/admin/process-song', authMiddleware, async (req: Request, res: Res
 
 router.post('/kiosk/register', async (req: Request, res: Response) => {
     try {
-        // In production, secure this with a secret key
-        const { device_code } = req.body;
+        const { device_code, password } = req.body;
+        console.log(`[KIOSK REGISTER] device_code="${device_code}" password="${password}"`);
 
-        // Find or create logic could go here, or just update status
-        const device = await db.query(
+        const deviceCheck = await db.query('SELECT password FROM devices WHERE device_code = $1', [device_code]);
+        if (deviceCheck.rows.length === 0) {
+            console.log(`[KIOSK REGISTER] Device not found: ${device_code}`);
+            return sendError(res, 'Device code invalid', 404);
+        }
+
+        const device = deviceCheck.rows[0];
+        console.log(`[KIOSK REGISTER] DB password="${device.password}" received="${password}"`);
+
+        if (device.password && device.password !== password) {
+            console.log(`[KIOSK REGISTER] Password mismatch!`);
+            return sendError(res, 'Invalid device password for registration', 403, 'INVALID_PASSWORD');
+        }
+
+        const updatedDevice = await db.query(
             'UPDATE devices SET is_active = true, last_heartbeat = NOW() WHERE device_code = $1 RETURNING *',
             [device_code]
         );
 
-        if (device.rows.length === 0) {
-            return sendError(res, 'Device code invalid', 404);
-        }
-
-        return sendSuccess(res, { device: device.rows[0] }, 'Kiosk registered');
+        return sendSuccess(res, { device: updatedDevice.rows[0] }, 'Kiosk registered');
     } catch (error) {
         console.error('Kiosk registration error:', error);
         return sendError(res, 'Internal server error during registration', 500);
@@ -326,6 +779,9 @@ router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
             await db.query('UPDATE devices SET current_song_id = NULL WHERE id = $1', [device_id]);
             // Also mark current playing item as played
             await db.query("UPDATE queue_items SET status = 'played', played_at = NOW() WHERE device_id = $1 AND status = 'playing'", [device_id]);
+
+            // Broadcast the stop event immediately
+            getIO()?.to(`device:${device_id}`).emit('queue_updated', await getQueueForDevice(device_id));
             return res.json({ success: true });
         }
 
@@ -355,8 +811,8 @@ router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
             [device_id, song_id]
         );
 
-        // Broadcast
-        io.to(`device:${device_id}`).emit('queue_updated', await getQueueForDevice(device_id));
+        // Broadcast update to all clients (always trigger so Web UI stays in sync)
+        getIO()?.to(`device:${device_id}`).emit('queue_updated', await getQueueForDevice(device_id));
 
         return sendSuccess(res, null, 'Now playing updated');
     } catch (error) {
@@ -396,8 +852,17 @@ router.post('/autoplay/trigger', async (req: Request, res: Response) => {
         const randomIndex = Math.floor(Math.random() * randomSong.rows.length);
         const song = randomSong.rows[randomIndex];
 
-        const systemUser = await db.query("SELECT id FROM users ORDER BY id LIMIT 1");
-        const addedBy = systemUser.rows[0]?.id;
+        let systemUser = await db.query("SELECT id FROM users WHERE email = $1", ['system@radiotedu.com']);
+        let addedBy;
+        if (systemUser.rows.length === 0) {
+            const newUser = await db.query(
+                "INSERT INTO users (email, display_name, role) VALUES ($1, $2, $3) RETURNING id",
+                ['system@radiotedu.com', 'Radio TEDU', 'user']
+            );
+            addedBy = newUser.rows[0].id;
+        } else {
+            addedBy = systemUser.rows[0].id;
+        }
 
         const priorityScore = calculatePriorityScore(0, 0, 0); // Base priority
 
@@ -408,12 +873,12 @@ router.post('/autoplay/trigger', async (req: Request, res: Response) => {
         );
 
         // Broadcast
-        io.to(`device:${device_id}`).emit('queue_updated', await getQueueForDevice(device_id));
+        getIO()?.to(`device:${device_id}`).emit('queue_updated', await getQueueForDevice(device_id));
 
         return sendSuccess(res, { song_title: song.title }, 'Autoplay song added to pending');
 
     } catch (error) {
-        console.error("Autoplay trigger failed", error);
+        console.error("Autoplay trigger failed:", error);
         return sendError(res, 'Autoplay trigger failed', 500);
     }
 });

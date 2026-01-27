@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS devices (
     is_active BOOLEAN DEFAULT TRUE,
     current_song_id UUID, -- Circular reference, handle carefully or add FK later if needed
     last_heartbeat TIMESTAMP,
+    password VARCHAR(50), -- Registration & user connection password
     created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -125,3 +126,13 @@ CREATE TABLE IF NOT EXISTS radio_schedule (
     created_at TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_schedule_day ON radio_schedule(day_of_week);
+
+-- Device Sessions Table
+CREATE TABLE IF NOT EXISTS device_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(user_id, device_id)
+);
+CREATE INDEX IF NOT EXISTS idx_device_sessions_lookup ON device_sessions(user_id, device_id);
