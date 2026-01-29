@@ -408,6 +408,24 @@ class KioskApp {
             console.log('⏭️ Şarkı atlandı');
             this.playNextFromQueue();
         });
+
+        this.socket.on('song_rejected', () => {
+            console.log('🚫 Şarkı reddedildi (DJ Scratch)');
+            this.handleSongRejected();
+        });
+    }
+
+    async handleSongRejected() {
+        const albumContainer = document.querySelector('.album-container');
+        if (albumContainer) {
+            albumContainer.classList.add('dj-scratch-active');
+
+            // Wait for animation to finish (1.5s in CSS)
+            await new Promise(resolve => setTimeout(resolve, 1500));
+
+            albumContainer.classList.remove('dj-scratch-active');
+        }
+        this.playNextFromQueue();
     }
 
     // ===== Load Initial Queue =====

@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { db } from '../db';
 
 async function migrate() {
@@ -33,9 +34,53 @@ async function migrate() {
         `);
         console.log('✅ "device_sessions" table ensured.');
 
-        // 3. Create index
-        await db.query('CREATE INDEX IF NOT EXISTS idx_device_sessions_lookup ON device_sessions(user_id, device_id)');
-        console.log('✅ Index ensured.');
+        // 4. Add last_ip column to users
+        console.log('--- Checking "users" table for "last_ip" column ---');
+        const userColumnCheck = await db.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'users' AND column_name = 'last_ip'
+        `);
+
+        if (userColumnCheck.rows.length === 0) {
+            console.log('➕ Adding "last_ip" column to "users"...');
+            await db.query('ALTER TABLE users ADD COLUMN last_ip VARCHAR(45)');
+            console.log('✅ Column added.');
+        } else {
+            console.log('ℹ️ "last_ip" column already exists.');
+        }
+
+        // 5. Add user_agent column to users
+        console.log('--- Checking "users" table for "user_agent" column ---');
+        const uaColumnCheck = await db.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'users' AND column_name = 'user_agent'
+        `);
+
+        if (uaColumnCheck.rows.length === 0) {
+            console.log('➕ Adding "user_agent" column to "users"...');
+            await db.query('ALTER TABLE users ADD COLUMN user_agent TEXT');
+            console.log('✅ Column added.');
+        } else {
+            console.log('ℹ️ "user_agent" column already exists.');
+        }
+
+        // 6. Add last_super_vote_at column to users
+        console.log('--- Checking "users" table for "last_super_vote_at" column ---');
+        const superVoteColumnCheck = await db.query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'users' AND column_name = 'last_super_vote_at'
+        `);
+
+        if (superVoteColumnCheck.rows.length === 0) {
+            console.log('➕ Adding "last_super_vote_at" column to "users"...');
+            await db.query('ALTER TABLE users ADD COLUMN last_super_vote_at TIMESTAMP');
+            console.log('✅ Column added.');
+        } else {
+            console.log('ℹ️ "last_super_vote_at" column already exists.');
+        }
 
         console.log('🎊 Migration Completed Successfully!');
         process.exit(0);

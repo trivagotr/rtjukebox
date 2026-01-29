@@ -11,10 +11,13 @@ import {
   TrendingUp,
   Disc,
   ListMusic,
+  RefreshCw,
+  ArrowBigUp,
+  ArrowBigDown,
+  Trophy,
   LogOut,
   ChevronRight,
-  RefreshCw,
-  Shield
+  Star
 } from 'lucide-react';
 import { AdminDashboard } from './AdminDashboard';
 
@@ -35,6 +38,7 @@ interface AppUser {
   is_guest: boolean;
   total_songs_added: number;
   role?: string;
+  last_super_vote_at?: string;
 }
 
 // --- Utils ---
@@ -199,6 +203,108 @@ const LoginView = ({
   </div>
 );
 
+const LeaderboardView = ({ leaderboard, onClose }: any) => (
+  <div className="fixed inset-0 z-[250] flex items-center justify-center p-6 backdrop-blur-2xl bg-black/80 animate-fade">
+    <div className="card w-full max-w-lg border-primary/20 bg-primary/5 p-8 relative overflow-hidden flex flex-col max-h-[80vh]">
+      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-primary to-transparent opacity-50"></div>
+
+      <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 bg-primary/20 rounded-2xl flex items-center justify-center border border-primary/30 text-primary">
+            <Trophy size={28} />
+          </div>
+          <div>
+            <h2 className="text-2xl font-black tracking-tight">Sıralama</h2>
+            <p className="text-xs text-text-muted font-bold uppercase tracking-widest">En Çok Katkı Sağlayanlar</p>
+          </div>
+        </div>
+        <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors">✕</button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+        {leaderboard.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 opacity-20 text-center">
+            <Trophy size={48} className="mb-4" />
+            <p className="font-bold uppercase tracking-widest">Henüz kimse yok</p>
+          </div>
+        ) : (
+          leaderboard.map((u: any, idx: number) => (
+            <div key={u.id} className={`flex items-center gap-4 p-4 rounded-2xl border transition-all ${idx === 0 ? 'bg-primary/20 border-primary/30' : 'bg-white/[0.03] border-white/5'}`}>
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm ${idx === 0 ? 'bg-primary text-white' : idx === 1 ? 'bg-slate-400 text-white' : idx === 2 ? 'bg-amber-600/50 text-white' : 'bg-white/10 text-text-muted'}`}>
+                {idx + 1}
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-white/10 to-white/5 flex items-center justify-center font-black text-primary border border-white/10">
+                {u.display_name.substring(0, 1).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-black truncate text-sm">{u.display_name}</div>
+                <div className="text-[10px] text-text-muted font-bold uppercase tracking-widest">{u.total_songs_added} Şarkı</div>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-black text-primary">{u.rank_score}</div>
+                <div className="text-[10px] text-primary/50 font-bold uppercase tracking-widest leading-none">Puan</div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  </div>
+);
+
+const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user }: any) => {
+  const currentVote = myVotes[item.id] !== undefined ? myVotes[item.id] : item.user_vote;
+
+  return (
+    <div className="group relative flex items-center gap-4 p-3 glass hover:bg-white/5 border border-white/5 rounded-2xl transition-all animate-fade">
+      <div className="absolute -left-2 top-1/2 -translate-y-1/2 w-6 h-6 bg-primary rounded-lg flex items-center justify-center text-[10px] font-black shadow-lg shadow-primary/20 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+        {idx + 1}
+      </div>
+      <img src={item.cover_url} className="w-12 h-12 rounded-xl object-cover shadow-md" alt="" />
+      <div className="flex-1 min-w-0">
+        <div className="font-bold text-xs truncate mb-0.5">{item.title}</div>
+        <div className="text-[10px] text-text-muted truncate font-semibold uppercase tracking-tight">{item.artist}</div>
+      </div>
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex items-center gap-1.5 px-2 py-1 bg-primary/10 rounded-full border border-primary/20">
+          <TrendingUp size={10} className="text-primary" />
+          <span className="text-[10px] text-primary font-black">{item.priority_score}</span>
+        </div>
+        {/* Voting Controls */}
+        <div className="flex items-center gap-1 mt-1">
+          <button
+            onClick={(e) => { e.stopPropagation(); handleVote(item.id, 1); }}
+            className={`p-1 rounded-md transition-colors ${currentVote === 1 ? 'bg-emerald-500/20 text-emerald-500' : 'text-text-muted hover:bg-emerald-500/20 hover:text-emerald-500'}`}
+            title="Upvote"
+          >
+            <ArrowBigUp size={16} fill={currentVote === 1 ? "currentColor" : "none"} />
+          </button>
+          <span className="text-[10px] font-bold text-text-muted min-w-[12px] text-center">{item.upvotes - item.downvotes}</span>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleVote(item.id, -1); }}
+            className={`p-1 rounded-md transition-colors ${currentVote === -1 ? 'bg-rose-500/20 text-rose-500' : 'text-text-muted hover:bg-rose-500/20 hover:text-rose-500'}`}
+            title="Downvote"
+          >
+            <ArrowBigDown size={16} fill={currentVote === -1 ? "currentColor" : "none"} />
+          </button>
+
+          {/* Super Upvote Button */}
+          {!user?.is_guest && (
+            <button
+              onClick={(e) => { e.stopPropagation(); handleVote(item.id, 1, true); }}
+              disabled={user?.last_super_vote_at?.split('T')[0] === new Date().toISOString().split('T')[0]}
+              className={`p-1 rounded-md transition-all ${currentVote === 4 ? 'bg-amber-500/30 text-amber-500 scale-110' : 'text-text-muted hover:bg-amber-500/20 hover:text-amber-500 opacity-60 hover:opacity-100'}`}
+              title={user?.last_super_vote_at?.split('T')[0] === new Date().toISOString().split('T')[0] ? "Bugün süper oy hakkın bitti" : "Süper Upvote (+4)"}
+            >
+              <Star size={14} fill={currentVote === 4 ? "currentColor" : "none"} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const JukeboxView = ({
   user,
   device,
@@ -213,7 +319,10 @@ const JukeboxView = ({
   fetchCurrentQueue,
   progress,
   setDevice,
-  interpolatedProgress
+  interpolatedProgress,
+  handleVote,
+  onShowLeaderboard,
+  myVotes
 }: any) => (
   <div className="flex flex-col min-h-screen lg:flex-row w-full max-w-full">
     {/* Global Desktop Sidebar (Mobile Top) */}
@@ -247,7 +356,9 @@ const JukeboxView = ({
           <>
             <div className="flex items-center justify-between mb-2 mt-4 ml-1">
               <h2 className="text-[10px] font-black text-text-muted uppercase tracking-[2px]">Arama Sonuçları</h2>
-              <button onClick={() => setSearch('')} className="text-[10px] font-bold text-primary">Temizle</button>
+              <div className="flex gap-4">
+                <button onClick={() => setSearch('')} className="text-[10px] font-bold text-primary">Temizle</button>
+              </div>
             </div>
             {results.map((song: any) => (
               <div
@@ -268,8 +379,14 @@ const JukeboxView = ({
           </>
         ) : (
           <div className="hidden lg:flex flex-col items-center justify-center h-48 text-center px-4">
-            <Search size={32} className="text-white/5 mb-3" />
-            <p className="text-xs text-text-muted font-medium">TEDU kütüphanesinden dilediğin şarkıyı ara.</p>
+            <Trophy size={48} className="text-primary/20 mb-4 cursor-pointer hover:scale-110 transition-transform" onClick={onShowLeaderboard} />
+            <p className="text-xs text-text-muted font-medium mb-4">TEDU kütüphanesinden dilediğin şarkıyı ara.</p>
+            <button
+              onClick={onShowLeaderboard}
+              className="px-4 py-2 glass border-primary/30 rounded-xl text-[10px] font-black text-primary uppercase tracking-widest hover:bg-primary/10 transition-colors"
+            >
+              Sıralamayı Gör
+            </button>
           </div>
         )}
       </div>
@@ -286,12 +403,24 @@ const JukeboxView = ({
 
         <div className="flex items-center justify-between p-3 glass rounded-2xl">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-white/10 to-white/5 border border-white/10 flex items-center justify-center font-black text-primary shadow-inner">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-white/10 to-white/5 border border-white/10 flex items-center justify-center font-black text-primary shadow-inner relative">
               {user?.display_name.substring(0, 1).toUpperCase()}
+              {!user?.is_guest && (
+                <div className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full flex items-center justify-center border-2 border-background">
+                  <Trophy size={8} className="text-white" />
+                </div>
+              )}
             </div>
             <div className="flex flex-col">
               <span className="text-xs font-black">{user?.display_name}</span>
-              <span className="text-[9px] text-text-muted uppercase font-bold tracking-widest">{user?.role === 'admin' ? 'Yönetici' : 'Dinleyici'}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px] text-text-muted uppercase font-bold tracking-widest">{user?.role === 'admin' ? 'Yönetici' : user?.is_guest ? 'Misafir' : 'Dinleyici'}</span>
+                {!user?.is_guest && user?.rank_score !== undefined && (
+                  <span className="text-[10px] font-black text-emerald-500 flex items-center gap-0.5">
+                    • {user.rank_score} <span className="text-[8px] opacity-70">Puan</span>
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <button onClick={logout} className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors" title="Çıkış">
@@ -399,105 +528,42 @@ const JukeboxView = ({
               </div>
             ) : (
               queue.map((item: any, idx: number) => (
-                <div key={item.id} className="group relative flex items-center gap-4 p-3 glass hover:bg-white/5 border border-white/5 rounded-2xl transition-all animate-fade">
-                  <div className="absolute -left-2 top-1/2 -translate-y-1/2 w-6 h-6 bg-primary rounded-lg flex items-center justify-center text-[10px] font-black shadow-lg shadow-primary/20 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {idx + 1}
-                  </div>
-                  <img src={item.cover_url} className="w-12 h-12 rounded-xl object-cover shadow-md" alt="" />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-bold text-xs truncate mb-0.5">{item.title}</div>
-                    <div className="text-[10px] text-text-muted truncate font-semibold uppercase tracking-tight">{item.artist}</div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <div className="flex items-center gap-1.5 px-2 py-1 bg-primary/10 rounded-full border border-primary/20">
-                      <TrendingUp size={10} className="text-primary" />
-                      <span className="text-[10px] text-primary font-black">{item.priority_score}</span>
-                    </div>
-                  </div>
-                </div>
+                <MemoizedQueueItem
+                  key={item.id}
+                  item={item}
+                  idx={idx}
+                  myVotes={myVotes}
+                  handleVote={handleVote}
+                  user={user}
+                />
               ))
             )}
           </div>
         </div>
       </div>
-    </div>
 
-    {/* Guest Toast / Info Bar (Mobile Bottom) */}
-    {user?.is_guest && (
-      <div className="lg:hidden fixed bottom-6 left-6 right-6 p-4 glass border-primary/30 rounded-3xl shadow-2xl flex items-center justify-between z-50 animate-fade">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 bg-primary/20 rounded-xl flex items-center justify-center">
-            <User size={20} className="text-primary" />
+      {/* Guest Toast / Info Bar (Mobile Bottom) */}
+      {user?.is_guest && (
+        <div className="lg:hidden fixed bottom-6 left-6 right-6 p-4 glass border-primary/30 rounded-3xl shadow-2xl flex items-center justify-between z-50 animate-fade">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 bg-primary/20 rounded-xl flex items-center justify-center">
+              <User size={20} className="text-primary" />
+            </div>
+            <div>
+              <div className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-0.5">Misafir Modu</div>
+              <div className="text-sm font-black">{user.total_songs_added >= 1 ? 'Hakkın Doldu' : '1 şarkı hakkın var'}</div>
+            </div>
           </div>
-          <div>
-            <div className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-0.5">Misafir Modu</div>
-            <div className="text-sm font-black">{user.total_songs_added >= 1 ? 'Hakkın Doldu' : '1 şarkı hakkın var'}</div>
-          </div>
+          {user.total_songs_added >= 1 ? (
+            <button onClick={logout} className="px-5 py-2.5 bg-primary rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">Üye Ol</button>
+          ) : (
+            <div className="px-3 py-1 bg-emerald-500/20 text-emerald-500 text-[10px] rounded-full font-black uppercase tracking-widest border border-emerald-500/30">Aktif</div>
+          )}
         </div>
-        {user.total_songs_added >= 1 ? (
-          <button onClick={logout} className="px-5 py-2.5 bg-primary rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">Üye Ol</button>
-        ) : (
-          <div className="px-3 py-1 bg-emerald-500/20 text-emerald-500 text-[10px] rounded-full font-black uppercase tracking-widest border border-emerald-500/30">Aktif</div>
-        )}
-      </div>
-    )}
-  </div>
-);
-
-
-const DevicePasswordModal = ({
-  deviceCode,
-  password,
-  setPassword,
-  onSubmit,
-  onClose,
-  loading,
-  error
-}: any) => (
-  <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 backdrop-blur-xl bg-black/60 animate-fade">
-    <div className="card w-full max-w-sm space-y-6 border-primary/20 bg-primary/5 p-8 relative overflow-hidden group">
-      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-primary to-transparent opacity-50"></div>
-
-      <div className="text-center space-y-2">
-        <div className="w-16 h-16 bg-primary/20 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-primary/30">
-          <Shield size={32} className="text-primary" />
-        </div>
-        <h2 className="text-2xl font-black">{deviceCode} <span className="text-primary">Şifreli</span></h2>
-        <p className="text-sm text-text-muted font-medium">Bu jukebox'a erişmek için şifre gereklidir.</p>
-      </div>
-
-      <div className="space-y-4">
-        <div className="space-y-1">
-          <input
-            type="password"
-            className={`input-field py-4 text-center tracking-[8px] ${error ? 'border-rose-500/50 bg-rose-500/5' : ''}`}
-            placeholder="••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoFocus
-          />
-          {error && <p className="text-[10px] text-rose-500 font-bold uppercase tracking-widest text-center mt-2">{error}</p>}
-        </div>
-
-        <button
-          onClick={onSubmit}
-          className="btn-primary w-full py-4 text-sm"
-          disabled={loading || !password}
-        >
-          {loading ? 'Doğrulanıyor...' : 'Erişim İzni Al'}
-        </button>
-
-        <button
-          onClick={onClose}
-          className="w-full text-xs font-bold text-text-muted hover:text-white tracking-widest uppercase py-2 transition-colors"
-        >
-          Vazgeç
-        </button>
-      </div>
+      )}
     </div>
   </div>
 );
-
 
 function App() {
   const [deviceCode, setDeviceCode] = useState('');
@@ -514,6 +580,7 @@ function App() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [myVotes, setMyVotes] = useState<Record<string, number>>({});
 
   // Use a ref for the interceptor to avoid stale closures
   const deviceRef = useRef<any>(null);
@@ -521,10 +588,6 @@ function App() {
     deviceRef.current = device;
   }, [device]);
 
-  // Device Security
-  const [showDevicePasswordModal, setShowDevicePasswordModal] = useState(false);
-  const [devicePassword, setDevicePassword] = useState('');
-  const [devicePasswordError, setDevicePasswordError] = useState('');
 
   // Login States
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -579,6 +642,26 @@ function App() {
     }
   }, []);
 
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+
+  // Expose toggle to sub-components via window for simplicity (not ideal but works here)
+  useEffect(() => {
+    (window as any).toggleLeaderboard = () => {
+      fetchLeaderboard();
+      setShowLeaderboard(true);
+    };
+  }, []);
+
+  const fetchLeaderboard = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/v1/users/leaderboard`);
+      setLeaderboard(res.data.data.leaderboard || []);
+    } catch (err) {
+      console.error('Leaderboard fetch failed:', err);
+    }
+  };
+
   // Axios Interceptor for 401 errors
   useEffect(() => {
     const interceptor = axios.interceptors.response.use(
@@ -599,15 +682,12 @@ function App() {
           // Use ref to get the current device even in this stale closure
           const currentDevice = deviceRef.current;
 
-          // Clear cached password if it caused the failure
+          // SILENT RE-CONNECT: If we have a current device we try to re-connect automatically once to restore the session.
           if (currentDevice?.device_code) {
-            localStorage.removeItem(`device_pwd_${currentDevice.device_code}`);
-            setDeviceCode(currentDevice.device_code);
-            setDeviceCodeInput(currentDevice.device_code);
+            console.log('🔄 Attempting silent re-connect to restore session for', currentDevice.device_code);
+            connectToDevice(currentDevice.device_code);
+            return Promise.reject(error);
           }
-
-          setMsg({ type: 'error', text: 'Cihaz oturumunuz sonlandırıldı. Devam etmek için şifreyi tekrar girmelisiniz.' });
-          setShowDevicePasswordModal(true);
         }
 
         return Promise.reject(error);
@@ -663,6 +743,25 @@ function App() {
         setQueue(data.queue);
         setNowPlaying(data.now_playing);
         setProgress(null);
+
+        // Sync myVotes from incoming data ONLY if it contains user_vote info
+        // General broadcasts from server will omit user_vote to prevent resetting local state
+        const newVotes: Record<string, number> = {};
+
+        if (data.now_playing && data.now_playing.user_vote !== undefined) {
+          newVotes[data.now_playing.id] = data.now_playing.user_vote;
+        }
+
+        data.queue.forEach((item: any) => {
+          if (item.user_vote !== undefined) {
+            newVotes[item.id] = item.user_vote;
+          }
+        });
+
+        if (Object.keys(newVotes).length > 0) {
+          console.log('🗳️ Syncing votes from server:', newVotes);
+          setMyVotes(prev => ({ ...prev, ...newVotes }));
+        }
       });
 
       socket.on('force_logout', () => {
@@ -674,22 +773,9 @@ function App() {
           return;
         }
 
-        // Use ref to get current device info
-        const currentDevice = deviceRef.current;
-
-        // Clear cached password for this device
-        if (currentDevice?.device_code) {
-          localStorage.removeItem(`device_pwd_${currentDevice.device_code}`);
-          setDeviceCode(currentDevice.device_code);
-        }
-
         // For regular users, kick them out
         setDevice(null);
         setMsg({ type: 'error', text: 'Cihaz oturumunuz admin tarafından sonlandırıldı.' });
-        // Optionally trigger the modal immediately if we have the code
-        if (currentDevice?.device_code) {
-          setShowDevicePasswordModal(true);
-        }
       });
 
       socket.on('playback_progress', (data: any) => {
@@ -721,57 +807,52 @@ function App() {
 
   const fetchCurrentQueue = async (deviceId: string) => {
     try {
-      const res = await axios.get(`${API_URL}/api/v1/jukebox/queue/${deviceId}`);
+      const res = await axios.get(`${API_URL}/api/v1/jukebox/queue/${deviceId}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
       // The API returns { now_playing: ..., queue: [...] }
       setQueue(res.data.queue || []);
       setNowPlaying(res.data.now_playing || null);
+
+      // Sync myVotes also on manual refresh/fetch
+      const refreshedVotes: Record<string, number> = {};
+      if (res.data.now_playing?.user_vote !== undefined) refreshedVotes[res.data.now_playing.id] = res.data.now_playing.user_vote;
+      res.data.queue.forEach((item: any) => {
+        if (item.user_vote !== undefined) refreshedVotes[item.id] = item.user_vote;
+      });
+      setMyVotes(prev => ({ ...prev, ...refreshedVotes }));
     } catch (err) {
       console.error('Failed to sync queue:', err);
     }
   };
 
-  const connectToDevice = async (code: string, providedPassword?: string) => {
+  const connectToDevice = async (code: string) => {
     if (!code) return;
     try {
       setLoading(true);
-      setDevicePasswordError('');
-
-      // Use provided password or try to get from cache
-      const passwordToUse = providedPassword || localStorage.getItem(`device_pwd_${code}`);
-
       const res = await axios.post(`${API_URL}/api/v1/jukebox/connect`, {
-        device_code: code,
-        password: passwordToUse
+        device_code: code
       }, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
 
       const responseData = res.data.data;
 
-      // If success and we used a password, cache it
-      if (passwordToUse) {
-        localStorage.setItem(`device_pwd_${code}`, passwordToUse);
-      }
-
       setDevice(responseData.device);
       setQueue(responseData.queue.queue);
       setNowPlaying(responseData.queue.now_playing);
       setMsg({ type: 'success', text: `${responseData.device.name} cihazına bağlanıldı!` });
-      setShowDevicePasswordModal(false);
-      setDevicePassword('');
       setDeviceCode(code);
-    } catch (err: any) {
-      const errorData = err.response?.data;
 
-      if (errorData?.code === 'PASSWORD_REQUIRED') {
-        setDeviceCodeInput(code);
-        setShowDevicePasswordModal(true);
-      } else if (errorData?.code === 'INVALID_PASSWORD') {
-        setShowDevicePasswordModal(true);
-        setDevicePasswordError('Hatalı şifre. Lütfen tekrar deneyin.');
-      } else {
-        setMsg({ type: 'error', text: 'Cihaza bağlanılamadı. Kod hatalı olabilir.' });
-      }
+      // Sync myVotes from initial fetch
+      const initialVotes: Record<string, number> = {};
+      if (responseData.queue.now_playing?.user_vote !== undefined) initialVotes[responseData.queue.now_playing.id] = responseData.queue.now_playing.user_vote;
+      responseData.queue.queue.forEach((item: any) => {
+        if (item.user_vote !== undefined) initialVotes[item.id] = item.user_vote;
+      });
+      setMyVotes(initialVotes);
+    } catch (err: any) {
+      setMsg({ type: 'error', text: 'Cihaza bağlanılamadı. Kod hatalı olabilir.' });
     } finally {
       setLoading(false);
     }
@@ -803,19 +884,54 @@ function App() {
     try {
       setLoading(true);
       const res = await axios.post(`${API_URL}/api/v1/auth/login`, { email, password });
-      const userData = res.data.data.user;
-      setUser(userData);
-      localStorage.setItem('user', JSON.stringify(userData));
+      setUser(res.data.data.user);
       localStorage.setItem('token', res.data.data.access_token);
+      localStorage.setItem('user', JSON.stringify(res.data.data.user));
+      setGuestName('');
       setShowLoginModal(false);
 
-      if (deviceCode) {
-        connectToDevice(deviceCode);
+      // Auto-connect after login if we have a code
+      const currentCode = deviceCode || deviceCodeInput;
+      if (currentCode) {
+        connectToDevice(currentCode);
       }
     } catch (err: any) {
       setMsg({ type: 'error', text: err.response?.data?.error || 'Giriş yapılamadı.' });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleVote = async (queueItemId: string, voteType: number, isSuper: boolean = false) => {
+    if (!device) return;
+    try {
+      const response = await axios.post(`${API_URL}/api/v1/jukebox/vote`, {
+        queue_item_id: queueItemId,
+        vote: voteType,
+        device_id: device.id,
+        is_super: isSuper
+      }, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+
+      if (isSuper && user) {
+        setUser({ ...user, last_super_vote_at: new Date().toISOString() });
+      }
+
+      const serverUserVote = response.data.data.user_vote;
+
+      // Update local myVotes with server confirmation
+      setMyVotes(prev => {
+        if (serverUserVote === 0) {
+          const newState = { ...prev };
+          delete newState[queueItemId];
+          return newState;
+        }
+        return { ...prev, [queueItemId]: serverUserVote };
+      });
+    } catch (err: any) {
+      console.error('Vote failed:', err);
+      setMsg({ type: 'error', text: err.response?.data?.message || 'Oy verme başarısız oldu.' });
     }
   };
 
@@ -846,16 +962,19 @@ function App() {
     }
 
     // Clear state but keep device code for re-entry
+    setUser(null);
     setDevice(null);
     setQueue([]);
     setNowPlaying(null);
-    setDevicePassword('');
 
-    // Show password modal immediately with the device code
+    // Clear auth data
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+
+    // Clear state but keep device code for re-entry
     if (savedDeviceCode) {
       setDeviceCode(savedDeviceCode);
       setDeviceCodeInput(savedDeviceCode);
-      setShowDevicePasswordModal(true);
     }
   };
 
@@ -885,10 +1004,13 @@ function App() {
         setUser({ ...user, total_songs_added: user.total_songs_added + 1 });
       }
     } catch (err: any) {
-      const errorMsg = err.response?.data?.error === 'Guest limit reached'
-        ? 'Misafir limitin doldu. Daha fazlası için giriş yapmalısın!'
-        : 'Şarkı eklenemedi.';
-      setMsg({ type: 'error', text: errorMsg });
+      const resp = err.response?.data;
+      if (resp?.code === 'GUEST_LIMIT_REACHED') {
+        setMsg({ type: 'error', text: 'Misafir limitin doldu! Daha fazla şarkı için giriş yapmalısın.' });
+        setShowLoginModal(true);
+      } else {
+        setMsg({ type: 'error', text: resp?.message || 'Şarkı eklenemedi.' });
+      }
     } finally {
       setLoading(false);
     }
@@ -939,25 +1061,23 @@ function App() {
             progress={progress}
             setDevice={setDevice}
             interpolatedProgress={interpolatedProgress}
+            handleVote={handleVote}
+            onShowLeaderboard={() => {
+              fetchLeaderboard();
+              setShowLeaderboard(true);
+            }}
+            myVotes={myVotes}
           />
         )}
 
-        {/* Device Password Modal */}
-        {showDevicePasswordModal && (
-          <DevicePasswordModal
-            deviceCode={deviceCodeInput || deviceCode}
-            password={devicePassword}
-            setPassword={setDevicePassword}
-            onSubmit={() => connectToDevice(deviceCodeInput || deviceCode, devicePassword)}
-            onClose={() => {
-              setShowDevicePasswordModal(false);
-              setDevicePassword('');
-              setDevicePasswordError('');
-            }}
-            loading={loading}
-            error={devicePasswordError}
+        {/* Leaderboard Modal */}
+        {showLeaderboard && (
+          <LeaderboardView
+            leaderboard={leaderboard}
+            onClose={() => setShowLeaderboard(false)}
           />
         )}
+
 
         {/* Toast Notification */}
         {msg && (

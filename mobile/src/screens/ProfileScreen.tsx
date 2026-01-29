@@ -178,12 +178,12 @@ const ProfileScreen = () => {
             <Text style={styles.statLabel}>Katkı</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{user?.total_upvotes_received || 0}</Text>
+            <Text style={styles.statNumber}>{user?.rank_score || 0}</Text>
             <Text style={styles.statLabel}>Puan</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statNumber}>#{user?.rank_score || 0}</Text>
-            <Text style={styles.statLabel}>Skor</Text>
+            <Text style={styles.statNumber}>{user?.total_upvotes_received || 0}</Text>
+            <Text style={styles.statLabel}>Beğeni</Text>
           </View>
         </View>
 
@@ -256,6 +256,17 @@ const ProfileScreen = () => {
               <Icon name="chevron-right" size={24} color="#fff" />
             </TouchableOpacity>
           ) : null}
+
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => navigation.navigate('Leaderboard')}
+          >
+            <View style={[styles.menuIconContainer, { backgroundColor: 'rgba(255, 215, 0, 0.1)' }]}>
+              <Icon name="trophy-outline" size={24} color="#FFD700" />
+            </View>
+            <Text style={styles.menuText}>Sıralama (Leaderboard)</Text>
+            <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
+          </TouchableOpacity>
 
           <TouchableOpacity style={styles.menuItem}>
             <View style={[styles.menuIconContainer, { backgroundColor: 'rgba(255, 255, 255, 0.05)' }]}>

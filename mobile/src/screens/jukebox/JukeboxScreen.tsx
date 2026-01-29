@@ -217,11 +217,13 @@ const JukeboxScreen = ({ route }: any) => {
   };
 
   const handleVote = async (item: any, voteType: number) => {
+    if (!device) return;
     try {
       await api.post('/jukebox/vote', {
         queue_item_id: item.id.startsWith('autoplay') ? null : item.id,
         song_id: item.song_id,
-        vote: voteType
+        vote: voteType,
+        device_id: device.id
       });
     } catch (error: any) {
       Alert.alert('Hata', error.response?.data?.error || 'Oy verilemedi.');
@@ -252,9 +254,14 @@ const JukeboxScreen = ({ route }: any) => {
         </View>
 
         <View style={styles.voteControls}>
-          <TouchableOpacity onPress={() => handleVote(item, 1)} style={styles.miniVoteContext}>
-            <Icon name="chevron-up" size={24} color={COLORS.textMuted} />
-            <Text style={styles.miniVoteText}>{item.upvotes || 0}</Text>
+          <TouchableOpacity onPress={() => handleVote(item, 1)} style={styles.miniVoteButton}>
+            <Icon name="arrow-up-bold" size={20} color={item.user_vote === 1 ? COLORS.primary : COLORS.textMuted} />
+          </TouchableOpacity>
+          <Text style={[styles.miniVoteText, item.user_vote !== 0 && { color: item.user_vote === 1 ? COLORS.primary : COLORS.error }]}>
+            {(item.upvotes || 0) - (item.downvotes || 0)}
+          </Text>
+          <TouchableOpacity onPress={() => handleVote(item, -1)} style={styles.miniVoteButton}>
+            <Icon name="arrow-down-bold" size={20} color={item.user_vote === -1 ? COLORS.error : COLORS.textMuted} />
           </TouchableOpacity>
         </View>
       </View>
@@ -650,18 +657,19 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   voteControls: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingLeft: SPACING.sm,
+    gap: 4,
   },
-  miniVoteContext: {
-    alignItems: 'center',
+  miniVoteButton: {
+    padding: 4,
   },
   miniVoteText: {
-    color: COLORS.textMuted,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 'bold',
-    marginTop: -2,
+    color: COLORS.textMuted,
+    minWidth: 16,
+    textAlign: 'center',
   },
 
   // Misc

@@ -927,3 +927,55 @@ body {
 .logout-btn .material-symbols-rounded {
     font-size: 20px;
 }
+
+/* DJ Scratch Animation */
+@keyframes dj-scratch {
+    0% {
+        transform: scale(1) rotate(0deg);
+        opacity: 1;
+        filter: blur(0);
+    }
+
+    10% {
+        transform: scale(1.1) rotate(-5deg);
+        filter: blur(2px);
+    }
+
+    20% {
+        transform: scale(1.1) rotate(5deg);
+    }
+
+    30% {
+        transform: scale(1.1) rotate(-8deg);
+    }
+
+    40% {
+        transform: scale(1.1) rotate(8deg);
+    }
+
+    50% {
+        transform: scale(1.1) rotate(-10deg);
+        filter: blur(4px);
+    }
+
+    60% {
+        transform: scale(1.2) rotate(360deg);
+        opacity: 0.8;
+    }
+
+    80% {
+        transform: scale(0.5) rotate(720deg);
+        opacity: 0.3;
+        filter: blur(10px);
+    }
+
+    100% {
+        transform: scale(0) rotate(1080deg);
+        opacity: 0;
+        filter: blur(20px);
+    }
+}
+
+.dj-scratch-active {
+    animation: dj-scratch 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) both !important;
+}

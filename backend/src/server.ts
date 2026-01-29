@@ -10,6 +10,7 @@ import authRoutes from './routes/auth';
 import podcastRoutes from './routes/podcasts';
 import radioRoutes from './routes/radio';
 import jukeboxRoutes from './routes/jukebox';
+import usersRoutes from './routes/users';
 import { authMiddleware } from './middleware/auth';
 import { setupSocketHandlers } from './sockets';
 
@@ -51,6 +52,7 @@ app.use('/jukebox', jukeboxRoutes);
 
 // Jukebox: User endpoints (auth handled per-route in jukeboxRoutes)
 app.use('/api/v1/jukebox', jukeboxRoutes);
+app.use('/api/v1/users', usersRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok' }));

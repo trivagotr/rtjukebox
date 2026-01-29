@@ -17,7 +17,11 @@ async function checkDeviceSession(req: AuthRequest, res: Response, next: NextFun
     const { device_id } = req.body;
     const user_id = req.user?.id;
 
-    if (!device_id) return sendError(res, 'Device ID required', 400);
+    if (!device_id) {
+        console.warn(`[SECURITY] Missing device_id in request to ${req.path} from user ${user_id}`);
+        return sendError(res, 'Device ID required', 400);
+    }
+
     if (!user_id) return sendError(res, 'Unauthorized', 401);
 
     // Admins have bypass
@@ -30,6 +34,7 @@ async function checkDeviceSession(req: AuthRequest, res: Response, next: NextFun
         );
 
         if (sessionRes.rows.length === 0) {
+            console.warn(`[SECURITY] No session found for user ${user_id} on device ${device_id}`);
             return sendError(res, 'Session required for this device', 403, 'SESSION_REQUIRED');
         }
 
@@ -87,17 +92,7 @@ router.post('/connect', optionalAuth, async (req: Request, res: Response) => {
             return sendError(res, 'Device not found', 404);
         }
 
-        // Password check (skipped for admins)
-        if (device.password && !isAdmin) {
-            if (!password) {
-                return sendError(res, 'Password required for this device', 403, 'PASSWORD_REQUIRED');
-            }
-            if (password !== device.password) {
-                return sendError(res, 'Invalid device password', 403, 'INVALID_PASSWORD');
-            }
-        }
-
-        const queue = await getQueueForDevice(device.id);
+        const queue = await getQueueForDevice(device.id, authReq.user?.id);
         console.log('Connect Response for', device_code, ':', JSON.stringify(queue.now_playing?.title));
 
         // Create session
@@ -199,15 +194,28 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
         );
         const songCount = parseInt(activeUserSongs.rows[0].count);
 
-        const GUEST_LIMIT = 1;
-        const USER_LIMIT = 5;
-
         if (dbUser.role === ROLES.ADMIN) {
             // Admins have no limits
-        } else if (dbUser.role === ROLES.GUEST && songCount >= GUEST_LIMIT) {
-            return sendError(res, `Guest limit reached (${GUEST_LIMIT} song)`, 403, 'Misafir olarak sadece 1 aktif şarkınız olabilir.');
-        } else if (dbUser.role === ROLES.USER && songCount >= USER_LIMIT) {
-            return sendError(res, `Queue limit reached (${USER_LIMIT} songs)`, 403, `Kuyrukta en fazla ${USER_LIMIT} aktif şarkınız olabilir.`);
+        } else if (dbUser.role === ROLES.GUEST) {
+            // GUEST LIMIT: 1 song TOTAL (ever) per account OR (IP + UA)
+            if (dbUser.total_songs_added >= 1) {
+                return sendError(res, 'Guest limit reached', 403, 'GUEST_LIMIT_REACHED');
+            }
+
+            // IP + User-Agent Based Check (to prevent clearing cache to bypass while allowing different devices on same wifi)
+            const ua = req.headers['user-agent'];
+            const ipUA_Check = await db.query(
+                "SELECT id FROM users WHERE last_ip = $1 AND user_agent = $2 AND is_guest = TRUE AND total_songs_added >= 1 AND id != $3",
+                [req.ip, ua, userId]
+            );
+            if (ipUA_Check.rows.length > 0) {
+                return sendError(res, 'Guest limit reached (Identity Check)', 403, 'GUEST_LIMIT_REACHED');
+            }
+        } else if (dbUser.role === ROLES.USER) {
+            const USER_LIMIT = 5;
+            if (songCount >= USER_LIMIT) {
+                return sendError(res, `Queue limit reached (${USER_LIMIT} songs)`, 403, `Kuyrukta en fazla ${USER_LIMIT} aktif şarkınız olabilir.`);
+            }
         }
 
         // Check if song is already in pending queue for this device
@@ -245,8 +253,12 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
             [device_id, song_id, userId, priorityScore]
         );
 
-        // Update user stats
-        await db.query('UPDATE users SET total_songs_added = total_songs_added + 1 WHERE id = $1', [userId]);
+        // Update user stats and award points (only for non-guests)
+        if (!dbUser.is_guest) {
+            await db.query('UPDATE users SET total_songs_added = total_songs_added + 1, rank_score = rank_score + 5 WHERE id = $1', [userId]);
+        } else {
+            await db.query('UPDATE users SET total_songs_added = total_songs_added + 1 WHERE id = $1', [userId]);
+        }
 
         // Broadcast to all connected clients
         getIO()?.to(`device:${device_id}`).emit('queue_updated', await getQueueForDevice(device_id));
@@ -267,89 +279,141 @@ router.post('/vote', authMiddleware, checkDeviceSession, async (req: Request, re
     if (!userId) return res.status(401).json({ error: 'Authentication required to vote' });
 
     try {
+        const userRes = await db.query('SELECT * FROM users WHERE id = $1', [userId]);
+        const dbUser = userRes.rows[0];
+        if (!dbUser) return sendError(res, 'User not found', 404);
+
         let targetQueueId = queue_item_id;
 
         // If voting on active song (which might be autoplay/virtual), find/create context
         if (!targetQueueId && song_id) {
-            // Find current playing item for this song (even if autoplay)
-            // For simplicity in this iteration, we focus on real queue items. 
-            // If it's an autoplay item, we can track votes on the SONG directly for the algorithm.
-
             // Update SONG score directly
             await db.query(`UPDATE songs SET score = score + $1 WHERE id = $2`, [vote, song_id]);
             return sendSuccess(res, { score_updated: true }, 'Vote cast on song');
         }
 
         // Standard Queue Item Logic
-        await db.query(
-            `INSERT INTO votes (queue_item_id, user_id, vote_type) VALUES ($1, $2, $3)
-             ON CONFLICT (queue_item_id, user_id) DO UPDATE SET vote_type = $3`,
-            [targetQueueId, userId, vote]
-        );
+        const existingVote = await db.query('SELECT vote_type FROM votes WHERE queue_item_id = $1 AND user_id = $2', [targetQueueId, userId]);
+        const oldVote = existingVote.rows[0]?.vote_type || 0;
+        let finalVoteValue = vote;
 
-        // ... (Recalculate votes logic same as before) ...
-        const votes = await db.query(
+        // Super Upvote Logic
+        const isSuper = req.body.is_super === true;
+        if (isSuper) {
+            // Check if guest
+            if (dbUser.is_guest) {
+                return sendError(res, 'Süper oy için üye olmalısın!', 403);
+            }
+            // Check if used today
+            const lastSuper = dbUser.last_super_vote_at;
+            const today = new Date().toISOString().split('T')[0];
+            const lastSuperDate = lastSuper ? new Date(lastSuper).toISOString().split('T')[0] : null;
+
+            if (lastSuperDate === today) {
+                return sendError(res, 'Bugün süper oy hakkını zaten kullandın!', 403, 'SUPER_VOTE_COOLDOWN');
+            }
+            finalVoteValue = 4; // Super Upvote value
+            await db.query('UPDATE users SET last_super_vote_at = NOW() WHERE id = $1', [userId]);
+        }
+
+        if (oldVote === finalVoteValue && !isSuper) {
+            // TOGGLE OFF (Basic Up/Down only)
+            await db.query('DELETE FROM votes WHERE queue_item_id = $1 AND user_id = $2', [targetQueueId, userId]);
+            finalVoteValue = 0;
+        } else {
+            // UPDATE or NEW VOTE
+            await db.query(
+                `INSERT INTO votes (queue_item_id, user_id, vote_type) VALUES ($1, $2, $3)
+                 ON CONFLICT (queue_item_id, user_id) DO UPDATE SET vote_type = $3`,
+                [targetQueueId, userId, finalVoteValue]
+            );
+        }
+
+        const votesRes = await db.query(
             `SELECT 
-         SUM(CASE WHEN vote_type = 1 THEN 1 ELSE 0 END) as upvotes,
-         SUM(CASE WHEN vote_type = -1 THEN 1 ELSE 0 END) as downvotes
-       FROM votes WHERE queue_item_id = $1`,
+                SUM(CASE WHEN vote_type > 0 THEN vote_type ELSE 0 END) as upvotes,
+                SUM(CASE WHEN vote_type < 0 THEN ABS(vote_type) ELSE 0 END) as downvotes
+             FROM votes WHERE queue_item_id = $1`,
             [targetQueueId]
         );
 
-        const { upvotes, downvotes } = votes.rows[0] || { upvotes: 0, downvotes: 0 };
+        const { upvotes = 0, downvotes = 0 } = votesRes.rows[0];
 
         // Fetch queue item details
-        const queueItem = await db.query('SELECT * FROM queue_items WHERE id = $1', [targetQueueId]);
-        if (!queueItem.rows[0]) return sendError(res, 'Item not found', 404);
+        const queueItemRes = await db.query('SELECT * FROM queue_items WHERE id = $1', [targetQueueId]);
+        const queueItem = queueItemRes.rows[0];
+        if (!queueItem) return sendError(res, 'Item not found', 404);
 
         // Update Reputation Score of the Song
-        await db.query(`UPDATE songs SET score = score + $1 WHERE id = $2`, [vote, queueItem.rows[0].song_id]);
+        await db.query(`UPDATE songs SET score = score + $1 WHERE id = $2`, [finalVoteValue - oldVote, queueItem.song_id]);
 
-        // Auto-Skip Logic
-        const SKIP_THRESHOLD = 3; // Lowered for testing
-        if ((parseInt(downvotes) || 0) >= SKIP_THRESHOLD && (parseInt(downvotes) > parseInt(upvotes) + 1)) {
+        // Award/Deduct points to the REQUESTER (if not guest)
+        const requesterRes = await db.query('SELECT is_guest FROM users WHERE id = $1', [queueItem.added_by]);
+        if (requesterRes.rows[0] && !requesterRes.rows[0].is_guest) {
+            if (oldVote !== finalVoteValue) {
+                let pointChange = 0;
+
+                // Regular Up (+2), Super Up (+10), Down (-2)
+                if (finalVoteValue === 1) pointChange = oldVote === -1 ? 4 : 2;
+                else if (finalVoteValue === 4) pointChange = 10;
+                else if (finalVoteValue === -1) pointChange = oldVote === 1 ? -4 : -2;
+                else if (finalVoteValue === 0) pointChange = oldVote === 1 ? -2 : (oldVote === 4 ? -10 : 2);
+
+                if (pointChange !== 0) {
+                    await db.query('UPDATE users SET rank_score = rank_score + $1 WHERE id = $2', [pointChange, queueItem.added_by]);
+                }
+            }
+        }
+
+        // Award points to the VOTER for using Super Upvote
+        if (isSuper) {
+            await db.query('UPDATE users SET rank_score = rank_score + 10 WHERE id = $1', [userId]);
+        }
+
+        // Auto-Skip Logic (Community Rejection)
+        const SKIP_THRESHOLD = 3;
+        if (parseInt(downvotes) >= SKIP_THRESHOLD && (parseInt(downvotes) > parseInt(upvotes) + 1)) {
             await db.query("UPDATE queue_items SET status = 'skipped' WHERE id = $1", [targetQueueId]);
 
-            // Penalize User
-            await db.query('UPDATE users SET rank_score = GREATEST(0, rank_score - 5) WHERE id = $1', [queueItem.rows[0].added_by]);
+            // Penalize User (-10 for skip)
+            if (requesterRes.rows[0] && !requesterRes.rows[0].is_guest) {
+                await db.query('UPDATE users SET rank_score = rank_score - 10 WHERE id = $1', [queueItem.added_by]);
+            }
 
-            // Heavy Penalty to Song
-            await db.query('UPDATE songs SET score = score - 10 WHERE id = $1', [queueItem.rows[0].song_id]);
+            await db.query('UPDATE songs SET score = score - 10 WHERE id = $1', [queueItem.song_id]);
 
-            getIO()?.to(`device:${queueItem.rows[0].device_id}`).emit('song_skipped');
-            return sendSuccess(res, { skipped: true }, 'Song skipped due to community vote');
+            // Emit song_rejected to trigger the "DJ Spin" effect on Kiosk
+            getIO()?.to(`device:${queueItem.device_id}`).emit('song_rejected');
+            return sendSuccess(res, { skipped: true }, 'Song rejected by community vote');
         }
 
         // Update Priority if still pending
-        if (queueItem.rows[0].status === 'pending') {
-            const user = await db.query('SELECT rank_score FROM users WHERE id = $1', [queueItem.rows[0].added_by]);
+        if (queueItem.status === 'pending') {
+            const user = await db.query('SELECT rank_score FROM users WHERE id = $1', [queueItem.added_by]);
             const newPriority = calculatePriorityScore(
                 (parseInt(upvotes) || 0) - (parseInt(downvotes) || 0),
-                queueItem.rows[0].added_at,
+                queueItem.added_at,
                 user.rows[0]?.rank_score || 0
             );
             await db.query('UPDATE queue_items SET priority_score = $1, upvotes = $2, downvotes = $3 WHERE id = $4',
                 [newPriority, upvotes, downvotes, targetQueueId]);
         } else {
-            // Just update vote counts if playing
             await db.query('UPDATE queue_items SET upvotes = $1, downvotes = $2 WHERE id = $3',
                 [upvotes, downvotes, targetQueueId]);
         }
 
-        getIO()?.to(`device:${queueItem.rows[0].device_id}`).emit('queue_updated',
-            await getQueueForDevice(queueItem.rows[0].device_id)
-        );
-
-        return sendSuccess(res, { upvotes, downvotes }, 'Vote cast successfully');
+        getIO()?.to(`device:${queueItem.device_id}`).emit('queue_updated', await getQueueForDevice(queueItem.device_id));
+        return sendSuccess(res, { upvotes, downvotes, user_vote: finalVoteValue }, 'Vote cast successfully');
     } catch (error) {
-        console.error(error);
+        console.error('Vote error:', error);
         return sendError(res, 'Vote failed', 500);
     }
 });
 
 // Get queue for device
-router.get('/queue/:deviceId', async (req: Request, res: Response) => {
-    const queue = await getQueueForDevice(req.params.deviceId);
+router.get('/queue/:deviceId', optionalAuth, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    const queue = await getQueueForDevice(req.params.deviceId, authReq.user?.id);
     res.json(queue);
 });
 
@@ -777,8 +841,19 @@ router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
         // Check if song_id is null (stopped)
         if (!song_id) {
             await db.query('UPDATE devices SET current_song_id = NULL WHERE id = $1', [device_id]);
-            // Also mark current playing item as played
-            await db.query("UPDATE queue_items SET status = 'played', played_at = NOW() WHERE device_id = $1 AND status = 'playing'", [device_id]);
+            // Also mark current playing item as played and award points (+10)
+            const prevPlaying = await db.query("SELECT id, added_by FROM queue_items WHERE device_id = $1 AND status = 'playing'", [device_id]);
+            if (prevPlaying.rows.length > 0) {
+                const requesterId = prevPlaying.rows[0].added_by;
+                await db.query("UPDATE queue_items SET status = 'played', played_at = NOW() WHERE id = $1", [prevPlaying.rows[0].id]);
+
+                // Award points if not guest
+                const requesterRes = await db.query('SELECT is_guest FROM users WHERE id = $1', [requesterId]);
+                if (requesterRes.rows[0] && !requesterRes.rows[0].is_guest) {
+                    await db.query('UPDATE users SET rank_score = rank_score + 10 WHERE id = $1', [requesterId]);
+                    console.log(`[POINTS] Requester ${requesterId} awarded +10 for played song (stop event)`);
+                }
+            }
 
             // Broadcast the stop event immediately
             getIO()?.to(`device:${device_id}`).emit('queue_updated', await getQueueForDevice(device_id));
@@ -792,11 +867,19 @@ router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
         );
 
         if (queueItem.rows.length > 0) {
-            // Mark previous playing song as played
-            await db.query(
-                "UPDATE queue_items SET status = 'played', played_at = NOW() WHERE device_id = $1 AND status = 'playing'",
-                [device_id]
-            );
+            // Mark previous playing song as played and award points (+10)
+            const prevPlaying = await db.query("SELECT id, added_by FROM queue_items WHERE device_id = $1 AND status = 'playing'", [device_id]);
+            if (prevPlaying.rows.length > 0) {
+                const requesterId = prevPlaying.rows[0].added_by;
+                await db.query("UPDATE queue_items SET status = 'played', played_at = NOW() WHERE id = $1", [prevPlaying.rows[0].id]);
+
+                // Award points if not guest
+                const requesterRes = await db.query('SELECT is_guest FROM users WHERE id = $1', [requesterId]);
+                if (requesterRes.rows[0] && !requesterRes.rows[0].is_guest) {
+                    await db.query('UPDATE users SET rank_score = rank_score + 10 WHERE id = $1', [requesterId]);
+                    console.log(`[POINTS] Requester ${requesterId} awarded +10 for played song`);
+                }
+            }
 
             // Mark new song as playing
             await db.query(
@@ -883,10 +966,11 @@ router.post('/autoplay/trigger', async (req: Request, res: Response) => {
     }
 });
 
-async function getQueueForDevice(deviceId: string) {
+async function getQueueForDevice(deviceId: string, userId?: string) {
     const result = await db.query(
         `SELECT qi.*, s.title, s.artist, s.cover_url, s.duration_seconds, s.file_url,
             u.display_name as added_by_name
+            ${userId ? ', (SELECT vote_type FROM votes v WHERE v.queue_item_id = qi.id AND v.user_id = $2) as user_vote' : ''}
      FROM queue_items qi
      JOIN songs s ON qi.song_id = s.id
      JOIN users u ON qi.added_by = u.id
@@ -894,7 +978,7 @@ async function getQueueForDevice(deviceId: string) {
      ORDER BY 
         CASE WHEN qi.status = 'playing' THEN 1 ELSE 2 END,
         qi.priority_score DESC`,
-        [deviceId]
+        userId ? [deviceId, userId] : [deviceId]
     );
 
     let nowPlaying = result.rows.find((r: any) => r.status === 'playing');

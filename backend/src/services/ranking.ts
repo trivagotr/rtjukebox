@@ -11,11 +11,11 @@ export function calculatePriorityScore(
     addedAt: Date | number,
     userRankScore: number
 ): number {
-    // T: Time factor - earlier songs get higher base score
+    // T: Time factor - songs gain score the longer they wait (FIFO bias)
     const minutesWaiting = typeof addedAt === 'number'
         ? 0
         : (Date.now() - new Date(addedAt).getTime()) / 60000;
-    const timeFactor = Math.max(0, 100 - minutesWaiting * 2);
+    const timeFactor = minutesWaiting * 2; // Increases over time
 
     // V: Vote factor
     const voteFactor = netVotes * 10;

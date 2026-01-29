@@ -59,9 +59,9 @@ router.post('/register', async (req: Request, res: Response) => {
         const hashedPassword = await bcrypt.hash(password, 10);
 
         const result = await db.query(
-            `INSERT INTO users (email, password_hash, display_name, role) 
-             VALUES ($1, $2, $3, $4) RETURNING id, email, display_name, role`,
-            [email, hashedPassword, display_name, ROLES.USER]
+            `INSERT INTO users (email, password_hash, display_name, role, last_ip, user_agent)
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+            [email, hashedPassword, display_name, ROLES.USER, req.ip, req.headers['user-agent']]
         );
 
         const user = result.rows[0];
@@ -90,6 +90,9 @@ router.post('/login', async (req: Request, res: Response) => {
             return sendError(res, 'Invalid credentials', 401);
         }
 
+        // Update last IP and UA on login
+        await db.query('UPDATE users SET last_ip = $1, user_agent = $2 WHERE id = $3', [req.ip, req.headers['user-agent'], user.id]);
+
         const tokens = await createAuthSession(user.id, user.email, user.role);
         return sendSuccess(res, {
             user: {
@@ -99,7 +102,8 @@ router.post('/login', async (req: Request, res: Response) => {
                 avatar_url: user.avatar_url,
                 rank_score: user.rank_score,
                 is_guest: user.is_guest,
-                role: user.role
+                role: user.role,
+                last_super_vote_at: user.last_super_vote_at
             },
             ...tokens
         }, 'Login successful');
@@ -121,9 +125,9 @@ router.post('/guest', async (req: Request, res: Response) => {
         const email = `guest_${guestId}@radiotedu.internal`;
 
         const result = await db.query(
-            `INSERT INTO users (email, password_hash, display_name, is_guest) 
-             VALUES ($1, NULL, $2, TRUE) RETURNING *`,
-            [email, display_name]
+            `INSERT INTO users (email, password_hash, display_name, is_guest, last_ip, user_agent) 
+             VALUES ($1, NULL, $2, TRUE, $3, $4) RETURNING *`,
+            [email, display_name, req.ip, req.headers['user-agent']]
         );
 
         const user = result.rows[0];
@@ -136,7 +140,8 @@ router.post('/guest', async (req: Request, res: Response) => {
                 display_name: user.display_name,
                 is_guest: true,
                 rank_score: 0,
-                role: ROLES.GUEST
+                role: ROLES.GUEST,
+                last_super_vote_at: null
             },
             ...tokens
         }, 'Guest login successful', null, 201);

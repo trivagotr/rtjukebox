@@ -1,50 +1,43 @@
-import React from 'react';
-import {View, Text, StyleSheet, FlatList, Image} from 'react-native';
-import {SafeAreaView} from 'react-native-safe-area-context';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, Image, ActivityIndicator, RefreshControl } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import {COLORS, SPACING} from '../theme/theme';
+import { COLORS, SPACING } from '../theme/theme';
 import GlobalHeader from '../components/GlobalHeader';
 import PageTransition from '../components/PageTransition';
-
-const MOCK_LEADERBOARD = [
-  {
-    id: '1',
-    name: 'Emre K.',
-    points: 1250,
-    avatar: 'https://ui-avatars.com/api/?name=Emre+K&background=random',
-  },
-  {
-    id: '2',
-    name: 'Ayşe Y.',
-    points: 1100,
-    avatar: 'https://ui-avatars.com/api/?name=Ayse+Y&background=random',
-  },
-  {
-    id: '3',
-    name: 'Mehmet D.',
-    points: 950,
-    avatar: 'https://ui-avatars.com/api/?name=Mehmet+D&background=random',
-  },
-  {
-    id: '4',
-    name: 'Zeynep S.',
-    points: 880,
-    avatar: 'https://ui-avatars.com/api/?name=Zeynep+S&background=random',
-  },
-  {
-    id: '5',
-    name: 'Can B.',
-    points: 720,
-    avatar: 'https://ui-avatars.com/api/?name=Can+B&background=random',
-  },
-];
+import api from '../services/api';
 
 const LeaderboardScreen = () => {
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    fetchLeaderboard();
+  }, []);
+
+  const fetchLeaderboard = async () => {
+    try {
+      const response = await api.get('/users/leaderboard');
+      setLeaderboard(response.data.data.leaderboard || []);
+    } catch (error) {
+      console.error('Failed to fetch leaderboard:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchLeaderboard();
+  };
+
   const renderItem = ({
     item,
     index,
   }: {
-    item: (typeof MOCK_LEADERBOARD)[0];
+    item: any;
     index: number;
   }) => {
     let rankColor = COLORS.text;
@@ -71,14 +64,18 @@ const LeaderboardScreen = () => {
           )}
         </View>
 
-        <Image source={{uri: item.avatar}} style={styles.avatar} />
+        <Image
+          source={{ uri: item.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(item.display_name)}&background=random&color=fff` }}
+          style={styles.avatar}
+        />
 
         <View style={styles.infoContainer}>
-          <Text style={styles.name}>{item.name}</Text>
+          <Text style={styles.name}>{item.display_name}</Text>
+          <Text style={styles.songsAdded}>{item.total_songs_added} Şarkı</Text>
         </View>
 
         <View style={styles.pointsContainer}>
-          <Text style={styles.points}>{item.points}</Text>
+          <Text style={styles.points}>{item.rank_score}</Text>
           <Text style={styles.pointsLabel}>Puan</Text>
         </View>
       </View>
@@ -94,28 +91,37 @@ const LeaderboardScreen = () => {
           <Text style={styles.headerSubtitle}>En Aktif Dinleyiciler</Text>
         </View>
 
-        <FlatList
-          data={MOCK_LEADERBOARD}
-          renderItem={renderItem}
-          keyExtractor={item => item.id}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-        />
+        {loading && !refreshing ? (
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
+          </View>
+        ) : (
+          <FlatList
+            data={leaderboard}
+            renderItem={renderItem}
+            keyExtractor={item => item.id}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />
+            }
+          />
+        )}
       </SafeAreaView>
     </PageTransition>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {flex: 1, backgroundColor: COLORS.background},
+  container: { flex: 1, backgroundColor: COLORS.background },
   header: {
     padding: SPACING.lg,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-  headerTitle: {fontSize: 24, fontWeight: 'bold', color: COLORS.text},
-  headerSubtitle: {fontSize: 14, color: COLORS.textMuted, marginTop: 4},
-  listContent: {padding: SPACING.md},
+  headerTitle: { fontSize: 24, fontWeight: 'bold', color: COLORS.text },
+  headerSubtitle: { fontSize: 14, color: COLORS.textMuted, marginTop: 4 },
+  listContent: { padding: SPACING.md },
   itemContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -132,13 +138,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: SPACING.md,
   },
-  rankText: {fontSize: 18, fontWeight: 'bold', color: COLORS.textMuted},
-  avatar: {width: 40, height: 40, borderRadius: 20, marginRight: SPACING.md},
-  infoContainer: {flex: 1},
-  name: {fontSize: 16, fontWeight: 'bold', color: COLORS.text},
-  pointsContainer: {alignItems: 'flex-end'},
-  points: {fontSize: 16, fontWeight: 'bold', color: COLORS.primary},
-  pointsLabel: {fontSize: 10, color: COLORS.textMuted},
+  rankText: { fontSize: 18, fontWeight: 'bold', color: COLORS.textMuted },
+  avatar: { width: 40, height: 40, borderRadius: 20, marginRight: SPACING.md },
+  infoContainer: { flex: 1 },
+  name: { fontSize: 16, fontWeight: 'bold', color: COLORS.text },
+  songsAdded: { fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
+  pointsContainer: { alignItems: 'flex-end' },
+  points: { fontSize: 16, fontWeight: 'bold', color: COLORS.primary },
+  pointsLabel: { fontSize: 10, color: COLORS.textMuted },
 });
 
 export default LeaderboardScreen;
