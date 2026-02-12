@@ -16,12 +16,11 @@ import {
     Edit2,
     Check,
     X,
-    Settings,
     LogOut
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL ||
-    `${window.location.protocol}//${window.location.hostname}:3000`;
+    (window.location.port ? `${window.location.protocol}//${window.location.hostname}:8080` : `${window.location.protocol}//${window.location.hostname}`);
 
 interface Device {
     id: string;

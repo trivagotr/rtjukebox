@@ -22,7 +22,7 @@ import {
 import { AdminDashboard } from './AdminDashboard';
 
 const API_URL = import.meta.env.VITE_API_URL ||
-  `${window.location.protocol}//${window.location.hostname}:3000`;
+  (window.location.port ? `${window.location.protocol}//${window.location.hostname}:8080` : `${window.location.protocol}//${window.location.hostname}`);
 
 interface Song {
   id: string;
@@ -252,8 +252,23 @@ const LeaderboardView = ({ leaderboard, onClose }: any) => (
   </div>
 );
 
-const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user }: any) => {
+const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user, onGuestSuperVote }: any) => {
   const currentVote = myVotes[item.id] !== undefined ? myVotes[item.id] : item.user_vote;
+  const isSuperVote = currentVote === 4;
+  const isNormalUpvote = currentVote === 1;
+  const isDownvote = currentVote === -1;
+
+  const handleSuperVoteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (user?.is_guest) {
+      // Guest clicked super vote - redirect to login
+      onGuestSuperVote?.();
+    } else {
+      handleVote(item.id, 1, true);
+    }
+  };
+
+  const usedSuperVoteToday = user?.last_super_vote_at?.split('T')[0] === new Date().toISOString().split('T')[0];
 
   return (
     <div className="group relative flex items-center gap-4 p-3 glass hover:bg-white/5 border border-white/5 rounded-2xl transition-all animate-fade">
@@ -273,32 +288,30 @@ const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user }: any) => {
         {/* Voting Controls */}
         <div className="flex items-center gap-1 mt-1">
           <button
-            onClick={(e) => { e.stopPropagation(); handleVote(item.id, 1); }}
-            className={`p-1 rounded-md transition-colors ${currentVote === 1 ? 'bg-emerald-500/20 text-emerald-500' : 'text-text-muted hover:bg-emerald-500/20 hover:text-emerald-500'}`}
+            onClick={(e) => { e.stopPropagation(); handleVote(item.id, 1, false); }}
+            className={`p-1 rounded-md transition-colors ${isNormalUpvote ? 'bg-emerald-500/20 text-emerald-500' : 'text-text-muted hover:bg-emerald-500/20 hover:text-emerald-500'}`}
             title="Upvote"
           >
-            <ArrowBigUp size={16} fill={currentVote === 1 ? "currentColor" : "none"} />
+            <ArrowBigUp size={16} fill={isNormalUpvote ? "currentColor" : "none"} />
           </button>
           <span className="text-[10px] font-bold text-text-muted min-w-[12px] text-center">{item.upvotes - item.downvotes}</span>
           <button
-            onClick={(e) => { e.stopPropagation(); handleVote(item.id, -1); }}
-            className={`p-1 rounded-md transition-colors ${currentVote === -1 ? 'bg-rose-500/20 text-rose-500' : 'text-text-muted hover:bg-rose-500/20 hover:text-rose-500'}`}
+            onClick={(e) => { e.stopPropagation(); handleVote(item.id, -1, false); }}
+            className={`p-1 rounded-md transition-colors ${isDownvote ? 'bg-rose-500/20 text-rose-500' : 'text-text-muted hover:bg-rose-500/20 hover:text-rose-500'}`}
             title="Downvote"
           >
-            <ArrowBigDown size={16} fill={currentVote === -1 ? "currentColor" : "none"} />
+            <ArrowBigDown size={16} fill={isDownvote ? "currentColor" : "none"} />
           </button>
 
-          {/* Super Upvote Button */}
-          {!user?.is_guest && (
-            <button
-              onClick={(e) => { e.stopPropagation(); handleVote(item.id, 1, true); }}
-              disabled={user?.last_super_vote_at?.split('T')[0] === new Date().toISOString().split('T')[0]}
-              className={`p-1 rounded-md transition-all ${currentVote === 4 ? 'bg-amber-500/30 text-amber-500 scale-110' : 'text-text-muted hover:bg-amber-500/20 hover:text-amber-500 opacity-60 hover:opacity-100'}`}
-              title={user?.last_super_vote_at?.split('T')[0] === new Date().toISOString().split('T')[0] ? "Bugün süper oy hakkın bitti" : "Süper Upvote (+4)"}
-            >
-              <Star size={14} fill={currentVote === 4 ? "currentColor" : "none"} />
-            </button>
-          )}
+          {/* Super Upvote Button - Visible to everyone */}
+          <button
+            onClick={handleSuperVoteClick}
+            disabled={!user?.is_guest && usedSuperVoteToday}
+            className={`p-1 rounded-md transition-all ${isSuperVote ? 'bg-amber-500/30 text-amber-500 scale-110' : user?.is_guest ? 'text-amber-500/50 hover:text-amber-500' : 'text-text-muted hover:bg-amber-500/20 hover:text-amber-500 opacity-60 hover:opacity-100'}`}
+            title={user?.is_guest ? "Üye ol ve Süper Upvote kullan!" : usedSuperVoteToday ? "Bugün süper oy hakkın bitti" : "Süper Upvote (+4)"}
+          >
+            <Star size={14} fill={isSuperVote ? "currentColor" : "none"} />
+          </button>
         </div>
       </div>
     </div>
@@ -535,6 +548,7 @@ const JukeboxView = ({
                   myVotes={myVotes}
                   handleVote={handleVote}
                   user={user}
+                  onGuestSuperVote={logout}
                 />
               ))
             )}
@@ -702,11 +716,18 @@ function App() {
     if (!device) return;
 
     if (!socket) {
-      console.log('🚀 Initializing socket connection to:', API_URL);
-      const newSocket = io(API_URL, {
+      // Production: connect through IIS proxy (no port)
+      // Development: connect directly to backend port 3000
+      const socketUrl = window.location.port
+        ? `${window.location.protocol}//${window.location.hostname}:8080`
+        : `${window.location.protocol}//${window.location.hostname}`;
+
+      console.log('🚀 Initializing socket connection to:', socketUrl);
+      const newSocket = io(socketUrl, {
+        path: '/socket.io',
         reconnectionAttempts: 10,
         reconnectionDelay: 2000,
-        transports: ['websocket', 'polling']
+        transports: ['polling', 'websocket']  // Polling first for IIS compatibility
       });
       setSocket(newSocket);
 
