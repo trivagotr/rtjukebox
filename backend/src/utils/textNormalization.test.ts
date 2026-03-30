@@ -15,7 +15,7 @@ import {
   processScanFolderSongFile,
 } from '../routes/jukebox';
 import { normalizeItunesSongMetadata } from '../services/metadata';
-import { repairTextIfImproved } from '../scripts/repairTextEncoding';
+import { main as repairTextEncodingMain, REPAIR_TARGETS, repairTextIfImproved } from '../scripts/repairTextEncoding';
 
 describe('text normalization', () => {
   afterEach(() => {
@@ -492,5 +492,28 @@ describe('text normalization', () => {
   it('stays stable on a second pass', () => {
     const firstPass = repairTextIfImproved('R\u251C\u00A3YA');
     expect(repairTextIfImproved(firstPass)).toBe(firstPass);
+  });
+
+  it('leaves replacement-character corruption unchanged', () => {
+    expect(repairTextIfImproved('A\uFFFDB')).toBe('A\uFFFDB');
+  });
+
+  it('does not include songs file urls in the repair target list', () => {
+    expect(
+      REPAIR_TARGETS.some((target) => target.table === 'songs' && target.column === 'file_url'),
+    ).toBe(false);
+  });
+
+  it('fails fast when DATABASE_URL is missing', async () => {
+    const originalDatabaseUrl = process.env.DATABASE_URL;
+    delete process.env.DATABASE_URL;
+
+    await expect(repairTextEncodingMain()).rejects.toThrow('DATABASE_URL is required');
+
+    if (originalDatabaseUrl === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = originalDatabaseUrl;
+    }
   });
 });

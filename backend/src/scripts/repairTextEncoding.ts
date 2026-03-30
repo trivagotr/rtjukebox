@@ -7,7 +7,7 @@ const CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F-\u009F]/g;
 
 type RepairTarget =
   | { table: 'devices'; column: 'location' | 'name'; primaryKey: 'id' }
-  | { table: 'songs'; column: 'title' | 'artist' | 'album' | 'file_url'; primaryKey: 'id' }
+  | { table: 'songs'; column: 'title' | 'artist' | 'album'; primaryKey: 'id' }
   | { table: 'users'; column: 'display_name'; primaryKey: 'id' };
 
 type RepairStats = {
@@ -17,13 +17,12 @@ type RepairStats = {
   skipped: number;
 };
 
-const REPAIR_TARGETS: RepairTarget[] = [
+export const REPAIR_TARGETS: RepairTarget[] = [
   { table: 'devices', column: 'location', primaryKey: 'id' },
   { table: 'devices', column: 'name', primaryKey: 'id' },
   { table: 'songs', column: 'title', primaryKey: 'id' },
   { table: 'songs', column: 'artist', primaryKey: 'id' },
   { table: 'songs', column: 'album', primaryKey: 'id' },
-  { table: 'songs', column: 'file_url', primaryKey: 'id' },
   { table: 'users', column: 'display_name', primaryKey: 'id' },
 ];
 
@@ -42,6 +41,10 @@ function scoreCandidate(value: string): number {
 
 export function repairTextIfImproved(value: string | null | undefined): string | null | undefined {
   if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (value.includes('\uFFFD')) {
     return value;
   }
 
@@ -125,8 +128,7 @@ export async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL?.trim();
 
   if (!databaseUrl) {
-    console.log('[repair:text] DATABASE_URL is not set; skipping text repair.');
-    return;
+    throw new Error('DATABASE_URL is required');
   }
 
   const pool = new Pool({
