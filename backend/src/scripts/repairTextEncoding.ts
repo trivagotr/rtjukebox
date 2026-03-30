@@ -5,11 +5,10 @@ import { normalizeText } from '../utils/textNormalization';
 const SUSPICIOUS_PATTERN = /[\u00C2\u00C3\u00C4\u00C5\u00E2\u251C\u2524\u252C\u2534\u253C\u2502\u2500\u2592]|\uFFFD/;
 const CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F-\u009F]/g;
 
-type RepairTarget = {
-  table: 'devices' | 'songs' | 'users';
-  column: 'location' | 'title' | 'album' | 'file_url' | 'display_name';
-  primaryKey: 'id';
-};
+type RepairTarget =
+  | { table: 'devices'; column: 'location' | 'name'; primaryKey: 'id' }
+  | { table: 'songs'; column: 'title' | 'artist' | 'album' | 'file_url'; primaryKey: 'id' }
+  | { table: 'users'; column: 'display_name'; primaryKey: 'id' };
 
 type RepairStats = {
   scanned: number;
@@ -71,7 +70,7 @@ async function columnExists(client: PoolClient, table: string, column: string): 
     [table, column],
   );
 
-  return result.rowCount > 0;
+  return result.rows.length > 0;
 }
 
 async function repairColumn(client: PoolClient, target: RepairTarget): Promise<RepairStats> {
@@ -107,7 +106,7 @@ async function repairColumn(client: PoolClient, target: RepairTarget): Promise<R
     const updateSql = `UPDATE ${tableName} SET ${columnName} = $1 WHERE ${primaryKey} = $2 AND ${columnName} = $3`;
     const updated = await client.query(updateSql, [repairedValue, row.id, originalValue]);
 
-    if (updated.rowCount > 0) {
+    if (updated.rows.length > 0) {
       stats.updated += 1;
     } else {
       stats.skipped += 1;
