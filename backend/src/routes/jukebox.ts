@@ -314,6 +314,14 @@ function buildStoredSongFileUrl(filename: string) {
     return `/uploads/songs/${filename}`;
 }
 
+export function shouldScanFolderProcessFile(filename: string) {
+    if (filename.startsWith('song-upload-')) {
+        return false;
+    }
+
+    return filename.endsWith('.mp3') || filename.endsWith('.m4a') || filename.endsWith('.wav');
+}
+
 export async function processScanFolderSongFile(params: {
     file: string;
     uploadsPath: string;
@@ -1030,7 +1038,7 @@ router.post('/admin/scan-folder', authMiddleware, async (req: Request, res: Resp
         }
 
         const files = fs.readdirSync(uploadsPath).filter((f: string) =>
-            f.endsWith('.mp3') || f.endsWith('.m4a') || f.endsWith('.wav')
+            shouldScanFolderProcessFile(f)
         );
 
         let added = 0;

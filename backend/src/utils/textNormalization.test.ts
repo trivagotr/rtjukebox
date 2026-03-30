@@ -14,6 +14,7 @@ import {
   normalizeDeviceAdminUpdateInput,
   prepareNormalizedDeviceAdminInput,
   finalizeUploadedSongUpload,
+  shouldScanFolderProcessFile,
   parseSongDetailsFromFilename,
   processScanFolderSongFile,
 } from '../routes/jukebox';
@@ -168,6 +169,12 @@ describe('text normalization', () => {
       name: 'Radyo St\u00FCdyosu',
       location: '',
     });
+  });
+
+  it('skips staged temp upload filenames during scan-folder processing', () => {
+    expect(shouldScanFolderProcessFile('song-upload-123.mp3')).toBe(false);
+    expect(shouldScanFolderProcessFile('song-upload-abc.m4a')).toBe(false);
+    expect(shouldScanFolderProcessFile('Real Song.mp3')).toBe(true);
   });
 
   it('keeps scan-folder filenames and file urls aligned for mojibake names', () => {
