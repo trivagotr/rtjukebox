@@ -1,3 +1,4 @@
+import path from 'path';
 import { describe, expect, it } from 'vitest';
 import {
   buildSongFileUrl,
@@ -10,6 +11,7 @@ import { normalizeUploadedSongFilename } from '../middleware/upload';
 import {
   normalizeDeviceAdminInput,
   parseSongDetailsFromFilename,
+  processScanFolderSongFile,
 } from '../routes/jukebox';
 import { normalizeItunesSongMetadata } from '../services/metadata';
 
@@ -123,6 +125,123 @@ describe('text normalization', () => {
       title: 'R\u00DCYA',
       artist: 'manifest',
       fileUrl: '/uploads/songs/manifest - R\u00DCYA.mp3',
+    });
+  });
+
+  it('preserves punctuation when parsing song details from filenames', () => {
+    expect(
+      parseSongDetailsFromFilename('P!nk - Raise Your Glass (Live).mp3'),
+    ).toEqual({
+      title: 'Raise Your Glass (Live)',
+      artist: 'P!nk',
+      fileUrl: '/uploads/songs/Pnk - Raise Your Glass Live.mp3',
+    });
+  });
+
+  it('updates a legacy scan-folder row in place after renaming the file', async () => {
+    const uploadsPath = 'C:/music/uploads/songs';
+    const originalFile = 'manifest - R\u251C\u00A3YA.mp3';
+    const normalizedFile = 'manifest - R\u00DCYA.mp3';
+    const originalPath = path.join(uploadsPath, originalFile);
+    const normalizedPath = path.join(uploadsPath, normalizedFile);
+    const originalUrl = `/uploads/songs/${originalFile}`;
+    const normalizedUrl = `/uploads/songs/${normalizedFile}`;
+
+    const rows = {
+      [originalUrl]: [{ id: 'song-1', is_active: false, file_url: originalUrl }],
+      [normalizedUrl]: [],
+    } as Record<string, Array<{ id: string; is_active: boolean; file_url: string }>>;
+    const renameCalls: Array<[string, string]> = [];
+    const updateCalls: Array<[string, unknown[]]> = [];
+
+    const result = await processScanFolderSongFile({
+      file: originalFile,
+      uploadsPath,
+      dbClient: {
+        async query(sql: string, params: unknown[]) {
+          if (sql.includes('SELECT id, is_active, file_url FROM songs WHERE file_url = $1')) {
+            return { rows: rows[String(params[0])] ?? [] };
+          }
+
+          if (sql.includes('UPDATE songs SET file_url = $1, is_active = true WHERE id = $2 RETURNING *')) {
+            updateCalls.push([sql, params]);
+            rows[originalUrl] = [];
+            rows[normalizedUrl] = [{ id: 'song-1', is_active: true, file_url: normalizedUrl }];
+            return { rows: [{ id: 'song-1', is_active: true, file_url: normalizedUrl }] };
+          }
+
+          throw new Error(`Unexpected query: ${sql}`);
+        },
+      },
+      fsImpl: {
+        existsSync(filePath: string) {
+          return filePath === originalPath;
+        },
+        renameSync(from: string, to: string) {
+          renameCalls.push([from, to]);
+        },
+      },
+    });
+
+    expect(renameCalls).toEqual([[originalPath, normalizedPath]]);
+    expect(updateCalls).toHaveLength(1);
+    expect(result).toMatchObject({
+      action: 'updated',
+      fileUrl: normalizedUrl,
+      title: 'R\u00DCYA',
+      artist: 'manifest',
+    });
+  });
+
+  it('keeps a collision case on the original file url without overwriting the target', async () => {
+    const uploadsPath = 'C:/music/uploads/songs';
+    const file = 'P!nk - Raise Your Glass (Live).mp3';
+    const originalPath = path.join(uploadsPath, file);
+    const originalUrl = `/uploads/songs/${file}`;
+    const normalizedUrl = '/uploads/songs/Pnk - Raise Your Glass Live.mp3';
+    const insertCalls: Array<unknown[]> = [];
+    const renameCalls: Array<[string, string]> = [];
+
+    const result = await processScanFolderSongFile({
+      file,
+      uploadsPath,
+      dbClient: {
+        async query(sql: string, params: unknown[]) {
+          if (sql.includes('SELECT id, is_active, file_url FROM songs WHERE file_url = $1')) {
+            if (String(params[0]) === originalUrl) {
+              return { rows: [] };
+            }
+            if (String(params[0]) === normalizedUrl) {
+              return { rows: [] };
+            }
+          }
+
+          if (sql.includes('INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING *')) {
+            insertCalls.push(params);
+            return { rows: [{ id: 'song-2', is_active: true, file_url: String(params[3]) }] };
+          }
+
+          throw new Error(`Unexpected query: ${sql}`);
+        },
+      },
+      fsImpl: {
+        existsSync(filePath: string) {
+          return filePath === originalPath || filePath === path.join(uploadsPath, 'Pnk - Raise Your Glass Live.mp3');
+        },
+        renameSync(from: string, to: string) {
+          renameCalls.push([from, to]);
+        },
+      },
+    });
+
+    expect(renameCalls).toHaveLength(0);
+    expect(insertCalls).toHaveLength(1);
+    expect(insertCalls[0]).toEqual(['Raise Your Glass (Live)', 'P!nk', 180, originalUrl]);
+    expect(result).toMatchObject({
+      action: 'inserted',
+      fileUrl: originalUrl,
+      title: 'Raise Your Glass (Live)',
+      artist: 'P!nk',
     });
   });
 

@@ -22,20 +22,134 @@ export function normalizeDeviceAdminInput(input: { name: string; location?: stri
 
 export function parseSongDetailsFromFilename(filename: string) {
     const normalizedFilename = normalizeUploadedSongFilename(filename);
-    const baseName = normalizedFilename.replace(/\.(mp3|m4a|wav)$/i, '');
-    let title = normalizeText(baseName);
+    const rawBaseName = filename.replace(/\.(mp3|m4a|wav)$/i, '');
+    let title = normalizeText(rawBaseName);
     let artist = 'Unknown';
 
-    if (baseName.includes(' - ')) {
-        const firstDashIndex = baseName.indexOf(' - ');
-        artist = normalizeText(baseName.substring(0, firstDashIndex).trim());
-        title = normalizeText(baseName.substring(firstDashIndex + 3).trim());
+    if (rawBaseName.includes(' - ')) {
+        const firstDashIndex = rawBaseName.indexOf(' - ');
+        artist = normalizeText(rawBaseName.substring(0, firstDashIndex).trim());
+        title = normalizeText(rawBaseName.substring(firstDashIndex + 3).trim());
     }
 
     return {
         title,
         artist,
         fileUrl: buildSongFileUrl(normalizedFilename)
+    };
+}
+
+type ScanFolderDbClient = {
+    query: (sql: string, params: unknown[]) => Promise<{ rows: Array<{ id: string; is_active: boolean; file_url: string }> }>;
+};
+
+type ScanFolderFsClient = {
+    existsSync: (path: string) => boolean;
+    renameSync: (from: string, to: string) => void;
+};
+
+function buildStoredSongFileUrl(filename: string) {
+    return `/uploads/songs/${filename}`;
+}
+
+export async function processScanFolderSongFile(params: {
+    file: string;
+    uploadsPath: string;
+    dbClient?: ScanFolderDbClient;
+    fsImpl?: ScanFolderFsClient;
+}) {
+    const dbClient = params.dbClient ?? db;
+    const fsImpl = params.fsImpl ?? fs;
+    const normalizedFilename = normalizeUploadedSongFilename(params.file);
+    const originalFileUrl = buildStoredSongFileUrl(params.file);
+    const normalizedFileUrl = buildSongFileUrl(normalizedFilename);
+    const originalFilePath = path.join(params.uploadsPath, params.file);
+    const normalizedFilePath = path.join(params.uploadsPath, normalizedFilename);
+    const rawBaseName = params.file.replace(/\.(mp3|m4a|wav)$/i, '');
+
+    let title = normalizeText(rawBaseName);
+    let artist = 'Unknown';
+    if (rawBaseName.includes(' - ')) {
+        const firstDashIndex = rawBaseName.indexOf(' - ');
+        artist = normalizeText(rawBaseName.substring(0, firstDashIndex).trim());
+        title = normalizeText(rawBaseName.substring(firstDashIndex + 3).trim());
+    }
+
+    const shouldRename = normalizedFilename !== params.file
+        && fsImpl.existsSync(originalFilePath)
+        && !fsImpl.existsSync(normalizedFilePath);
+
+    if (shouldRename) {
+        fsImpl.renameSync(originalFilePath, normalizedFilePath);
+    }
+
+    const candidateUrls = shouldRename
+        ? [normalizedFileUrl, originalFileUrl]
+        : [originalFileUrl];
+
+    for (const fileUrl of candidateUrls) {
+        const existing = await dbClient.query(
+            'SELECT id, is_active, file_url FROM songs WHERE file_url = $1',
+            [fileUrl]
+        );
+
+        if (existing.rows.length === 0) {
+            continue;
+        }
+
+        const row = existing.rows[0];
+
+        if (shouldRename && fileUrl === originalFileUrl) {
+            const updated = await dbClient.query(
+                'UPDATE songs SET file_url = $1, is_active = true WHERE id = $2 RETURNING *',
+                [normalizedFileUrl, row.id]
+            );
+
+            return {
+                action: 'updated' as const,
+                fileUrl: normalizedFileUrl,
+                song: updated.rows[0] ?? row,
+                title,
+                artist,
+            };
+        }
+
+        if (!row.is_active) {
+            const reactivated = await dbClient.query(
+                'UPDATE songs SET is_active = true WHERE id = $1 RETURNING *',
+                [row.id]
+            );
+
+            return {
+                action: 'reactivated' as const,
+                fileUrl,
+                song: reactivated.rows[0] ?? row,
+                title,
+                artist,
+            };
+        }
+
+        return {
+            action: 'skipped' as const,
+            fileUrl,
+            song: row,
+            title,
+            artist,
+        };
+    }
+
+    const insertFileUrl = shouldRename ? normalizedFileUrl : originalFileUrl;
+    const inserted = await dbClient.query(
+        'INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING *',
+        [title, artist, 180, insertFileUrl]
+    );
+
+    return {
+        action: 'inserted' as const,
+        fileUrl: insertFileUrl,
+        song: inserted.rows[0],
+        title,
+        artist,
     };
 }
 
@@ -547,38 +661,16 @@ router.post('/admin/scan-folder', authMiddleware, async (req: Request, res: Resp
         let skipped = 0;
 
         for (const file of files) {
-            const normalizedFilename = normalizeUploadedSongFilename(file);
-            const originalFilePath = path.join(uploadsPath, file);
-            const normalizedFilePath = path.join(uploadsPath, normalizedFilename);
+            const result = await processScanFolderSongFile({
+                file,
+                uploadsPath,
+            });
 
-            if (file !== normalizedFilename && fs.existsSync(originalFilePath)) {
-                fs.renameSync(originalFilePath, normalizedFilePath);
+            if (result.action === 'skipped') {
+                skipped++;
+            } else {
+                added++;
             }
-
-            const fileUrl = buildSongFileUrl(normalizedFilename);
-
-            // Check if already exists
-            const existing = await db.query('SELECT id, is_active FROM songs WHERE file_url = $1', [fileUrl]);
-            if (existing.rows.length > 0) {
-                // If it was soft-deleted, reactivate it
-                if (!existing.rows[0].is_active) {
-                    await db.query('UPDATE songs SET is_active = true WHERE id = $1', [existing.rows[0].id]);
-                    added++; // Count as re-added
-                } else {
-                    skipped++;
-                }
-                continue;
-            }
-
-            // Extract basic info from filename
-            const { title, artist } = parseSongDetailsFromFilename(normalizedFilename);
-
-            const insertResult = await db.query(
-                'INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING id',
-                [title, artist, 180, fileUrl]
-            );
-
-            added++;
         }
 
         // Sync metadata for ALL songs in library
