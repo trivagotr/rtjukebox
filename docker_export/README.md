@@ -10,6 +10,7 @@ docker load -i docker_images.tar
 
 ## 2. Veritabanını Geri Yükleme
 PowerShell metin pipe'ı kullanmayın. `Get-Content` veya `cat` ile SQL dump'ı aktarırken dosya baytları yeniden yorumlanabilir ve UTF-8 içeriği bozulabilir.
+Restore işleminden önce DB container'ının çalışır durumda olması gerekir; `backend-db-1`, `radiotedu_user` ve `radiotedu` yalnızca bu ortam için varsayılan değerlerdir.
 
 1. Önce servisleri başlatın:
    ```powershell
