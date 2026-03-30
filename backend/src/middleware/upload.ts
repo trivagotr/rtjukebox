@@ -1,7 +1,7 @@
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { normalizeFilename } from '../utils/textNormalization';
+import { looksMojibake, normalizeFilename } from '../utils/textNormalization';
 
 const uploadDir = 'uploads/avatars';
 
@@ -44,6 +44,11 @@ if (!fs.existsSync(songUploadDir)) {
 }
 
 export function normalizeUploadedSongFilename(originalName: string): string {
+    const normalizedOriginal = normalizeFilename(originalName);
+    if (!looksMojibake(originalName)) {
+        return normalizedOriginal;
+    }
+
     const utf8Name = Buffer.from(originalName, 'latin1').toString('utf8');
     return normalizeFilename(utf8Name);
 }
