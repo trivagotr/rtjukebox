@@ -11,6 +11,7 @@ import { normalizeDisplayNameInput } from '../routes/auth';
 import { normalizeUploadedSongFilename } from '../middleware/upload';
 import {
   normalizeDeviceAdminInput,
+  finalizeUploadedSongUpload,
   parseSongDetailsFromFilename,
   processScanFolderSongFile,
 } from '../routes/jukebox';
@@ -107,6 +108,15 @@ describe('text normalization', () => {
       name: 'Radyo St\u00FCdyosu',
       location: 'Merkez Kamp\u00FCs',
     });
+  });
+
+  it('rejects whitespace-only device names after normalization', () => {
+    expect(() =>
+      normalizeDeviceAdminInput({
+        name: '   ',
+        location: 'Merkez Kamp\u00FCs',
+      }),
+    ).toThrow('Device name required');
   });
 
   it('allows clearing device location with empty admin input', () => {
@@ -464,6 +474,174 @@ describe('text normalization', () => {
       fileUrl: originalUrl,
       title: 'Raise Your Glass (Live)',
       artist: 'P!nk',
+    });
+  });
+
+  it('does not overwrite an existing canonical song file when a normalized upload collides', async () => {
+    const uploadsPath = 'C:/music/uploads/songs';
+    const originalName = 'P!nk - Raise Your Glass (Live).mp3';
+    const tempPath = path.join(uploadsPath, 'song-upload-123.mp3');
+    const canonicalPath = path.join(uploadsPath, 'Pnk - Raise Your Glass Live.mp3');
+    const canonicalUrl = '/uploads/songs/Pnk - Raise Your Glass Live.mp3';
+    const originalUrl = '/uploads/songs/P!nk - Raise Your Glass (Live).mp3';
+    const fileContents = new Map<string, string>([
+      [tempPath, 'temp-audio'],
+      [canonicalPath, 'existing-audio'],
+    ]);
+    const renameCalls: Array<[string, string]> = [];
+    const unlinkCalls: string[] = [];
+    const queryLog: string[] = [];
+
+    const result = await finalizeUploadedSongUpload({
+      file: {
+        filename: 'song-upload-123.mp3',
+        originalname: originalName,
+        path: tempPath,
+        mimetype: 'audio/mpeg',
+      } as any,
+      uploadsPath,
+      dbClient: {
+        async query(sql: string, params: unknown[]) {
+          queryLog.push(`${sql} :: ${String(params[0])}`);
+
+          if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+            return { rows: [] };
+          }
+
+          if (sql.includes('SELECT id, is_active, file_url FROM songs WHERE file_url = $1')) {
+            if (String(params[0]) === canonicalUrl) {
+              return { rows: [] };
+            }
+            if (String(params[0]) === originalUrl) {
+              return { rows: [] };
+            }
+          }
+
+          throw new Error(`Unexpected query: ${sql}`);
+        },
+      },
+      fsImpl: {
+        existsSync(filePath: string) {
+          return fileContents.has(filePath);
+        },
+        renameSync(from: string, to: string) {
+          renameCalls.push([from, to]);
+          const content = fileContents.get(from);
+          if (content === undefined) {
+            throw new Error(`Missing source file: ${from}`);
+          }
+          fileContents.set(to, content);
+          fileContents.delete(from);
+        },
+        unlinkSync(filePath: string) {
+          unlinkCalls.push(filePath);
+          fileContents.delete(filePath);
+        },
+      },
+      metadataService: {
+        async syncSongMetadata() {
+          return null;
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: 'duplicate',
+      fileUrl: canonicalUrl,
+    });
+    expect(renameCalls).toHaveLength(0);
+    expect(unlinkCalls).toEqual([tempPath]);
+    expect(fileContents.get(canonicalPath)).toBe('existing-audio');
+    expect(fileContents.has(tempPath)).toBe(false);
+    expect(queryLog).not.toContainEqual(expect.stringContaining('INSERT INTO songs'));
+  });
+
+  it('preserves punctuation in fallback song metadata through the upload helper', async () => {
+    const uploadsPath = 'C:/music/uploads/songs';
+    const originalName = 'P!nk - Raise Your Glass (Live).mp3';
+    const tempPath = path.join(uploadsPath, 'song-upload-456.mp3');
+    const canonicalPath = path.join(uploadsPath, 'Pnk - Raise Your Glass Live.mp3');
+    const canonicalUrl = '/uploads/songs/Pnk - Raise Your Glass Live.mp3';
+    const insertCalls: unknown[][] = [];
+    const renameCalls: Array<[string, string]> = [];
+    const fileContents = new Map<string, string>([[tempPath, 'temp-audio']]);
+    const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    let result: Awaited<ReturnType<typeof finalizeUploadedSongUpload>>;
+    try {
+      result = await finalizeUploadedSongUpload({
+        file: {
+          filename: 'song-upload-456.mp3',
+          originalname: originalName,
+          path: tempPath,
+          mimetype: 'audio/mpeg',
+        } as any,
+        uploadsPath,
+        dbClient: {
+          async query(sql: string, params: unknown[]) {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+              return { rows: [] };
+            }
+
+            if (sql.includes('SELECT id, is_active, file_url FROM songs WHERE file_url = $1')) {
+              return { rows: [] };
+            }
+
+            if (sql.includes('INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING *')) {
+              insertCalls.push(params);
+              return {
+                rows: [
+                  {
+                    id: 'song-1',
+                    title: String(params[0]),
+                    artist: String(params[1]),
+                    file_url: String(params[3]),
+                  },
+                ],
+              };
+            }
+
+            throw new Error(`Unexpected query: ${sql}`);
+          },
+        },
+        fsImpl: {
+          existsSync(filePath: string) {
+            return fileContents.has(filePath);
+          },
+          renameSync(from: string, to: string) {
+            renameCalls.push([from, to]);
+            const content = fileContents.get(from);
+            if (content === undefined) {
+              throw new Error(`Missing source file: ${from}`);
+            }
+            fileContents.set(to, content);
+            fileContents.delete(from);
+          },
+          unlinkSync(filePath: string) {
+            fileContents.delete(filePath);
+          },
+        },
+        metadataService: {
+          async syncSongMetadata() {
+            throw new Error('metadata sync failed');
+          },
+        },
+      });
+    } finally {
+      consoleLogSpy.mockRestore();
+    }
+
+    expect(renameCalls).toEqual([[tempPath, canonicalPath]]);
+    expect(insertCalls).toHaveLength(1);
+    expect(insertCalls[0]).toEqual(['Raise Your Glass (Live)', 'P!nk', 180, canonicalUrl]);
+    expect(result).toMatchObject({
+      status: 'uploaded',
+      fileUrl: canonicalUrl,
+      song: {
+        title: 'Raise Your Glass (Live)',
+        artist: 'P!nk',
+        file_url: canonicalUrl,
+      },
     });
   });
 

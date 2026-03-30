@@ -37,7 +37,7 @@ export const upload = multer({
 });
 
 // Song upload configuration
-const songUploadDir = 'uploads/songs';
+export const songUploadDir = 'uploads/songs';
 
 if (!fs.existsSync(songUploadDir)) {
     fs.mkdirSync(songUploadDir, { recursive: true });
@@ -52,7 +52,8 @@ const songStorage = multer.diskStorage({
         cb(null, songUploadDir);
     },
     filename: (req, file, cb) => {
-        cb(null, normalizeUploadedSongFilename(file.originalname));
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, 'song-upload-' + uniqueSuffix + path.extname(file.originalname));
     }
 });
 

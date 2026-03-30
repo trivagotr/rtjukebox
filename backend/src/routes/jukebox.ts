@@ -9,13 +9,18 @@ import { authMiddleware, optionalAuth, AuthRequest } from '../middleware/auth';
 import { sendSuccess, sendError } from '../utils/response';
 import { ROLES } from '../middleware/rbac';
 import { AudioService } from '../services/audio';
-import { songUpload, normalizeUploadedSongFilename } from '../middleware/upload';
+import { songUpload, songUploadDir, normalizeUploadedSongFilename } from '../middleware/upload';
 import path from 'path';
 import { buildSongFileUrl, normalizeText } from '../utils/textNormalization';
 
 export function normalizeDeviceAdminInput(input: { name: string; location?: string | null }) {
+    const trimmedName = input.name.trim();
+    if (!trimmedName) {
+        throw new Error('Device name required');
+    }
+
     return {
-        name: normalizeText(input.name),
+        name: normalizeText(trimmedName),
         location: input.location === undefined || input.location === null ? null : normalizeText(input.location)
     };
 }
@@ -37,6 +42,182 @@ export function parseSongDetailsFromFilename(filename: string) {
         artist,
         fileUrl: buildSongFileUrl(normalizedFilename)
     };
+}
+
+type SongUploadDbClient = {
+    query: (sql: string, params: unknown[]) => Promise<{ rows: any[] }>;
+};
+
+type SongUploadFsClient = {
+    existsSync: (path: string) => boolean;
+    renameSync: (from: string, to: string) => void;
+    unlinkSync: (path: string) => void;
+};
+
+type SongUploadMetadataService = {
+    syncSongMetadata: (songId: string) => Promise<any>;
+};
+
+type UploadedSongFile = {
+    filename: string;
+    originalname: string;
+    path?: string;
+};
+
+function getUploadedSongFilePath(file: UploadedSongFile, uploadsPath: string) {
+    return file.path ?? path.join(uploadsPath, file.filename);
+}
+
+function removeFileIfPresent(fsImpl: SongUploadFsClient, filePath: string) {
+    if (!fsImpl.existsSync(filePath)) {
+        return;
+    }
+
+    fsImpl.unlinkSync(filePath);
+}
+
+export async function finalizeUploadedSongUpload(params: {
+    file: UploadedSongFile;
+    uploadsPath?: string;
+    dbClient?: SongUploadDbClient;
+    fsImpl?: SongUploadFsClient;
+    metadataService?: SongUploadMetadataService;
+}) {
+    const fsImpl = params.fsImpl ?? fs;
+    const uploadsPath = params.uploadsPath ?? songUploadDir;
+    const dbClient = params.dbClient ?? db;
+    const metadataService = params.metadataService ?? MetadataService;
+    const canonicalFile = parseSongDetailsFromFilename(params.file.originalname);
+    const tempFilePath = getUploadedSongFilePath(params.file, uploadsPath);
+    const canonicalFilename = canonicalFile.fileUrl.replace('/uploads/songs/', '');
+    const canonicalFilePath = path.join(uploadsPath, canonicalFilename);
+    const canonicalFileExists = fsImpl.existsSync(canonicalFilePath);
+    const originalNameDetails = parseSongDetailsFromFilename(params.file.originalname);
+    const cleanupTempFile = () => removeFileIfPresent(fsImpl, tempFilePath);
+
+    const existing = await dbClient.query(
+        'SELECT id, is_active, file_url FROM songs WHERE file_url = $1',
+        [canonicalFile.fileUrl]
+    );
+
+    const existingRow = existing.rows[0] ?? null;
+
+    if (existingRow && existingRow.is_active) {
+        cleanupTempFile();
+        return {
+            status: 'duplicate' as const,
+            fileUrl: canonicalFile.fileUrl,
+            title: originalNameDetails.title,
+            artist: originalNameDetails.artist,
+        };
+    }
+
+    if (!existingRow && canonicalFileExists) {
+        cleanupTempFile();
+        return {
+            status: 'duplicate' as const,
+            fileUrl: canonicalFile.fileUrl,
+            title: originalNameDetails.title,
+            artist: originalNameDetails.artist,
+        };
+    }
+
+    if (existingRow && !existingRow.is_active && canonicalFileExists) {
+        cleanupTempFile();
+
+        const updatedRows = await dbClient.query(
+            'UPDATE songs SET is_active = true WHERE id = $1 RETURNING *',
+            [existingRow.id]
+        );
+
+        let song = updatedRows.rows[0] ?? { ...existingRow, is_active: true };
+        try {
+            const synced = await metadataService.syncSongMetadata(existingRow.id);
+            if (synced) {
+                song = synced;
+            }
+        } catch (syncError) {
+            console.log('Metadata sync failed, using filename data:', syncError);
+        }
+
+        return {
+            status: 'reactivated' as const,
+            fileUrl: canonicalFile.fileUrl,
+            song,
+            title: originalNameDetails.title,
+            artist: originalNameDetails.artist,
+        };
+    }
+
+    const renameTempToCanonical = () => {
+        if (tempFilePath !== canonicalFilePath) {
+            fsImpl.renameSync(tempFilePath, canonicalFilePath);
+        }
+    };
+
+    const removeCanonicalIfCreated = () => {
+        if (tempFilePath === canonicalFilePath) {
+            return;
+        }
+
+        removeFileIfPresent(fsImpl, canonicalFilePath);
+    };
+
+    try {
+        renameTempToCanonical();
+
+        if (existingRow && !existingRow.is_active) {
+            const updatedRows = await dbClient.query(
+                'UPDATE songs SET is_active = true WHERE id = $1 RETURNING *',
+                [existingRow.id]
+            );
+
+            let song = updatedRows.rows[0] ?? { ...existingRow, is_active: true };
+            try {
+                const synced = await metadataService.syncSongMetadata(existingRow.id);
+                if (synced) {
+                    song = synced;
+                }
+            } catch (syncError) {
+                console.log('Metadata sync failed, using filename data:', syncError);
+            }
+
+            return {
+                status: 'reactivated' as const,
+                fileUrl: canonicalFile.fileUrl,
+                song,
+                title: originalNameDetails.title,
+                artist: originalNameDetails.artist,
+            };
+        }
+
+        const insertedRows = await dbClient.query(
+            'INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING *',
+            [originalNameDetails.title, originalNameDetails.artist, 180, canonicalFile.fileUrl]
+        );
+
+        let song = insertedRows.rows[0];
+        try {
+            const synced = await metadataService.syncSongMetadata(song.id);
+            if (synced) {
+                song = synced;
+            }
+        } catch (syncError) {
+            console.log('Metadata sync failed, using filename data:', syncError);
+        }
+
+        return {
+            status: 'uploaded' as const,
+            fileUrl: canonicalFile.fileUrl,
+            song,
+            title: originalNameDetails.title,
+            artist: originalNameDetails.artist,
+        };
+    } catch (error) {
+        removeCanonicalIfCreated();
+        cleanupTempFile();
+        throw error;
+    }
 }
 
 type ScanFolderDbClient = {
@@ -323,8 +504,6 @@ async function checkDeviceSession(req: AuthRequest, res: Response, next: NextFun
 }
 
 const router = Router();
-console.log('--- Jukebox Routes Initializing ---');
-console.log('🚀 Jukebox Routes Registry Initializing...');
 
 // --- Admin Endpoints (High Priority) ---
 
@@ -842,48 +1021,23 @@ router.post('/admin/upload-song', authMiddleware, songUpload.single('song'), asy
     }
 
     try {
-        const normalizedFilename = normalizeUploadedSongFilename(file.filename);
-        const fileUrl = buildSongFileUrl(normalizedFilename);
+        const result = await finalizeUploadedSongUpload({
+            file: {
+                filename: file.filename,
+                originalname: file.originalname,
+                path: file.path,
+            },
+        });
 
-        // Check if already exists
-        const existing = await db.query('SELECT id, is_active FROM songs WHERE file_url = $1', [fileUrl]);
-        if (existing.rows.length > 0) {
-            // If soft-deleted, reactivate and sync
-            if (!existing.rows[0].is_active) {
-                await db.query('UPDATE songs SET is_active = true WHERE id = $1', [existing.rows[0].id]);
-                try {
-                    const synced = await MetadataService.syncSongMetadata(existing.rows[0].id);
-                    if (synced) {
-                        return sendSuccess(res, { song: synced, filename: file.filename }, 'Song reactivated and synced');
-                    }
-                } catch (e) { }
-                const reactivated = await db.query('SELECT * FROM songs WHERE id = $1', [existing.rows[0].id]);
-                return sendSuccess(res, { song: reactivated.rows[0], filename: file.filename }, 'Song reactivated');
-            }
+        if (result.status === 'duplicate') {
             return sendError(res, 'Song file already exists', 409);
         }
 
-        // Extract info from filename
-        const { title, artist } = parseSongDetailsFromFilename(file.filename);
-
-        const result = await db.query(
-            'INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING *',
-            [title, artist, 180, fileUrl]
-        );
-
-        const newSong = result.rows[0];
-
-        // Auto-sync metadata from iTunes
-        try {
-            const synced = await MetadataService.syncSongMetadata(newSong.id);
-            if (synced) {
-                return sendSuccess(res, { song: synced, filename: file.filename }, 'Song uploaded and synced');
-            }
-        } catch (syncError) {
-            console.log('Metadata sync failed, using filename data:', syncError);
+        if (result.status === 'reactivated') {
+            return sendSuccess(res, { song: result.song, filename: file.filename }, 'Song reactivated');
         }
 
-        return sendSuccess(res, { song: newSong, filename: file.filename }, 'Song uploaded');
+        return sendSuccess(res, { song: result.song, filename: file.filename }, 'Song uploaded');
     } catch (error) {
         console.error('Upload song error:', error);
         return sendError(res, 'Upload failed', 500);
@@ -971,7 +1125,12 @@ router.post('/admin/devices', authMiddleware, async (req: Request, res: Response
             return sendError(res, 'Device code already exists', 409);
         }
 
-        const normalizedDevice = normalizeDeviceAdminInput({ name, location });
+        let normalizedDevice;
+        try {
+            normalizedDevice = normalizeDeviceAdminInput({ name, location });
+        } catch (validationError: any) {
+            return sendError(res, validationError.message || 'Invalid device name', 400);
+        }
 
         const result = await db.query(
             'INSERT INTO devices (device_code, name, location, password) VALUES ($1, $2, $3, $4) RETURNING *',
@@ -995,7 +1154,12 @@ router.put('/admin/devices/:id', authMiddleware, async (req: Request, res: Respo
     const { name, location, is_active, password } = req.body;
 
     try {
-        const normalizedDevice = normalizeDeviceAdminInput({ name, location });
+        let normalizedDevice;
+        try {
+            normalizedDevice = normalizeDeviceAdminInput({ name, location });
+        } catch (validationError: any) {
+            return sendError(res, validationError.message || 'Invalid device name', 400);
+        }
         const result = await db.query(
             `UPDATE devices SET 
                 name = COALESCE($1, name),
