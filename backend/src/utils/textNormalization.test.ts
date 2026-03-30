@@ -15,6 +15,7 @@ import {
   processScanFolderSongFile,
 } from '../routes/jukebox';
 import { normalizeItunesSongMetadata } from '../services/metadata';
+import { repairTextIfImproved } from '../scripts/repairTextEncoding';
 
 describe('text normalization', () => {
   afterEach(() => {
@@ -478,5 +479,18 @@ describe('text normalization', () => {
       artist: 'Avrupa M\u00FCzik',
       album: 'R\u00DCYA - Single',
     });
+  });
+
+  it('repairs damaged rows when the normalized value is better', () => {
+    expect(repairTextIfImproved('S\u251C\u255Dper Admin')).toBe('S\u00FCper Admin');
+  });
+
+  it('keeps healthy rows unchanged', () => {
+    expect(repairTextIfImproved('Tuna \u00D6zsar\u0131')).toBe('Tuna \u00D6zsar\u0131');
+  });
+
+  it('stays stable on a second pass', () => {
+    const firstPass = repairTextIfImproved('R\u251C\u00A3YA');
+    expect(repairTextIfImproved(firstPass)).toBe(firstPass);
   });
 });
