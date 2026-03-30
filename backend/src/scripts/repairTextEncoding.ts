@@ -105,8 +105,9 @@ async function repairColumn(client: PoolClient, target: RepairTarget): Promise<R
 
     const updateSql = `UPDATE ${tableName} SET ${columnName} = $1 WHERE ${primaryKey} = $2 AND ${columnName} = $3`;
     const updated = await client.query(updateSql, [repairedValue, row.id, originalValue]);
+    const updatedRows = updated.rowCount ?? 0;
 
-    if (updated.rows.length > 0) {
+    if (updatedRows > 0) {
       stats.updated += 1;
     } else {
       stats.skipped += 1;
