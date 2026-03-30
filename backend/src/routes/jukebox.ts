@@ -1447,6 +1447,135 @@ router.post('/autoplay/trigger', async (req: Request, res: Response) => {
     }
 });
 
+// ──────────────────────────────────────────────
+// Content Filtering – Admin Block/Unblock Endpoints
+// ──────────────────────────────────────────────
+
+// POST /admin/songs/:id/block – block a specific song
+router.post('/admin/songs/:id/block', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    const { id } = req.params;
+    try {
+        const result = await db.query(
+            'UPDATE songs SET is_blocked = true WHERE id = $1 RETURNING id, title, artist',
+            [id]
+        );
+        if (result.rows.length === 0) {
+            return sendError(res, 'Song not found', 404);
+        }
+        return sendSuccess(res, result.rows[0], 'Song blocked');
+    } catch (error) {
+        console.error('Block song error:', error);
+        return sendError(res, 'Failed to block song', 500);
+    }
+});
+
+// DELETE /admin/songs/:id/block – unblock a song
+router.delete('/admin/songs/:id/block', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    const { id } = req.params;
+    try {
+        const result = await db.query(
+            'UPDATE songs SET is_blocked = false WHERE id = $1 RETURNING id, title, artist',
+            [id]
+        );
+        if (result.rows.length === 0) {
+            return sendError(res, 'Song not found', 404);
+        }
+        return sendSuccess(res, result.rows[0], 'Song unblocked');
+    } catch (error) {
+        console.error('Unblock song error:', error);
+        return sendError(res, 'Failed to unblock song', 500);
+    }
+});
+
+// POST /admin/artists/block – block an artist
+router.post('/admin/artists/block', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    const { artist_name, spotify_artist_id, reason } = req.body;
+    if (!artist_name) {
+        return sendError(res, 'artist_name is required', 400);
+    }
+
+    try {
+        // Check for duplicate by spotify_artist_id if provided
+        if (spotify_artist_id) {
+            const existing = await db.query(
+                'SELECT id FROM blocked_artists WHERE spotify_artist_id = $1',
+                [spotify_artist_id]
+            );
+            if (existing.rows.length > 0) {
+                return sendError(res, 'Artist is already blocked', 409);
+            }
+        }
+
+        const result = await db.query(
+            `INSERT INTO blocked_artists (artist_name, spotify_artist_id, blocked_by, reason)
+             VALUES ($1, $2, $3, $4)
+             RETURNING *`,
+            [artist_name, spotify_artist_id || null, authReq.user!.id, reason || null]
+        );
+        return sendSuccess(res, result.rows[0], 'Artist blocked', undefined, 201);
+    } catch (error) {
+        console.error('Block artist error:', error);
+        return sendError(res, 'Failed to block artist', 500);
+    }
+});
+
+// DELETE /admin/artists/:id/block – unblock an artist
+router.delete('/admin/artists/:id/block', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    const { id } = req.params;
+    try {
+        const result = await db.query(
+            'DELETE FROM blocked_artists WHERE id = $1 RETURNING *',
+            [id]
+        );
+        if (result.rows.length === 0) {
+            return sendError(res, 'Blocked artist entry not found', 404);
+        }
+        return sendSuccess(res, result.rows[0], 'Artist unblocked');
+    } catch (error) {
+        console.error('Unblock artist error:', error);
+        return sendError(res, 'Failed to unblock artist', 500);
+    }
+});
+
+// GET /admin/blocked – list all blocked songs and artists
+router.get('/admin/blocked', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    try {
+        const blockedSongs = await db.query(
+            `SELECT id, title, artist, spotify_id, created_at
+             FROM songs WHERE is_blocked = true
+             ORDER BY title`
+        );
+        const blockedArtists = await db.query(
+            `SELECT ba.*, u.display_name as blocked_by_name
+             FROM blocked_artists ba
+             LEFT JOIN users u ON ba.blocked_by = u.id
+             ORDER BY ba.artist_name`
+        );
+        return sendSuccess(res, {
+            blocked_songs: blockedSongs.rows,
+            blocked_artists: blockedArtists.rows,
+        });
+    } catch (error) {
+        console.error('List blocked error:', error);
+        return sendError(res, 'Failed to fetch blocked list', 500);
+    }
+});
+
 async function getQueueForDevice(deviceId: string, userId?: string) {
     const result = await db.query(
         `SELECT qi.*, s.title, s.artist, s.cover_url, s.duration_seconds, s.file_url,

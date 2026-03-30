@@ -137,6 +137,19 @@ CREATE TABLE IF NOT EXISTS device_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_device_sessions_lookup ON device_sessions(user_id, device_id);
 
+-- Blocked Artists Table (Content Filtering)
+CREATE TABLE IF NOT EXISTS blocked_artists (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    artist_name VARCHAR(200) NOT NULL,
+    spotify_artist_id VARCHAR(50),
+    blocked_by UUID REFERENCES users(id),
+    reason VARCHAR(500),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_blocked_artists_spotify_id
+    ON blocked_artists(spotify_artist_id) WHERE spotify_artist_id IS NOT NULL;
+
 -- Spotify OAuth Tokens Table
 CREATE TABLE IF NOT EXISTS spotify_auth (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
