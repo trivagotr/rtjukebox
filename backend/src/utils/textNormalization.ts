@@ -35,6 +35,7 @@ export function looksMojibake(value: string): boolean {
 
 export function repairMojibake(value: string): string {
   if (!value) return value;
+  if (!looksMojibake(value)) return value;
 
   const repaired = repairCp850ToUtf8(value);
   if (isBetterCandidate(value, repaired)) {

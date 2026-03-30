@@ -35,6 +35,11 @@ describe('text normalization', () => {
     );
   });
 
+  it('does not mangle healthy unicode text', () => {
+    expect(normalizeText('Bj\u00F6rk')).toBe('Bj\u00F6rk');
+    expect(normalizeText('\u6771\u4EAC')).toBe('\u6771\u4EAC');
+  });
+
   it('builds song urls from normalized filenames', () => {
     expect(buildSongFileUrl('Semicenk - \u00C7\u0131kmaz Bir Sokakta.mp3')).toBe(
       '/uploads/songs/Semicenk - \u00C7\u0131kmaz Bir Sokakta.mp3',
