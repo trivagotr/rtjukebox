@@ -9,8 +9,35 @@ import { authMiddleware, optionalAuth, AuthRequest } from '../middleware/auth';
 import { sendSuccess, sendError } from '../utils/response';
 import { ROLES } from '../middleware/rbac';
 import { AudioService } from '../services/audio';
-import { songUpload } from '../middleware/upload';
+import { songUpload, normalizeUploadedSongFilename } from '../middleware/upload';
 import path from 'path';
+import { buildSongFileUrl, normalizeText } from '../utils/textNormalization';
+
+export function normalizeDeviceAdminInput(input: { name: string; location?: string | null }) {
+    return {
+        name: normalizeText(input.name),
+        location: input.location ? normalizeText(input.location) : null
+    };
+}
+
+export function parseSongDetailsFromFilename(filename: string) {
+    const normalizedFilename = normalizeUploadedSongFilename(filename);
+    const baseName = normalizedFilename.replace(/\.(mp3|m4a|wav)$/i, '');
+    let title = normalizeText(baseName);
+    let artist = 'Unknown';
+
+    if (baseName.includes(' - ')) {
+        const firstDashIndex = baseName.indexOf(' - ');
+        artist = normalizeText(baseName.substring(0, firstDashIndex).trim());
+        title = normalizeText(baseName.substring(firstDashIndex + 3).trim());
+    }
+
+    return {
+        title,
+        artist,
+        fileUrl: buildSongFileUrl(normalizedFilename)
+    };
+}
 
 // --- Helper Middlewares ---
 async function checkDeviceSession(req: AuthRequest, res: Response, next: NextFunction) {
@@ -521,7 +548,8 @@ router.post('/admin/scan-folder', authMiddleware, async (req: Request, res: Resp
         let skipped = 0;
 
         for (const file of files) {
-            const fileUrl = `/uploads/songs/${file}`;
+            const normalizedFilename = normalizeUploadedSongFilename(file);
+            const fileUrl = buildSongFileUrl(normalizedFilename);
 
             // Check if already exists
             const existing = await db.query('SELECT id, is_active FROM songs WHERE file_url = $1', [fileUrl]);
@@ -537,17 +565,7 @@ router.post('/admin/scan-folder', authMiddleware, async (req: Request, res: Resp
             }
 
             // Extract basic info from filename
-            const baseName = file.replace(/\.(mp3|m4a|wav)$/i, '');
-            let title = baseName;
-            let artist = 'Unknown';
-
-            // Try to parse "Artist - Title" format
-            // Handle multiple " - " by splitting only on the first one
-            if (baseName.includes(' - ')) {
-                const firstDashIndex = baseName.indexOf(' - ');
-                artist = baseName.substring(0, firstDashIndex).trim();
-                title = baseName.substring(firstDashIndex + 3).trim();
-            }
+            const { title, artist } = parseSongDetailsFromFilename(file);
 
             const insertResult = await db.query(
                 'INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING id',
@@ -590,7 +608,8 @@ router.post('/admin/upload-song', authMiddleware, songUpload.single('song'), asy
     }
 
     try {
-        const fileUrl = `/uploads/songs/${file.filename}`;
+        const normalizedFilename = normalizeUploadedSongFilename(file.filename);
+        const fileUrl = buildSongFileUrl(normalizedFilename);
 
         // Check if already exists
         const existing = await db.query('SELECT id, is_active FROM songs WHERE file_url = $1', [fileUrl]);
@@ -611,15 +630,7 @@ router.post('/admin/upload-song', authMiddleware, songUpload.single('song'), asy
         }
 
         // Extract info from filename
-        const baseName = file.filename.replace(/\.(mp3|m4a|wav)$/i, '');
-        let title = baseName;
-        let artist = 'Unknown';
-
-        if (baseName.includes(' - ')) {
-            const parts = baseName.split(' - ');
-            artist = parts[0].trim();
-            title = parts.slice(1).join(' - ').trim();
-        }
+        const { title, artist } = parseSongDetailsFromFilename(file.filename);
 
         const result = await db.query(
             'INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING *',
@@ -726,9 +737,11 @@ router.post('/admin/devices', authMiddleware, async (req: Request, res: Response
             return sendError(res, 'Device code already exists', 409);
         }
 
+        const normalizedDevice = normalizeDeviceAdminInput({ name, location });
+
         const result = await db.query(
             'INSERT INTO devices (device_code, name, location, password) VALUES ($1, $2, $3, $4) RETURNING *',
-            [device_code.toUpperCase(), name, location || null, password || null]
+            [device_code.toUpperCase(), normalizedDevice.name, normalizedDevice.location, password || null]
         );
         return sendSuccess(res, { device: result.rows[0] }, 'Device created');
     } catch (error) {
@@ -748,6 +761,7 @@ router.put('/admin/devices/:id', authMiddleware, async (req: Request, res: Respo
     const { name, location, is_active, password } = req.body;
 
     try {
+        const normalizedDevice = normalizeDeviceAdminInput({ name, location });
         const result = await db.query(
             `UPDATE devices SET 
                 name = COALESCE($1, name),
@@ -755,7 +769,7 @@ router.put('/admin/devices/:id', authMiddleware, async (req: Request, res: Respo
                 is_active = COALESCE($3, is_active),
                 password = COALESCE($4, password)
              WHERE id = $5 RETURNING *`,
-            [name, location, is_active, password, id]
+            [normalizedDevice.name, normalizedDevice.location, is_active, password, id]
         );
 
         if (result.rows.length === 0) {

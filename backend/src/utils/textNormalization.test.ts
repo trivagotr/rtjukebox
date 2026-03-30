@@ -7,6 +7,11 @@ import {
 } from './textNormalization';
 import { normalizeDisplayNameInput } from '../routes/auth';
 import { normalizeUploadedSongFilename } from '../middleware/upload';
+import {
+  normalizeDeviceAdminInput,
+  parseSongDetailsFromFilename,
+} from '../routes/jukebox';
+import { normalizeItunesSongMetadata } from '../services/metadata';
 
 describe('text normalization', () => {
   it('keeps healthy text unchanged', () => {
@@ -76,5 +81,41 @@ describe('text normalization', () => {
     expect(buildSongFileUrl('Semicenk - \u00C7\u0131kmaz Bir Sokakta.mp3')).toBe(
       '/uploads/songs/Semicenk - \u00C7\u0131kmaz Bir Sokakta.mp3',
     );
+  });
+
+  it('normalizes device admin input', () => {
+    expect(
+      normalizeDeviceAdminInput({
+        name: 'Radyo St\u251C\u255Ddyosu',
+        location: 'Merkez Kamp\u251C\u255Ds',
+      }),
+    ).toEqual({
+      name: 'Radyo St\u00FCdyosu',
+      location: 'Merkez Kamp\u00FCs',
+    });
+  });
+
+  it('parses normalized song details from filenames for scan-folder ingestion', () => {
+    expect(
+      parseSongDetailsFromFilename('Semicenk - \u00C3\u0087\u00C4\u00B1kmaz Bir Sokakta.mp3'),
+    ).toEqual({
+      title: '\u00C7\u0131kmaz Bir Sokakta',
+      artist: 'Semicenk',
+      fileUrl: '/uploads/songs/Semicenk - \u00C7\u0131kmaz Bir Sokakta.mp3',
+    });
+  });
+
+  it('normalizes synced iTunes metadata before persistence', () => {
+    expect(
+      normalizeItunesSongMetadata({
+        title: 'R\u251C\u00A3YA',
+        artist: 'Avrupa M\u251C\u255Dzik',
+        album: 'R\u251C\u00A3YA - Single',
+      }),
+    ).toEqual({
+      title: 'R\u00DCYA',
+      artist: 'Avrupa M\u00FCzik',
+      album: 'R\u00DCYA - Single',
+    });
   });
 });

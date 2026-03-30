@@ -1,5 +1,14 @@
 import axios from 'axios';
 import { db } from '../db';
+import { normalizeText } from '../utils/textNormalization';
+
+export function normalizeItunesSongMetadata(input: { title: string; artist: string; album: string | null }) {
+    return {
+        title: normalizeText(input.title),
+        artist: normalizeText(input.artist),
+        album: input.album ? normalizeText(input.album) : null
+    };
+}
 
 export class MetadataService {
     /**
@@ -44,9 +53,11 @@ export class MetadataService {
 
             if (response.data.resultCount > 0) {
                 const result = response.data.results[0];
-                const newTitle = result.trackName || title;
-                const newArtist = result.artistName || artist;
-                const album = result.collectionName || null;
+                const normalizedMetadata = normalizeItunesSongMetadata({
+                    title: result.trackName || title,
+                    artist: result.artistName || artist,
+                    album: result.collectionName || null
+                });
                 const durationMs = result.trackTimeMillis || null;
                 const artworkUrl = result.artworkUrl100 ? result.artworkUrl100.replace('100x100bb', '600x600bb') : null;
 
@@ -63,9 +74,9 @@ export class MetadataService {
 
                 const finalDuration = durationMs ? Math.round(durationMs / 1000) : null;
                 const updated = await db.query(updateQuery, [
-                    newTitle,
-                    newArtist,
-                    album,
+                    normalizedMetadata.title,
+                    normalizedMetadata.artist,
+                    normalizedMetadata.album,
                     artworkUrl,
                     finalDuration,
                     songId
