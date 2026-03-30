@@ -86,6 +86,10 @@ export async function processScanFolderSongFile(params: {
     const originalFilePath = path.join(params.uploadsPath, params.file);
     const normalizedFilePath = path.join(params.uploadsPath, normalizedFilename);
     const rawBaseName = params.file.replace(/\.(mp3|m4a|wav)$/i, '');
+    let originalRow: any = null;
+    let normalizedRow: any = null;
+    const mutations: Array<() => Promise<{ rows: any[] }>> = [];
+    let renamed = false;
 
     let title = normalizeText(rawBaseName);
     let artist = 'Unknown';
@@ -99,24 +103,6 @@ export async function processScanFolderSongFile(params: {
         && fsImpl.existsSync(originalFilePath)
         && !fsImpl.existsSync(normalizedFilePath);
 
-    const [originalExisting, normalizedExisting] = await Promise.all([
-        dbClient.query(
-            'SELECT id, is_active, file_url FROM songs WHERE file_url = $1',
-            [originalFileUrl]
-        ),
-        normalizedFilename === params.file
-            ? Promise.resolve({ rows: [] as any[] })
-            : dbClient.query(
-                'SELECT id, is_active, file_url FROM songs WHERE file_url = $1',
-                [normalizedFileUrl]
-            ),
-    ]);
-
-    const originalRow = originalExisting.rows[0] ?? null;
-    const normalizedRow = normalizedExisting.rows[0] ?? null;
-    const mutations: Array<() => Promise<{ rows: any[] }>> = [];
-    let renamed = false;
-
     const rollbackRename = () => {
         if (!renamed) return;
         try {
@@ -128,6 +114,22 @@ export async function processScanFolderSongFile(params: {
     };
 
     try {
+        const [originalExisting, normalizedExisting] = await Promise.all([
+            dbClient.query(
+                'SELECT id, is_active, file_url FROM songs WHERE file_url = $1',
+                [originalFileUrl]
+            ),
+            normalizedFilename === params.file
+                ? Promise.resolve({ rows: [] as any[] })
+                : dbClient.query(
+                    'SELECT id, is_active, file_url FROM songs WHERE file_url = $1',
+                    [normalizedFileUrl]
+                ),
+        ]);
+
+        originalRow = originalExisting.rows[0] ?? null;
+        normalizedRow = normalizedExisting.rows[0] ?? null;
+
         if (shouldRename) {
             fsImpl.renameSync(originalFilePath, normalizedFilePath);
             renamed = true;

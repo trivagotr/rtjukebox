@@ -377,6 +377,39 @@ describe('text normalization', () => {
     });
   });
 
+  it('releases the pooled client when the initial scan-folder select throws', async () => {
+    const connectSpy = vi.spyOn(db.pool, 'connect');
+    const releaseSpy = vi.fn();
+    connectSpy.mockResolvedValue({
+      query: async (sql: string) => {
+        if (sql.includes('SELECT id, is_active, file_url FROM songs WHERE file_url = $1')) {
+          throw new Error('initial select failed');
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+      release: releaseSpy,
+    } as any);
+
+    await expect(
+      processScanFolderSongFile({
+        file: 'Broken Track.mp3',
+        uploadsPath: 'C:/music/uploads/songs',
+        fsImpl: {
+          existsSync() {
+            return false;
+          },
+          renameSync() {
+            throw new Error('should not rename');
+          },
+        },
+      }),
+    ).rejects.toThrow('initial select failed');
+
+    expect(connectSpy).toHaveBeenCalledTimes(1);
+    expect(releaseSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps a collision case on the original file url without overwriting the target', async () => {
     const uploadsPath = 'C:/music/uploads/songs';
     const file = 'P!nk - Raise Your Glass (Live).mp3';
