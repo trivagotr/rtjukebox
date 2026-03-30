@@ -9,6 +9,14 @@ function countMatches(value: string, pattern: RegExp): number {
   return matches ? matches.length : 0;
 }
 
+function scoreCandidate(value: string): number {
+  const suspicious = countMatches(value, SUSPICIOUS_PATTERN);
+  const turkish = countMatches(value, TURKISH_LETTERS);
+  const replacement = value.includes('�') ? 1 : 0;
+
+  return suspicious * 10 + replacement * 20 - turkish * 2;
+}
+
 function repairCp850ToUtf8(value: string): string {
   return Buffer.from(iconv.encode(value, 'cp850')).toString('utf8');
 }
@@ -16,17 +24,10 @@ function repairCp850ToUtf8(value: string): string {
 function isBetterCandidate(original: string, candidate: string): boolean {
   if (candidate === original) return false;
 
-  const originalSuspicious = countMatches(original, SUSPICIOUS_PATTERN);
-  const candidateSuspicious = countMatches(candidate, SUSPICIOUS_PATTERN);
-  if (candidateSuspicious < originalSuspicious) return true;
-  if (candidateSuspicious > originalSuspicious) return false;
+  const originalScore = scoreCandidate(original);
+  const candidateScore = scoreCandidate(candidate);
 
-  const originalTurkish = countMatches(original, TURKISH_LETTERS);
-  const candidateTurkish = countMatches(candidate, TURKISH_LETTERS);
-  if (candidateTurkish > originalTurkish) return true;
-  if (candidateTurkish < originalTurkish) return false;
-
-  return candidate.length <= original.length + 4;
+  return candidateScore < originalScore && candidate.length <= original.length + 2;
 }
 
 export function looksMojibake(value: string): boolean {
@@ -55,6 +56,7 @@ export function normalizeText(value: string): string {
 export function normalizeFilename(filename: string): string {
   const normalized = normalizeText(filename)
     .replace(/[\\/]+/g, ' ')
+    .replace(/^\.\.?\s*/, '')
     .replace(/[^\p{L}\p{N}\s._-]/gu, '')
     .replace(/\s+/g, ' ')
     .trim();

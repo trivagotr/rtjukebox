@@ -1,13 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildSongFileUrl,
+  looksMojibake,
   normalizeFilename,
   normalizeText,
 } from './textNormalization';
+import { normalizeDisplayNameInput } from '../routes/auth';
+import { normalizeUploadedSongFilename } from '../middleware/upload';
 
 describe('text normalization', () => {
   it('keeps healthy text unchanged', () => {
     expect(normalizeText('Tuna \u00D6zsar\u0131')).toBe('Tuna \u00D6zsar\u0131');
+  });
+
+  it('keeps healthy non-Turkish unicode unchanged', () => {
+    expect(normalizeText('\u6771\u4EAC')).toBe('\u6771\u4EAC');
+  });
+
+  it('detects mojibake strings', () => {
+    expect(looksMojibake('S\u251C\u255Dper Admin')).toBe(true);
+    expect(looksMojibake('Tuna \u00D6zsar\u0131')).toBe(false);
+    expect(looksMojibake('\u6771\u4EAC')).toBe(false);
   });
 
   it('repairs S├╝per Admin to Süper Admin', () => {
@@ -35,9 +48,28 @@ describe('text normalization', () => {
     );
   });
 
+  it('normalizes path separators safely in filenames', () => {
+    expect(normalizeFilename('..\u005CSemicenk/\u00C7\u0131kmaz Bir Sokakta.mp3')).toBe(
+      'Semicenk \u00C7\u0131kmaz Bir Sokakta.mp3',
+    );
+  });
+
   it('does not mangle healthy unicode text', () => {
     expect(normalizeText('Bj\u00F6rk')).toBe('Bj\u00F6rk');
     expect(normalizeText('\u6771\u4EAC')).toBe('\u6771\u4EAC');
+  });
+
+  it('normalizes display names before persistence', () => {
+    expect(normalizeDisplayNameInput('S\u251C\u255Dper Admin')).toBe('S\u00FCper Admin');
+  });
+
+  it('normalizes uploaded song filenames without stripping Turkish characters', () => {
+    expect(normalizeUploadedSongFilename('Semicenk - \u00C7\u0131kmaz Bir Sokakta.mp3')).toBe(
+      'Semicenk - \u00C7\u0131kmaz Bir Sokakta.mp3',
+    );
+    expect(normalizeUploadedSongFilename('Semicenk - \u00C3\u0087\u00C4\u00B1kmaz Bir Sokakta.mp3')).toBe(
+      'Semicenk - \u00C7\u0131kmaz Bir Sokakta.mp3',
+    );
   });
 
   it('builds song urls from normalized filenames', () => {
