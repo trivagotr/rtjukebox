@@ -12,6 +12,7 @@ import { normalizeUploadedSongFilename } from '../middleware/upload';
 import {
   normalizeDeviceAdminInput,
   normalizeDeviceAdminUpdateInput,
+  prepareNormalizedDeviceAdminInput,
   finalizeUploadedSongUpload,
   parseSongDetailsFromFilename,
   processScanFolderSongFile,
@@ -137,6 +138,24 @@ describe('text normalization', () => {
         name: '   ',
       }),
     ).toThrow('Device name required');
+  });
+
+  it('routes create and update device normalization through the correct helper', () => {
+    expect(() =>
+      prepareNormalizedDeviceAdminInput('create', {
+        name: '   ',
+        location: 'Merkez',
+      }),
+    ).toThrow('Device name required');
+
+    expect(
+      prepareNormalizedDeviceAdminInput('update', {
+        location: 'Merkez',
+      }),
+    ).toEqual({
+      name: undefined,
+      location: 'Merkez',
+    });
   });
 
   it('allows clearing device location with empty admin input', () => {

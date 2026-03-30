@@ -46,6 +46,23 @@ export function normalizeDeviceAdminUpdateInput(input: { name?: string | null; l
     };
 }
 
+export function prepareNormalizedDeviceAdminInput(
+    mode: 'create',
+    input: { name: string; location?: string | null }
+): ReturnType<typeof normalizeDeviceAdminInput>;
+export function prepareNormalizedDeviceAdminInput(
+    mode: 'update',
+    input: { name?: string | null; location?: string | null }
+): ReturnType<typeof normalizeDeviceAdminUpdateInput>;
+export function prepareNormalizedDeviceAdminInput(
+    mode: 'create' | 'update',
+    input: { name?: string | null; location?: string | null }
+) {
+    return mode === 'create'
+        ? normalizeDeviceAdminInput(input as { name: string; location?: string | null })
+        : normalizeDeviceAdminUpdateInput(input);
+}
+
 export function parseSongDetailsFromFilename(filename: string) {
     const normalizedFilename = normalizeUploadedSongFilename(filename);
     const rawBaseName = filename.replace(/\.(mp3|m4a|wav)$/i, '');
@@ -1148,7 +1165,7 @@ router.post('/admin/devices', authMiddleware, async (req: Request, res: Response
 
         let normalizedDevice;
         try {
-            normalizedDevice = normalizeDeviceAdminUpdateInput({ name, location });
+            normalizedDevice = prepareNormalizedDeviceAdminInput('create', { name, location });
         } catch (validationError: any) {
             return sendError(res, validationError.message || 'Invalid device name', 400);
         }
@@ -1177,7 +1194,7 @@ router.put('/admin/devices/:id', authMiddleware, async (req: Request, res: Respo
     try {
         let normalizedDevice;
         try {
-            normalizedDevice = normalizeDeviceAdminInput({ name, location });
+            normalizedDevice = prepareNormalizedDeviceAdminInput('update', { name, location });
         } catch (validationError: any) {
             return sendError(res, validationError.message || 'Invalid device name', 400);
         }
