@@ -1,5 +1,6 @@
+import { db } from '../db';
 import path from 'path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildSongFileUrl,
   looksMojibake,
@@ -16,6 +17,10 @@ import {
 import { normalizeItunesSongMetadata } from '../services/metadata';
 
 describe('text normalization', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('keeps healthy text unchanged', () => {
     expect(normalizeText('Tuna \u00D6zsar\u0131')).toBe('Tuna \u00D6zsar\u0131');
   });
@@ -311,6 +316,65 @@ describe('text normalization', () => {
       [originalPath, normalizedPath],
       [normalizedPath, originalPath],
     ]);
+  });
+
+  it('uses a dedicated pooled client for the default scan-folder transaction path', async () => {
+    const connectSpy = vi.spyOn(db.pool, 'connect');
+    const querySpy = vi.spyOn(db, 'query').mockImplementation(async () => {
+      throw new Error('default path should not use db.query');
+    });
+    const releaseSpy = vi.fn();
+    const queryLog: string[] = [];
+
+    connectSpy.mockResolvedValue({
+      query: async (sql: string, params: unknown[]) => {
+        queryLog.push(`${sql} :: ${String(params[0])}`);
+
+        if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+          return { rows: [] };
+        }
+
+        if (sql.includes('SELECT id, is_active, file_url FROM songs WHERE file_url = $1')) {
+          return { rows: [] };
+        }
+
+        if (sql.includes('INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING *')) {
+          return { rows: [{ id: 'song-default', is_active: true, file_url: String(params[3]) }] };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      },
+      release: releaseSpy,
+    } as any);
+
+    const result = await processScanFolderSongFile({
+      file: 'New Track - Artist.mp3',
+      uploadsPath: 'C:/music/uploads/songs',
+      fsImpl: {
+        existsSync() {
+          return false;
+        },
+        renameSync() {
+          throw new Error('should not rename');
+        },
+      },
+    });
+
+    expect(connectSpy).toHaveBeenCalledTimes(1);
+    expect(releaseSpy).toHaveBeenCalledTimes(1);
+    expect(querySpy).not.toHaveBeenCalled();
+    expect(queryLog).toEqual(
+      expect.arrayContaining([
+        'BEGIN :: undefined',
+        'COMMIT :: undefined',
+      ]),
+    );
+    expect(result).toMatchObject({
+      action: 'inserted',
+      fileUrl: '/uploads/songs/New Track - Artist.mp3',
+      title: 'Artist',
+      artist: 'New Track',
+    });
   });
 
   it('keeps a collision case on the original file url without overwriting the target', async () => {

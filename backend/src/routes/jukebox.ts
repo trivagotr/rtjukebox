@@ -48,6 +48,26 @@ type ScanFolderFsClient = {
     renameSync: (from: string, to: string) => void;
 };
 
+type ScanFolderDbSession = {
+    client: ScanFolderDbClient;
+    release: () => Promise<void> | void;
+};
+
+async function acquireScanFolderDbSession(dbClient?: ScanFolderDbClient): Promise<ScanFolderDbSession> {
+    if (dbClient) {
+        return {
+            client: dbClient,
+            release: () => {},
+        };
+    }
+
+    const client = await db.pool.connect();
+    return {
+        client,
+        release: () => client.release(),
+    };
+}
+
 function buildStoredSongFileUrl(filename: string) {
     return `/uploads/songs/${filename}`;
 }
@@ -58,7 +78,7 @@ export async function processScanFolderSongFile(params: {
     dbClient?: ScanFolderDbClient;
     fsImpl?: ScanFolderFsClient;
 }) {
-    const dbClient = params.dbClient ?? db;
+    const { client: dbClient, release } = await acquireScanFolderDbSession(params.dbClient);
     const fsImpl = params.fsImpl ?? fs;
     const normalizedFilename = normalizeUploadedSongFilename(params.file);
     const originalFileUrl = buildStoredSongFileUrl(params.file);
@@ -231,6 +251,8 @@ export async function processScanFolderSongFile(params: {
     } catch (error) {
         rollbackRename();
         throw error;
+    } finally {
+        await release();
     }
 }
 
