@@ -29,6 +29,9 @@ build/
 .DS_Store
 Thumbs.db
 
+# Local worktrees
+.worktrees/
+
 # Mobile specifically
 mobile/android/
 mobile/ios/
