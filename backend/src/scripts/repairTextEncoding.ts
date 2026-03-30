@@ -20,7 +20,9 @@ type RepairStats = {
 
 const REPAIR_TARGETS: RepairTarget[] = [
   { table: 'devices', column: 'location', primaryKey: 'id' },
+  { table: 'devices', column: 'name', primaryKey: 'id' },
   { table: 'songs', column: 'title', primaryKey: 'id' },
+  { table: 'songs', column: 'artist', primaryKey: 'id' },
   { table: 'songs', column: 'album', primaryKey: 'id' },
   { table: 'songs', column: 'file_url', primaryKey: 'id' },
   { table: 'users', column: 'display_name', primaryKey: 'id' },
