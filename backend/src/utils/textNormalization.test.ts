@@ -159,6 +159,10 @@ describe('text normalization', () => {
       uploadsPath,
       dbClient: {
         async query(sql: string, params: unknown[]) {
+          if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+            return { rows: [] };
+          }
+
           if (sql.includes('SELECT id, is_active, file_url FROM songs WHERE file_url = $1')) {
             return { rows: rows[String(params[0])] ?? [] };
           }
@@ -193,6 +197,122 @@ describe('text normalization', () => {
     });
   });
 
+  it('reconciles both legacy and normalized scan-folder rows without leaving the legacy row active', async () => {
+    const uploadsPath = 'C:/music/uploads/songs';
+    const originalFile = 'manifest - R\u251C\u00A3YA.mp3';
+    const normalizedFile = 'manifest - R\u00DCYA.mp3';
+    const originalPath = path.join(uploadsPath, originalFile);
+    const normalizedPath = path.join(uploadsPath, normalizedFile);
+    const originalUrl = `/uploads/songs/${originalFile}`;
+    const normalizedUrl = `/uploads/songs/${normalizedFile}`;
+    const queryLog: string[] = [];
+    const updateCalls: Array<[string, unknown[]]> = [];
+
+    const result = await processScanFolderSongFile({
+      file: originalFile,
+      uploadsPath,
+      dbClient: {
+        async query(sql: string, params: unknown[]) {
+          if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+            queryLog.push(sql);
+            return { rows: [] };
+          }
+
+          queryLog.push(`${sql} :: ${String(params[0])}`);
+
+          if (sql.includes('SELECT id, is_active, file_url FROM songs WHERE file_url = $1')) {
+            if (String(params[0]) === normalizedUrl) {
+              return { rows: [{ id: 'song-new', is_active: true, file_url: normalizedUrl }] };
+            }
+            if (String(params[0]) === originalUrl) {
+              return { rows: [{ id: 'song-old', is_active: true, file_url: originalUrl }] };
+            }
+            return { rows: [] };
+          }
+
+          if (sql.includes('UPDATE songs SET is_active = false WHERE id = $1 RETURNING *')) {
+            updateCalls.push([sql, params]);
+            return { rows: [{ id: String(params[0]), is_active: false, file_url: String(params[0]) === 'song-old' ? originalUrl : normalizedUrl }] };
+          }
+
+          throw new Error(`Unexpected query: ${sql}`);
+        },
+      },
+      fsImpl: {
+        existsSync(filePath: string) {
+          return filePath === originalPath;
+        },
+        renameSync() {},
+      },
+    });
+
+    expect(queryLog).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(normalizedUrl),
+        expect.stringContaining(originalUrl),
+        'BEGIN',
+        'COMMIT',
+      ]),
+    );
+    expect(updateCalls).toHaveLength(1);
+    expect(result).toMatchObject({
+      action: 'reconciled',
+      fileUrl: normalizedUrl,
+      title: 'R\u00DCYA',
+      artist: 'manifest',
+    });
+  });
+
+  it('rolls back the rename if a later scan-folder database write fails', async () => {
+    const uploadsPath = 'C:/music/uploads/songs';
+    const originalFile = 'manifest - R\u251C\u00A3YA.mp3';
+    const normalizedFile = 'manifest - R\u00DCYA.mp3';
+    const originalPath = path.join(uploadsPath, originalFile);
+    const normalizedPath = path.join(uploadsPath, normalizedFile);
+    const originalUrl = `/uploads/songs/${originalFile}`;
+    const renameCalls: Array<[string, string]> = [];
+
+    await expect(
+      processScanFolderSongFile({
+        file: originalFile,
+        uploadsPath,
+        dbClient: {
+          async query(sql: string, params: unknown[]) {
+            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+              return { rows: [] };
+            }
+
+            if (sql.includes('SELECT id, is_active, file_url FROM songs WHERE file_url = $1')) {
+              if (String(params[0]) === originalUrl) {
+                return { rows: [{ id: 'song-old', is_active: false, file_url: originalUrl }] };
+              }
+              return { rows: [] };
+            }
+
+            if (sql.includes('UPDATE songs SET file_url = $1, is_active = true WHERE id = $2 RETURNING *')) {
+              throw new Error('db write failed');
+            }
+
+            throw new Error(`Unexpected query: ${sql}`);
+          },
+        },
+        fsImpl: {
+          existsSync(filePath: string) {
+            return filePath === originalPath;
+          },
+          renameSync(from: string, to: string) {
+            renameCalls.push([from, to]);
+          },
+        },
+      }),
+    ).rejects.toThrow('db write failed');
+
+    expect(renameCalls).toEqual([
+      [originalPath, normalizedPath],
+      [normalizedPath, originalPath],
+    ]);
+  });
+
   it('keeps a collision case on the original file url without overwriting the target', async () => {
     const uploadsPath = 'C:/music/uploads/songs';
     const file = 'P!nk - Raise Your Glass (Live).mp3';
@@ -207,6 +327,10 @@ describe('text normalization', () => {
       uploadsPath,
       dbClient: {
         async query(sql: string, params: unknown[]) {
+          if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+            return { rows: [] };
+          }
+
           if (sql.includes('SELECT id, is_active, file_url FROM songs WHERE file_url = $1')) {
             if (String(params[0]) === originalUrl) {
               return { rows: [] };

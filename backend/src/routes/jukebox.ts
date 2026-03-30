@@ -40,7 +40,7 @@ export function parseSongDetailsFromFilename(filename: string) {
 }
 
 type ScanFolderDbClient = {
-    query: (sql: string, params: unknown[]) => Promise<{ rows: Array<{ id: string; is_active: boolean; file_url: string }> }>;
+    query: (sql: string, params: unknown[]) => Promise<{ rows: any[] }>;
 };
 
 type ScanFolderFsClient = {
@@ -79,78 +79,190 @@ export async function processScanFolderSongFile(params: {
         && fsImpl.existsSync(originalFilePath)
         && !fsImpl.existsSync(normalizedFilePath);
 
-    if (shouldRename) {
-        fsImpl.renameSync(originalFilePath, normalizedFilePath);
-    }
-
-    const candidateUrls = shouldRename
-        ? [normalizedFileUrl, originalFileUrl]
-        : [originalFileUrl];
-
-    for (const fileUrl of candidateUrls) {
-        const existing = await dbClient.query(
+    const [originalExisting, normalizedExisting] = await Promise.all([
+        dbClient.query(
             'SELECT id, is_active, file_url FROM songs WHERE file_url = $1',
-            [fileUrl]
-        );
+            [originalFileUrl]
+        ),
+        normalizedFilename === params.file
+            ? Promise.resolve({ rows: [] as any[] })
+            : dbClient.query(
+                'SELECT id, is_active, file_url FROM songs WHERE file_url = $1',
+                [normalizedFileUrl]
+            ),
+    ]);
 
-        if (existing.rows.length === 0) {
-            continue;
+    const originalRow = originalExisting.rows[0] ?? null;
+    const normalizedRow = normalizedExisting.rows[0] ?? null;
+    const mutations: Array<() => Promise<{ rows: any[] }>> = [];
+    let renamed = false;
+
+    const rollbackRename = () => {
+        if (!renamed) return;
+        try {
+            fsImpl.renameSync(normalizedFilePath, originalFilePath);
+            renamed = false;
+        } catch (rollbackError) {
+            console.error('[scan-folder] Failed to roll back rename after DB error:', rollbackError);
+        }
+    };
+
+    try {
+        if (shouldRename) {
+            fsImpl.renameSync(originalFilePath, normalizedFilePath);
+            renamed = true;
         }
 
-        const row = existing.rows[0];
+        if (originalRow && normalizedRow) {
+            if (!normalizedRow.is_active) {
+                mutations.push(() =>
+                    dbClient.query(
+                        'UPDATE songs SET is_active = true WHERE id = $1 RETURNING *',
+                        [normalizedRow.id]
+                    )
+                );
+            }
 
-        if (shouldRename && fileUrl === originalFileUrl) {
-            const updated = await dbClient.query(
-                'UPDATE songs SET file_url = $1, is_active = true WHERE id = $2 RETURNING *',
-                [normalizedFileUrl, row.id]
-            );
+            if (originalRow.is_active) {
+                mutations.push(() =>
+                    dbClient.query(
+                        'UPDATE songs SET is_active = false WHERE id = $1 RETURNING *',
+                        [originalRow.id]
+                    )
+                );
+            }
 
+            const transactionRows = await runScanFolderMutations(dbClient, mutations, rollbackRename);
             return {
-                action: 'updated' as const,
+                action: 'reconciled' as const,
                 fileUrl: normalizedFileUrl,
-                song: updated.rows[0] ?? row,
+                song: normalizedRow ? { ...normalizedRow, is_active: true } : transactionRows[0] ?? originalRow,
                 title,
                 artist,
             };
         }
 
-        if (!row.is_active) {
-            const reactivated = await dbClient.query(
-                'UPDATE songs SET is_active = true WHERE id = $1 RETURNING *',
-                [row.id]
-            );
+        if (normalizedRow) {
+            if (!normalizedRow.is_active) {
+                const updatedRows = await runScanFolderMutations(dbClient, [
+                    () => dbClient.query(
+                        'UPDATE songs SET is_active = true WHERE id = $1 RETURNING *',
+                        [normalizedRow.id]
+                    ),
+                ], rollbackRename);
+
+                return {
+                    action: 'reactivated' as const,
+                    fileUrl: normalizedFileUrl,
+                    song: updatedRows[0] ?? normalizedRow,
+                    title,
+                    artist,
+                };
+            }
 
             return {
-                action: 'reactivated' as const,
-                fileUrl,
-                song: reactivated.rows[0] ?? row,
+                action: 'skipped' as const,
+                fileUrl: normalizedFileUrl,
+                song: normalizedRow,
                 title,
                 artist,
             };
         }
+
+        if (originalRow) {
+            if (shouldRename) {
+                const updatedRows = await runScanFolderMutations(dbClient, [
+                    () => dbClient.query(
+                        'UPDATE songs SET file_url = $1, is_active = true WHERE id = $2 RETURNING *',
+                        [normalizedFileUrl, originalRow.id]
+                    ),
+                ], rollbackRename);
+
+                return {
+                    action: 'updated' as const,
+                    fileUrl: normalizedFileUrl,
+                    song: updatedRows[0] ?? originalRow,
+                    title,
+                    artist,
+                };
+            }
+
+            if (!originalRow.is_active) {
+                const updatedRows = await runScanFolderMutations(dbClient, [
+                    () => dbClient.query(
+                        'UPDATE songs SET is_active = true WHERE id = $1 RETURNING *',
+                        [originalRow.id]
+                    ),
+                ], rollbackRename);
+
+                return {
+                    action: 'reactivated' as const,
+                    fileUrl: originalFileUrl,
+                    song: updatedRows[0] ?? originalRow,
+                    title,
+                    artist,
+                };
+            }
+
+            return {
+                action: 'skipped' as const,
+                fileUrl: originalFileUrl,
+                song: originalRow,
+                title,
+                artist,
+            };
+        }
+
+        const insertFileUrl = shouldRename ? normalizedFileUrl : originalFileUrl;
+        const insertedRows = await runScanFolderMutations(dbClient, [
+            () => dbClient.query(
+                'INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING *',
+                [title, artist, 180, insertFileUrl]
+            ),
+        ], rollbackRename);
 
         return {
-            action: 'skipped' as const,
-            fileUrl,
-            song: row,
+            action: 'inserted' as const,
+            fileUrl: insertFileUrl,
+            song: insertedRows[0],
             title,
             artist,
         };
+    } catch (error) {
+        rollbackRename();
+        throw error;
+    }
+}
+
+async function runScanFolderMutations(
+    dbClient: ScanFolderDbClient,
+    mutations: Array<() => Promise<{ rows: any[] }>>,
+    rollbackRename: () => void,
+) {
+    if (mutations.length === 0) {
+        return [];
     }
 
-    const insertFileUrl = shouldRename ? normalizedFileUrl : originalFileUrl;
-    const inserted = await dbClient.query(
-        'INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING *',
-        [title, artist, 180, insertFileUrl]
-    );
+    try {
+        await dbClient.query('BEGIN', []);
+        const rows: any[] = [];
 
-    return {
-        action: 'inserted' as const,
-        fileUrl: insertFileUrl,
-        song: inserted.rows[0],
-        title,
-        artist,
-    };
+        for (const mutation of mutations) {
+            const result = await mutation();
+            rows.push(...result.rows);
+        }
+
+        await dbClient.query('COMMIT', []);
+        return rows;
+    } catch (error) {
+        try {
+            await dbClient.query('ROLLBACK', []);
+        } catch (rollbackError) {
+            console.error('[scan-folder] Failed to roll back transaction:', rollbackError);
+        }
+        rollbackRename();
+        throw error;
+    }
 }
 
 // --- Helper Middlewares ---
