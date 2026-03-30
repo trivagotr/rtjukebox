@@ -77,6 +77,12 @@ describe('text normalization', () => {
     );
   });
 
+  it('repairs latin1-style mojibake in uploaded song filenames', () => {
+    expect(normalizeUploadedSongFilename('\u00C3\u0087\u00C4\u00B1kmaz.mp3')).toBe(
+      '\u00C7\u0131kmaz.mp3',
+    );
+  });
+
   it('builds song urls from normalized filenames', () => {
     expect(buildSongFileUrl('Semicenk - \u00C7\u0131kmaz Bir Sokakta.mp3')).toBe(
       '/uploads/songs/Semicenk - \u00C7\u0131kmaz Bir Sokakta.mp3',
@@ -95,13 +101,28 @@ describe('text normalization', () => {
     });
   });
 
-  it('parses normalized song details from filenames for scan-folder ingestion', () => {
+  it('allows clearing device location with empty admin input', () => {
     expect(
-      parseSongDetailsFromFilename('Semicenk - \u00C3\u0087\u00C4\u00B1kmaz Bir Sokakta.mp3'),
+      normalizeDeviceAdminInput({
+        name: 'Radyo St\u251C\u255Ddyosu',
+        location: '',
+      }),
     ).toEqual({
-      title: '\u00C7\u0131kmaz Bir Sokakta',
-      artist: 'Semicenk',
-      fileUrl: '/uploads/songs/Semicenk - \u00C7\u0131kmaz Bir Sokakta.mp3',
+      name: 'Radyo St\u00FCdyosu',
+      location: '',
+    });
+  });
+
+  it('keeps scan-folder filenames and file urls aligned for mojibake names', () => {
+    const filename = 'manifest - R\u251C\u00A3YA.mp3';
+
+    expect(normalizeUploadedSongFilename(filename)).toBe('manifest - R\u00DCYA.mp3');
+    expect(
+      parseSongDetailsFromFilename(filename),
+    ).toEqual({
+      title: 'R\u00DCYA',
+      artist: 'manifest',
+      fileUrl: '/uploads/songs/manifest - R\u00DCYA.mp3',
     });
   });
 

@@ -1,8 +1,8 @@
 import iconv from 'iconv-lite';
 
-const SUSPICIOUS_PATTERN = /[ÃÄÅâ├┤┬┴┼│─▒]|�/;
-
+const SUSPICIOUS_PATTERN = /[\u00C2\u00C3\u00C4\u00C5\u00E2\u251C\u2524\u252C\u2534\u253C\u2502\u2500\u2592]|\uFFFD/;
 const TURKISH_LETTERS = /[ÇĞİÖŞÜçğıöşü]/g;
+const CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F-\u009F]/g;
 
 function countMatches(value: string, pattern: RegExp): number {
   const matches = value.match(pattern);
@@ -12,22 +12,37 @@ function countMatches(value: string, pattern: RegExp): number {
 function scoreCandidate(value: string): number {
   const suspicious = countMatches(value, SUSPICIOUS_PATTERN);
   const turkish = countMatches(value, TURKISH_LETTERS);
+  const controlChars = countMatches(value, CONTROL_CHAR_PATTERN);
   const replacement = value.includes('�') ? 1 : 0;
 
-  return suspicious * 10 + replacement * 20 - turkish * 2;
+  return suspicious * 10 + controlChars * 25 + replacement * 20 - turkish * 2;
 }
 
 function repairCp850ToUtf8(value: string): string {
   return Buffer.from(iconv.encode(value, 'cp850')).toString('utf8');
 }
 
-function isBetterCandidate(original: string, candidate: string): boolean {
-  if (candidate === original) return false;
+function repairLatin1ToUtf8(value: string): string {
+  return Buffer.from(value, 'latin1').toString('utf8');
+}
 
+function chooseBestCandidate(original: string, candidates: string[]): string {
   const originalScore = scoreCandidate(original);
-  const candidateScore = scoreCandidate(candidate);
+  let bestCandidate = original;
+  let bestScore = originalScore;
 
-  return candidateScore < originalScore && candidate.length <= original.length + 2;
+  for (const candidate of candidates) {
+    if (!candidate || candidate === original) continue;
+    if (candidate.length > original.length + 2) continue;
+
+    const candidateScore = scoreCandidate(candidate);
+    if (candidateScore < bestScore) {
+      bestCandidate = candidate;
+      bestScore = candidateScore;
+    }
+  }
+
+  return bestCandidate;
 }
 
 export function looksMojibake(value: string): boolean {
@@ -38,12 +53,10 @@ export function repairMojibake(value: string): string {
   if (!value) return value;
   if (!looksMojibake(value)) return value;
 
-  const repaired = repairCp850ToUtf8(value);
-  if (isBetterCandidate(value, repaired)) {
-    return repaired;
-  }
-
-  return value;
+  return chooseBestCandidate(value, [
+    repairLatin1ToUtf8(value),
+    repairCp850ToUtf8(value),
+  ]);
 }
 
 export function normalizeText(value: string): string {

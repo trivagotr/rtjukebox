@@ -16,7 +16,7 @@ import { buildSongFileUrl, normalizeText } from '../utils/textNormalization';
 export function normalizeDeviceAdminInput(input: { name: string; location?: string | null }) {
     return {
         name: normalizeText(input.name),
-        location: input.location ? normalizeText(input.location) : null
+        location: input.location === undefined || input.location === null ? null : normalizeText(input.location)
     };
 }
 
@@ -532,7 +532,6 @@ router.post('/admin/scan-folder', authMiddleware, async (req: Request, res: Resp
     const authReq = req as AuthRequest;
     if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
 
-    const fs = require('fs');
     const uploadsPath = path.join(__dirname, '../../uploads/songs');
 
     try {
@@ -549,6 +548,13 @@ router.post('/admin/scan-folder', authMiddleware, async (req: Request, res: Resp
 
         for (const file of files) {
             const normalizedFilename = normalizeUploadedSongFilename(file);
+            const originalFilePath = path.join(uploadsPath, file);
+            const normalizedFilePath = path.join(uploadsPath, normalizedFilename);
+
+            if (file !== normalizedFilename && fs.existsSync(originalFilePath)) {
+                fs.renameSync(originalFilePath, normalizedFilePath);
+            }
+
             const fileUrl = buildSongFileUrl(normalizedFilename);
 
             // Check if already exists
@@ -565,7 +571,7 @@ router.post('/admin/scan-folder', authMiddleware, async (req: Request, res: Resp
             }
 
             // Extract basic info from filename
-            const { title, artist } = parseSongDetailsFromFilename(file);
+            const { title, artist } = parseSongDetailsFromFilename(normalizedFilename);
 
             const insertResult = await db.query(
                 'INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING id',
