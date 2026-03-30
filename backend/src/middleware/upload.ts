@@ -1,6 +1,7 @@
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { normalizeFilename } from '../utils/textNormalization';
 
 const uploadDir = 'uploads/avatars';
 
@@ -42,22 +43,17 @@ if (!fs.existsSync(songUploadDir)) {
     fs.mkdirSync(songUploadDir, { recursive: true });
 }
 
+export function normalizeUploadedSongFilename(originalName: string): string {
+    const utf8Name = Buffer.from(originalName, 'latin1').toString('utf8');
+    return normalizeFilename(utf8Name);
+}
+
 const songStorage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, songUploadDir);
     },
     filename: (req, file, cb) => {
-        // Multer handles filenames as Latin1. We need to convert it back to UTF-8
-        // to preserve Turkish characters correctly.
-        const originalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-
-        // Keep original filename but sanitize it fairly (allow Turkish characters and spaces)
-        let safeName = originalName.replace(/[^a-zA-Z0-9çÇğĞıİöÖşŞüÜ\-_. ]/g, '');
-
-        // Ensure no multiple spaces or weirdness
-        safeName = safeName.trim();
-
-        cb(null, safeName);
+        cb(null, normalizeUploadedSongFilename(file.originalname));
     }
 });
 

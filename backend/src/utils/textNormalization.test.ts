@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { normalizeDisplayNameInput } from '../routes/auth';
+import { normalizeUploadedSongFilename } from '../middleware/upload';
 import {
   buildSongFileUrl,
   normalizeFilename,
@@ -30,6 +32,21 @@ describe('text normalization', () => {
   it('builds song urls from normalized filenames', () => {
     expect(buildSongFileUrl('Semicenk - Çıkmaz Bir Sokakta.mp3')).toBe(
       '/uploads/songs/Semicenk - Çıkmaz Bir Sokakta.mp3',
+    );
+  });
+
+  it('normalizes display names before auth writes', () => {
+    expect(normalizeDisplayNameInput('  Tuna ├ûzsar─▒  ')).toBe('Tuna Özsarı');
+  });
+
+  it('normalizes uploaded song filenames before saving', () => {
+    const latin1Filename = Buffer.from(
+      'Semicenk - Çıkmaz Bir Sokakta.mp3',
+      'utf8',
+    ).toString('latin1');
+
+    expect(normalizeUploadedSongFilename(latin1Filename)).toBe(
+      'Semicenk - Çıkmaz Bir Sokakta.mp3',
     );
   });
 });
