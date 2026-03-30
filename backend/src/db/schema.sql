@@ -136,3 +136,15 @@ CREATE TABLE IF NOT EXISTS device_sessions (
     UNIQUE(user_id, device_id)
 );
 CREATE INDEX IF NOT EXISTS idx_device_sessions_lookup ON device_sessions(user_id, device_id);
+
+-- Spotify OAuth Tokens Table
+CREATE TABLE IF NOT EXISTS spotify_auth (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id),
+    access_token TEXT NOT NULL,
+    refresh_token TEXT NOT NULL,
+    token_expires_at TIMESTAMP NOT NULL,
+    scopes TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
