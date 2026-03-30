@@ -145,6 +145,15 @@ $date = Get-Date -Format "yyyy-MM-dd"
 pg_dump -U postgres radiotedu > "C:\backups\radiotedu-$date.sql"
 ```
 
+### PostgreSQL Restore
+PowerShell text pipe kullanmayın. SQL dump'ı `Get-Content` veya `cat` ile boru hattından geçirmek, dump baytlarını yeniden yorumlayıp UTF-8 karakterleri bozabilir.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\docker_export\restore-database.ps1 -DumpPath .\docker_export\database_dump.sql -WhatIf
+```
+
+Dry-run çıktısı doğru görünüyorsa `-WhatIf` olmadan çalıştırın. Gerekirse `-ContainerName`, `-DatabaseUser` ve `-DatabaseName` parametreleriyle hedefi geçersiniz.
+
 ### Monitoring
 - PM2 built-in monitoring: `pm2 monit`
 - Uptime Kuma (self-hosted)
