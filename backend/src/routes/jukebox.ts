@@ -25,6 +25,27 @@ export function normalizeDeviceAdminInput(input: { name: string; location?: stri
     };
 }
 
+export function normalizeDeviceAdminUpdateInput(input: { name?: string | null; location?: string | null }) {
+    const location = input.location === undefined || input.location === null ? undefined : normalizeText(input.location);
+
+    if (input.name === undefined || input.name === null) {
+        return {
+            name: undefined,
+            location,
+        };
+    }
+
+    const trimmedName = input.name.trim();
+    if (!trimmedName) {
+        throw new Error('Device name required');
+    }
+
+    return {
+        name: normalizeText(trimmedName),
+        location,
+    };
+}
+
 export function parseSongDetailsFromFilename(filename: string) {
     const normalizedFilename = normalizeUploadedSongFilename(filename);
     const rawBaseName = filename.replace(/\.(mp3|m4a|wav)$/i, '');
@@ -1127,7 +1148,7 @@ router.post('/admin/devices', authMiddleware, async (req: Request, res: Response
 
         let normalizedDevice;
         try {
-            normalizedDevice = normalizeDeviceAdminInput({ name, location });
+            normalizedDevice = normalizeDeviceAdminUpdateInput({ name, location });
         } catch (validationError: any) {
             return sendError(res, validationError.message || 'Invalid device name', 400);
         }

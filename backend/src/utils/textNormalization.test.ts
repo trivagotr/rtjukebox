@@ -11,6 +11,7 @@ import { normalizeDisplayNameInput } from '../routes/auth';
 import { normalizeUploadedSongFilename } from '../middleware/upload';
 import {
   normalizeDeviceAdminInput,
+  normalizeDeviceAdminUpdateInput,
   finalizeUploadedSongUpload,
   parseSongDetailsFromFilename,
   processScanFolderSongFile,
@@ -115,6 +116,25 @@ describe('text normalization', () => {
       normalizeDeviceAdminInput({
         name: '   ',
         location: 'Merkez Kamp\u00FCs',
+      }),
+    ).toThrow('Device name required');
+  });
+
+  it('allows omitted device names during update normalization', () => {
+    expect(
+      normalizeDeviceAdminUpdateInput({
+        location: 'Merkez Kamp\u00FCs',
+      }),
+    ).toEqual({
+      name: undefined,
+      location: 'Merkez Kamp\u00FCs',
+    });
+  });
+
+  it('rejects whitespace-only device names during update normalization', () => {
+    expect(() =>
+      normalizeDeviceAdminUpdateInput({
+        name: '   ',
       }),
     ).toThrow('Device name required');
   });
