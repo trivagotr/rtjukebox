@@ -516,6 +516,93 @@ describe('text normalization', () => {
     });
   });
 
+  it('locks the canonical song url before duplicate checks and returns the canonical filename', async () => {
+    const uploadsPath = 'C:/music/uploads/songs';
+    const originalName = 'P!nk - Raise Your Glass (Live).mp3';
+    const tempPath = path.join(uploadsPath, 'song-upload-lock.mp3');
+    const canonicalPath = path.join(uploadsPath, 'Pnk - Raise Your Glass Live.mp3');
+    const canonicalUrl = '/uploads/songs/Pnk - Raise Your Glass Live.mp3';
+    const queryLog: string[] = [];
+    const renameCalls: Array<[string, string]> = [];
+    const fileContents = new Map<string, string>([[tempPath, 'temp-audio']]);
+
+    const result = await finalizeUploadedSongUpload({
+      file: {
+        filename: 'song-upload-lock.mp3',
+        originalname: originalName,
+        path: tempPath,
+        mimetype: 'audio/mpeg',
+      } as any,
+      uploadsPath,
+      dbClient: {
+        async query(sql: string, params: unknown[]) {
+          queryLog.push(sql);
+
+          if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+            return { rows: [] };
+          }
+
+          if (sql.includes('pg_advisory_xact_lock')) {
+            expect(String(params[0])).toBe(canonicalUrl);
+            return { rows: [] };
+          }
+
+          if (sql.includes('SELECT id, is_active, file_url FROM songs WHERE file_url = $1')) {
+            return { rows: [] };
+          }
+
+          if (sql.includes('INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING *')) {
+            return {
+              rows: [
+                {
+                  id: 'song-lock',
+                  title: String(params[0]),
+                  artist: String(params[1]),
+                  file_url: String(params[3]),
+                },
+              ],
+            };
+          }
+
+          throw new Error(`Unexpected query: ${sql}`);
+        },
+      },
+      fsImpl: {
+        existsSync(filePath: string) {
+          return fileContents.has(filePath);
+        },
+        renameSync(from: string, to: string) {
+          renameCalls.push([from, to]);
+          const content = fileContents.get(from);
+          if (content === undefined) {
+            throw new Error(`Missing source file: ${from}`);
+          }
+          fileContents.set(to, content);
+          fileContents.delete(from);
+        },
+        unlinkSync(filePath: string) {
+          fileContents.delete(filePath);
+        },
+      },
+      metadataService: {
+        async syncSongMetadata() {
+          return null;
+        },
+      },
+    });
+
+    expect(queryLog[0]).toBe('BEGIN');
+    expect(queryLog[1]).toContain('pg_advisory_xact_lock');
+    expect(queryLog[2]).toContain('SELECT id, is_active, file_url FROM songs WHERE file_url = $1');
+    expect(renameCalls).toEqual([[tempPath, canonicalPath]]);
+    expect(result).toMatchObject({
+      status: 'uploaded',
+      filename: 'Pnk - Raise Your Glass Live.mp3',
+      fileUrl: canonicalUrl,
+    });
+    expect(fileContents.has(canonicalPath)).toBe(true);
+  });
+
   it('does not overwrite an existing canonical song file when a normalized upload collides', async () => {
     const uploadsPath = 'C:/music/uploads/songs';
     const originalName = 'P!nk - Raise Your Glass (Live).mp3';
@@ -544,6 +631,10 @@ describe('text normalization', () => {
           queryLog.push(`${sql} :: ${String(params[0])}`);
 
           if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+            return { rows: [] };
+          }
+
+          if (sql.includes('pg_advisory_xact_lock')) {
             return { rows: [] };
           }
 
@@ -618,13 +709,17 @@ describe('text normalization', () => {
         uploadsPath,
         dbClient: {
           async query(sql: string, params: unknown[]) {
-            if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
-              return { rows: [] };
-            }
+          if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {
+            return { rows: [] };
+          }
 
-            if (sql.includes('SELECT id, is_active, file_url FROM songs WHERE file_url = $1')) {
-              return { rows: [] };
-            }
+          if (sql.includes('pg_advisory_xact_lock')) {
+            return { rows: [] };
+          }
+
+          if (sql.includes('SELECT id, is_active, file_url FROM songs WHERE file_url = $1')) {
+            return { rows: [] };
+          }
 
             if (sql.includes('INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING *')) {
               insertCalls.push(params);
@@ -675,6 +770,7 @@ describe('text normalization', () => {
     expect(insertCalls[0]).toEqual(['Raise Your Glass (Live)', 'P!nk', 180, canonicalUrl]);
     expect(result).toMatchObject({
       status: 'uploaded',
+      filename: 'Pnk - Raise Your Glass Live.mp3',
       fileUrl: canonicalUrl,
       song: {
         title: 'Raise Your Glass (Live)',

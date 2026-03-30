@@ -84,6 +84,12 @@ export function parseSongDetailsFromFilename(filename: string) {
 
 type SongUploadDbClient = {
     query: (sql: string, params: unknown[]) => Promise<{ rows: any[] }>;
+    release?: () => Promise<void> | void;
+};
+
+type SongUploadDbSession = {
+    client: SongUploadDbClient;
+    release: () => Promise<void> | void;
 };
 
 type SongUploadFsClient = {
@@ -114,6 +120,21 @@ function removeFileIfPresent(fsImpl: SongUploadFsClient, filePath: string) {
     fsImpl.unlinkSync(filePath);
 }
 
+async function acquireSongUploadDbSession(dbClient?: SongUploadDbClient): Promise<SongUploadDbSession> {
+    if (dbClient) {
+        return {
+            client: dbClient,
+            release: () => dbClient.release?.() ?? undefined,
+        };
+    }
+
+    const client = await db.pool.connect();
+    return {
+        client,
+        release: () => client.release(),
+    };
+}
+
 export async function finalizeUploadedSongUpload(params: {
     file: UploadedSongFile;
     uploadsPath?: string;
@@ -123,78 +144,25 @@ export async function finalizeUploadedSongUpload(params: {
 }) {
     const fsImpl = params.fsImpl ?? fs;
     const uploadsPath = params.uploadsPath ?? songUploadDir;
-    const dbClient = params.dbClient ?? db;
+    const { client: dbClient, release } = await acquireSongUploadDbSession(params.dbClient);
     const metadataService = params.metadataService ?? MetadataService;
     const canonicalFile = parseSongDetailsFromFilename(params.file.originalname);
     const tempFilePath = getUploadedSongFilePath(params.file, uploadsPath);
     const canonicalFilename = canonicalFile.fileUrl.replace('/uploads/songs/', '');
     const canonicalFilePath = path.join(uploadsPath, canonicalFilename);
-    const canonicalFileExists = fsImpl.existsSync(canonicalFilePath);
     const originalNameDetails = parseSongDetailsFromFilename(params.file.originalname);
     const cleanupTempFile = () => removeFileIfPresent(fsImpl, tempFilePath);
-
-    const existing = await dbClient.query(
-        'SELECT id, is_active, file_url FROM songs WHERE file_url = $1',
-        [canonicalFile.fileUrl]
-    );
-
-    const existingRow = existing.rows[0] ?? null;
-
-    if (existingRow && existingRow.is_active) {
-        cleanupTempFile();
-        return {
-            status: 'duplicate' as const,
-            fileUrl: canonicalFile.fileUrl,
-            title: originalNameDetails.title,
-            artist: originalNameDetails.artist,
-        };
-    }
-
-    if (!existingRow && canonicalFileExists) {
-        cleanupTempFile();
-        return {
-            status: 'duplicate' as const,
-            fileUrl: canonicalFile.fileUrl,
-            title: originalNameDetails.title,
-            artist: originalNameDetails.artist,
-        };
-    }
-
-    if (existingRow && !existingRow.is_active && canonicalFileExists) {
-        cleanupTempFile();
-
-        const updatedRows = await dbClient.query(
-            'UPDATE songs SET is_active = true WHERE id = $1 RETURNING *',
-            [existingRow.id]
-        );
-
-        let song = updatedRows.rows[0] ?? { ...existingRow, is_active: true };
-        try {
-            const synced = await metadataService.syncSongMetadata(existingRow.id);
-            if (synced) {
-                song = synced;
-            }
-        } catch (syncError) {
-            console.log('Metadata sync failed, using filename data:', syncError);
-        }
-
-        return {
-            status: 'reactivated' as const,
-            fileUrl: canonicalFile.fileUrl,
-            song,
-            title: originalNameDetails.title,
-            artist: originalNameDetails.artist,
-        };
-    }
+    let renamed = false;
 
     const renameTempToCanonical = () => {
         if (tempFilePath !== canonicalFilePath) {
             fsImpl.renameSync(tempFilePath, canonicalFilePath);
+            renamed = true;
         }
     };
 
     const removeCanonicalIfCreated = () => {
-        if (tempFilePath === canonicalFilePath) {
+        if (!renamed) {
             return;
         }
 
@@ -202,13 +170,48 @@ export async function finalizeUploadedSongUpload(params: {
     };
 
     try {
-        renameTempToCanonical();
+        await dbClient.query('BEGIN', []);
+        await dbClient.query('SELECT pg_advisory_xact_lock(hashtext($1))', [canonicalFile.fileUrl]);
 
-        if (existingRow && !existingRow.is_active) {
+        const existing = await dbClient.query(
+            'SELECT id, is_active, file_url FROM songs WHERE file_url = $1',
+            [canonicalFile.fileUrl]
+        );
+        const existingRow = existing.rows[0] ?? null;
+        const canonicalFileExists = fsImpl.existsSync(canonicalFilePath);
+
+        if (existingRow && existingRow.is_active) {
+            await dbClient.query('COMMIT', []);
+            cleanupTempFile();
+            return {
+                status: 'duplicate' as const,
+                fileUrl: canonicalFile.fileUrl,
+                filename: canonicalFilename,
+                title: originalNameDetails.title,
+                artist: originalNameDetails.artist,
+            };
+        }
+
+        if (!existingRow && canonicalFileExists) {
+            await dbClient.query('COMMIT', []);
+            cleanupTempFile();
+            return {
+                status: 'duplicate' as const,
+                fileUrl: canonicalFile.fileUrl,
+                filename: canonicalFilename,
+                title: originalNameDetails.title,
+                artist: originalNameDetails.artist,
+            };
+        }
+
+        if (existingRow && !existingRow.is_active && canonicalFileExists) {
             const updatedRows = await dbClient.query(
                 'UPDATE songs SET is_active = true WHERE id = $1 RETURNING *',
                 [existingRow.id]
             );
+
+            await dbClient.query('COMMIT', []);
+            cleanupTempFile();
 
             let song = updatedRows.rows[0] ?? { ...existingRow, is_active: true };
             try {
@@ -223,16 +226,24 @@ export async function finalizeUploadedSongUpload(params: {
             return {
                 status: 'reactivated' as const,
                 fileUrl: canonicalFile.fileUrl,
+                filename: canonicalFilename,
                 song,
                 title: originalNameDetails.title,
                 artist: originalNameDetails.artist,
             };
         }
 
+        renameTempToCanonical();
+
         const insertedRows = await dbClient.query(
             'INSERT INTO songs (title, artist, duration_seconds, file_url) VALUES ($1, $2, $3, $4) RETURNING *',
             [originalNameDetails.title, originalNameDetails.artist, 180, canonicalFile.fileUrl]
         );
+
+        await dbClient.query('COMMIT', []);
+
+        renamed = false;
+        cleanupTempFile();
 
         let song = insertedRows.rows[0];
         try {
@@ -247,14 +258,26 @@ export async function finalizeUploadedSongUpload(params: {
         return {
             status: 'uploaded' as const,
             fileUrl: canonicalFile.fileUrl,
+            filename: canonicalFilename,
             song,
             title: originalNameDetails.title,
             artist: originalNameDetails.artist,
         };
     } catch (error) {
-        removeCanonicalIfCreated();
+        try {
+            await dbClient.query('ROLLBACK', []);
+        } catch (rollbackError) {
+            console.error('Failed to roll back song upload transaction:', rollbackError);
+        }
+
+        if (renamed) {
+            removeCanonicalIfCreated();
+        }
+
         cleanupTempFile();
         throw error;
+    } finally {
+        await release();
     }
 }
 
@@ -1072,10 +1095,10 @@ router.post('/admin/upload-song', authMiddleware, songUpload.single('song'), asy
         }
 
         if (result.status === 'reactivated') {
-            return sendSuccess(res, { song: result.song, filename: file.filename }, 'Song reactivated');
+            return sendSuccess(res, { song: result.song, filename: result.filename }, 'Song reactivated');
         }
 
-        return sendSuccess(res, { song: result.song, filename: file.filename }, 'Song uploaded');
+        return sendSuccess(res, { song: result.song, filename: result.filename }, 'Song uploaded');
     } catch (error) {
         console.error('Upload song error:', error);
         return sendError(res, 'Upload failed', 500);
