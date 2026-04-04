@@ -34,6 +34,17 @@ describe('db migration helper', () => {
         }
     });
 
+    it('includes monthly rank and guest limit tables in the schema', () => {
+        const schemaSql = loadSchemaSql();
+
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS user_monthly_rank_scores');
+        expect(schemaSql).toContain('UNIQUE(user_id, year_month)');
+        expect(schemaSql).toContain('CREATE INDEX IF NOT EXISTS idx_user_monthly_rank_scores_user_month');
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS guest_daily_song_limits');
+        expect(schemaSql).toContain('UNIQUE(fingerprint, day_key)');
+        expect(schemaSql).toContain('CREATE INDEX IF NOT EXISTS idx_guest_daily_song_limits_day_key');
+    });
+
     it('applies schema sql inside a single transaction and forces UTF-8 client encoding', async () => {
         const query = vi.fn().mockResolvedValue({ rows: [] });
 

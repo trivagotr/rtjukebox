@@ -26,6 +26,32 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS idx_users_rank ON users(rank_score DESC);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
+-- User Monthly Rank Scores Table
+CREATE TABLE IF NOT EXISTS user_monthly_rank_scores (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    year_month VARCHAR(7) NOT NULL, -- YYYY-MM, Istanbul month bucket
+    score INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(user_id, year_month)
+);
+CREATE INDEX IF NOT EXISTS idx_user_monthly_rank_scores_user_month
+    ON user_monthly_rank_scores(user_id, year_month);
+
+-- Guest Daily Song Limits Table
+CREATE TABLE IF NOT EXISTS guest_daily_song_limits (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    fingerprint VARCHAR(255) NOT NULL,
+    day_key DATE NOT NULL, -- Istanbul day bucket
+    songs_added INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(fingerprint, day_key)
+);
+CREATE INDEX IF NOT EXISTS idx_guest_daily_song_limits_day_key
+    ON guest_daily_song_limits(day_key);
+
 -- Devices (Kiosk) Table
 CREATE TABLE IF NOT EXISTS devices (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
