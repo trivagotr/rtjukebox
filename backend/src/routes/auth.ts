@@ -22,6 +22,20 @@ export function normalizeDisplayNameInput(displayName: string): string {
     return normalizeText(displayName);
 }
 
+export function mapCurrentUserProfile(row: Record<string, unknown>) {
+    return {
+        id: row.id,
+        email: row.email,
+        display_name: row.display_name,
+        avatar_url: row.avatar_url ?? null,
+        rank_score: Number(row.rank_score ?? 0),
+        monthly_rank_score: Number(row.monthly_rank_score ?? 0),
+        total_songs_added: Number(row.total_songs_added ?? 0),
+        role: row.role,
+        last_super_vote_at: row.last_super_vote_at ?? null,
+    };
+}
+
 // Helper to generate and store tokens
 async function createAuthSession(userId: string, email: string, role: string) {
     const accessToken = jwt.sign(
@@ -227,7 +241,7 @@ export async function handleCurrentUserProfileRequest(req: AuthRequest, res: Res
             return sendError(res, 'User not found', 404);
         }
 
-        return sendSuccess(res, result.rows[0]);
+        return sendSuccess(res, mapCurrentUserProfile(result.rows[0] as Record<string, unknown>));
     } catch (error) {
         return sendError(res, 'Failed to fetch profile', 500);
     }
