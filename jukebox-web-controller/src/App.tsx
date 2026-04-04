@@ -1287,7 +1287,7 @@ function App() {
     } catch (err: any) {
       const resp = err.response?.data;
       if (resp?.code === 'GUEST_LIMIT_REACHED') {
-        setMsg({ type: 'error', text: 'Misafir limitin doldu. Giriş yaparsan sınırsız şarkı ekleyebilirsin.' });
+        setMsg({ type: 'error', text: 'Misafir limitin doldu. Giris yap veya uye ol; sinirsiz sarki ekleyebilirsin.' });
         setShowLoginModal(true);
       } else {
         setMsg({ type: 'error', text: resp?.message || 'Şarkı eklenemedi.' });
