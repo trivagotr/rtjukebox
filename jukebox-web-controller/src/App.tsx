@@ -920,11 +920,16 @@ function App() {
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<'total' | 'monthly'>('total');
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const leaderboardRequestSeqRef = useRef(0);
+  const leaderboardPeriodRef = useRef<'total' | 'monthly'>('total');
+
+  useEffect(() => {
+    leaderboardPeriodRef.current = leaderboardPeriod;
+  }, [leaderboardPeriod]);
 
   // Expose toggle to sub-components via window for simplicity (not ideal but works here)
   useEffect(() => {
     (window as any).toggleLeaderboard = () => {
-      fetchLeaderboard();
+      fetchLeaderboard(leaderboardPeriodRef.current);
       setShowLeaderboard(true);
     };
   }, []);
