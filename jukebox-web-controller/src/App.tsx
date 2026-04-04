@@ -68,7 +68,7 @@ const hasSupervoteAvailableToday = (lastSuperVoteAt?: string) =>
   !lastSuperVoteAt || getIstanbulDayKey(lastSuperVoteAt) !== getIstanbulDayKey(new Date());
 
 const getQueueItemSongScore = (item: any) =>
-  item.song_score ?? item.priority_score ?? ((item.upvotes ?? 0) - (item.downvotes ?? 0));
+  item.song_score ?? 0;
 
 // --- Components ---
 
