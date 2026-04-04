@@ -7,6 +7,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { upload } from '../middleware/upload';
 import { sendSuccess, sendError } from '../utils/response';
 import { ROLES } from '../middleware/rbac';
+import { normalizeText } from '../utils/textNormalization';
 
 const router = Router();
 
@@ -15,6 +16,10 @@ const registerSchema = z.object({
     password: z.string().min(6),
     display_name: z.string().min(2).max(100)
 });
+
+export function normalizeDisplayNameInput(displayName: string): string {
+    return normalizeText(displayName);
+}
 
 // Helper to generate and store tokens
 async function createAuthSession(userId: string, email: string, role: string) {
@@ -49,6 +54,11 @@ async function createAuthSession(userId: string, email: string, role: string) {
 router.post('/register', async (req: Request, res: Response) => {
     try {
         const { email, password, display_name } = registerSchema.parse(req.body);
+        const normalizedDisplayName = normalizeDisplayNameInput(display_name);
+
+        if (normalizedDisplayName.length < 2) {
+            return sendError(res, 'Display name required', 400);
+        }
 
         // Check if user exists
         const existing = await db.query('SELECT id FROM users WHERE email = $1', [email]);
@@ -61,7 +71,7 @@ router.post('/register', async (req: Request, res: Response) => {
         const result = await db.query(
             `INSERT INTO users (email, password_hash, display_name, role, last_ip, user_agent)
              VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-            [email, hashedPassword, display_name, ROLES.USER, req.ip, req.headers['user-agent']]
+            [email, hashedPassword, normalizedDisplayName, ROLES.USER, req.ip, req.headers['user-agent']]
         );
 
         const user = result.rows[0];
@@ -115,8 +125,8 @@ router.post('/login', async (req: Request, res: Response) => {
 
 router.post('/guest', async (req: Request, res: Response) => {
     try {
-        const { display_name } = req.body;
-        if (!display_name || display_name.length < 2) {
+        const normalizedDisplayName = normalizeDisplayNameInput(req.body.display_name ?? '');
+        if (!normalizedDisplayName || normalizedDisplayName.length < 2) {
             return res.status(400).json({ error: 'Display name required' });
         }
 
@@ -127,7 +137,7 @@ router.post('/guest', async (req: Request, res: Response) => {
         const result = await db.query(
             `INSERT INTO users (email, password_hash, display_name, is_guest, last_ip, user_agent) 
              VALUES ($1, NULL, $2, TRUE, $3, $4) RETURNING *`,
-            [email, display_name, req.ip, req.headers['user-agent']]
+            [email, normalizedDisplayName, req.ip, req.headers['user-agent']]
         );
 
         const user = result.rows[0];

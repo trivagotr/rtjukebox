@@ -20,6 +20,7 @@ import { COLORS, SPACING } from '../../theme/theme';
 import io from 'socket.io-client';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
+import { STORAGE_API } from '../../services/config';
 import GlobalHeader from '../../components/GlobalHeader';
 import PageTransition from '../../components/PageTransition';
 
@@ -103,7 +104,13 @@ const JukeboxScreen = ({ route }: any) => {
   useEffect(() => {
     if (!device) return;
 
-    const socket = io(api.defaults.baseURL?.split('/api/v1')[0] || '');
+    const socket = io(api.defaults.baseURL?.split('/api/v1')[0] || '', {
+      path: "/socket.io",
+      transports: ["websocket", "polling"],
+      secure: true,
+      forceNew: true,
+      reconnectionAttempts: 10
+    });
 
 
     // JOIN THE DEVICE ROOM
@@ -231,7 +238,7 @@ const JukeboxScreen = ({ route }: any) => {
   };
 
   const renderQueueItem = ({ item, index }: { item: any; index: number }) => {
-    const storageApi = 'http://192.168.0.13:3000';
+    const storageApi = STORAGE_API;
 
     let coverUrl = item.cover_url;
     if (coverUrl && coverUrl.startsWith('/')) {
@@ -288,7 +295,7 @@ const JukeboxScreen = ({ route }: any) => {
       </View>
     );
 
-    const storageApi = 'http://192.168.0.13:3000';
+    const storageApi = STORAGE_API;
     let coverUrl = song.cover_url;
     if (coverUrl && coverUrl.startsWith('/')) coverUrl = storageApi + coverUrl;
     else if (!coverUrl) coverUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(song.title)}&background=random&color=fff`;
@@ -370,26 +377,45 @@ const JukeboxScreen = ({ route }: any) => {
           </View>
         </Modal>
 
-        {/* Device Selector Modal */}
         <Modal
           visible={showDeviceSelector}
           transparent
           animationType="slide"
+          onRequestClose={() => setShowDeviceSelector(false)}
         >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>Müzik Kutusu Seçin</Text>
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowDeviceSelector(false)}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              style={styles.modalContent}
+            >
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Müzik Kutusu Seçin</Text>
+                <TouchableOpacity
+                  onPress={() => setShowDeviceSelector(false)}
+                  style={styles.closeButton}
+                >
+                  <Icon name="close" size={24} color={COLORS.textMuted} />
+                </TouchableOpacity>
+              </View>
+
               {deviceList.length === 0 ? (
-                <Text style={{ color: COLORS.textMuted, textAlign: 'center', marginVertical: 20 }}>
-                  Aktif cihaz bulunamadı
-                </Text>
+                <View style={styles.emptyDeviceContainer}>
+                  <Icon name="poker-chip" size={48} color={COLORS.textMuted} style={{ marginBottom: 12 }} />
+                  <Text style={{ color: COLORS.textMuted, textAlign: 'center' }}>
+                    Aktif bir müzik kutusu bulunamadı.
+                  </Text>
+                </View>
               ) : (
                 deviceList.map((d) => (
                   <TouchableOpacity
                     key={d.id}
                     style={[
                       styles.deviceOption,
-                      device?.id === d.id && { borderColor: COLORS.primary, borderWidth: 2 }
+                      device?.id === d.id && { borderColor: COLORS.primary, borderWidth: 1.5, backgroundColor: 'rgba(227, 30, 36, 0.05)' }
                     ]}
                     onPress={async () => {
                       try {
@@ -408,7 +434,7 @@ const JukeboxScreen = ({ route }: any) => {
                       }
                     }}
                   >
-                    <Icon name="radio" size={24} color={COLORS.primary} />
+                    <Icon name="radio" size={24} color={device?.id === d.id ? COLORS.primary : COLORS.textMuted} />
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <Text style={{ color: COLORS.text, fontWeight: 'bold' }}>{d.name}</Text>
                       {d.location && (
@@ -421,16 +447,15 @@ const JukeboxScreen = ({ route }: any) => {
                   </TouchableOpacity>
                 ))
               )}
-              {device && (
-                <TouchableOpacity
-                  style={[styles.modalButton, { marginTop: 16 }]}
-                  onPress={() => setShowDeviceSelector(false)}
-                >
-                  <Text style={styles.modalButtonText}>Kapat</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
+
+              <TouchableOpacity
+                style={[styles.modalButton, { marginTop: 16, backgroundColor: 'rgba(255,255,255,0.05)' }]}
+                onPress={() => setShowDeviceSelector(false)}
+              >
+                <Text style={[styles.modalButtonText, { color: COLORS.text }]}>Vazgeç</Text>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </TouchableOpacity>
         </Modal>
 
         {/* Tappable Device Banner */}
@@ -707,6 +732,24 @@ const styles = StyleSheet.create({
     width: '100%',
     borderWidth: 1,
     borderColor: COLORS.border,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    marginBottom: SPACING.lg,
+  },
+  closeButton: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    padding: 4,
+  },
+  emptyDeviceContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.xl,
   },
   modalTitle: {
     color: '#fff',

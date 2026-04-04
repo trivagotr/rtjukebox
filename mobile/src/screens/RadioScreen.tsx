@@ -13,6 +13,7 @@ import {
   UIManager,
   useWindowDimensions,
   ScrollView,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TrackPlayer, {
@@ -23,6 +24,7 @@ import TrackPlayer, {
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation } from '@react-navigation/native';
 import { COLORS, SPACING } from '../theme/theme';
+import api from '../services/api';
 import { RADIO_CHANNELS, RadioChannel } from '../data/radioChannels';
 import { useMetadata } from '../context/MetadataContext';
 import { useChannels } from '../context/ChannelContext';
@@ -42,6 +44,9 @@ const RadioScreen = () => {
     RADIO_CHANNELS[0],
   );
   const [currentPlayingId, setCurrentPlayingId] = useState<string | null>(null);
+  const [history, setHistory] = useState<any[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   useEffect(() => {
     if (!isChecking && activeChannels.length > 0) {
@@ -87,6 +92,38 @@ const RadioScreen = () => {
       }
     }
   }, [activeTrack?.id, activeChannels]);
+
+  // Fetch History Logic
+  const fetchHistory = async (channelId: string) => {
+    try {
+      setIsLoadingHistory(true);
+      // Backend endpoint: /api/v1/radio/history/:channel_id
+      const response = await api.get(`/radio/history/${channelId}`);
+      setHistory(response.data.data || []);
+    } catch (error) {
+      console.log('Failed to fetch history:', error);
+      // Fallback/Mock for now if backend is not ready
+      setHistory([]);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchHistory(selectedChannel.id);
+
+    // Auto refresh history every 60 seconds
+    const interval = setInterval(() => {
+      fetchHistory(selectedChannel.id);
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [selectedChannel.id]);
+
+  const openHistory = () => {
+    fetchHistory(selectedChannel.id);
+    setShowHistoryModal(true);
+  };
 
   const playChannel = async (
     channel: RadioChannel,
@@ -278,6 +315,22 @@ const RadioScreen = () => {
     );
   };
 
+  const renderHistoryItem = ({ item }: { item: any }) => (
+    <View style={styles.historyItem}>
+      <Image
+        source={{ uri: item.cover_url || 'https://radiotedu.com/logo.png' }}
+        style={styles.historyCover}
+      />
+      <View style={styles.historyInfo}>
+        <Text style={styles.historyTitle} numberOfLines={1}>{item.title}</Text>
+        <Text style={styles.historyArtist} numberOfLines={1}>{item.artist}</Text>
+      </View>
+      <Text style={styles.historyTime}>
+        {new Date(item.played_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+      </Text>
+    </View>
+  );
+
   return (
     <PageTransition>
       <View style={styles.container}>
@@ -434,8 +487,64 @@ const RadioScreen = () => {
                     <Icon name="skip-next" size={36} color="#b3b3b3" />
                   </TouchableOpacity>
                 </View>
+
+                {/* History Trigger Button */}
+                <TouchableOpacity
+                  style={styles.historyTrigger}
+                  onPress={openHistory}
+                  activeOpacity={0.7}
+                >
+                  <Icon name="history" size={20} color={COLORS.primary} />
+                  <Text style={styles.historyTriggerText}>Son Çalanları Gör</Text>
+                </TouchableOpacity>
               </View>
             </View>
+
+            {/* History Modal */}
+            <Modal
+              visible={showHistoryModal}
+              animationType="slide"
+              transparent={true}
+              onRequestClose={() => setShowHistoryModal(false)}
+            >
+              <View style={styles.modalOverlay}>
+                <View style={styles.historyModalContent}>
+                  <View style={styles.modalHandle} />
+
+                  <View style={styles.modalHeader}>
+                    <View style={styles.headerInfo}>
+                      <Text style={styles.modalTitle}>Son Çalan Şarkılar</Text>
+                      <Text style={styles.modalSubtitle}>{selectedChannel.name} • Son 15 Dakika</Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => setShowHistoryModal(false)}
+                      style={styles.modalCloseButton}
+                    >
+                      <Icon name="close-circle" size={28} color={COLORS.textMuted} />
+                    </TouchableOpacity>
+                  </View>
+
+                  {isLoadingHistory && history.length === 0 ? (
+                    <View style={styles.modalLoading}>
+                      <ActivityIndicator color={COLORS.primary} size="large" />
+                    </View>
+                  ) : history.length > 0 ? (
+                    <FlatList
+                      data={history}
+                      renderItem={renderHistoryItem}
+                      keyExtractor={(item, index) => item.id || index.toString()}
+                      contentContainerStyle={styles.historyFlatList}
+                      showsVerticalScrollIndicator={false}
+                    />
+                  ) : (
+                    <View style={styles.emptyHistoryContainer}>
+                      <Icon name="clock-outline" size={48} color={COLORS.surface} />
+                      <Text style={styles.noHistoryText}>Henüz geçmiş kaydı bulunmuyor.</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </Modal>
           </ScrollView>
         </SafeAreaView>
       </View>
@@ -635,6 +744,125 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 30,
     backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  // History UI Improvements
+  historyTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  historyTriggerText: {
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  historyModalContent: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingTop: 12,
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+    maxHeight: '70%',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  headerInfo: {
+    flex: 1,
+  },
+  modalTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  modalSubtitle: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  historyFlatList: {
+    paddingBottom: 20,
+    gap: 12,
+  },
+  historyItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  historyCover: {
+    width: 50,
+    height: 50,
+    borderRadius: 10,
+    backgroundColor: '#333',
+  },
+  historyInfo: {
+    flex: 1,
+    marginLeft: 14,
+  },
+  historyTitle: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  historyArtist: {
+    color: COLORS.textMuted,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  historyTime: {
+    color: COLORS.primary,
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 10,
+  },
+  modalLoading: {
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyHistoryContainer: {
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noHistoryText: {
+    color: COLORS.textMuted,
+    textAlign: 'center',
+    marginTop: 12,
+    fontSize: 14,
   },
 });
 

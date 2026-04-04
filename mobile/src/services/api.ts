@@ -1,12 +1,10 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const BASE_URL = __DEV__
-  ? 'http://192.168.0.13:3000/api/v1'
-  : 'https://radiotedu-backend.onrender.com/api/v1';
+import { BASE_API } from './config';
 
 const api = axios.create({
-  baseURL: BASE_URL,
+  baseURL: BASE_API,
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',

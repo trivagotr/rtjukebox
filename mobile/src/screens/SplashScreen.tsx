@@ -51,7 +51,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
     useEffect(() => {
         const safetyTimer = setTimeout(() => {
             onFinishRef.current();
-        }, 12000);
+        }, 5000); // Reduced from 12s to 5s
         return () => clearTimeout(safetyTimer);
     }, []);
 
@@ -63,49 +63,44 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
         // Logo initial fade in
         Animated.timing(fadeAnim, {
             toValue: 1,
-            duration: 800,
+            duration: 600, // Reduced from 800
             useNativeDriver: true,
         }).start();
 
         // Calculate Target
-        // Header Logo: width=150, height=40
-        // Splash Logo: width=width*0.6
         const initialSplashWidth = width * 0.6;
         const targetScale = 150 / initialSplashWidth;
 
-        // Target Y:
-        // Header Logo center Y = insets.top + paddingVertical (8) + logoHeight / 2 (20) = insets.top + 28
-        // Splash Logo center Y (initially) = height / 2
         const topOffset = insets.top > 0 ? insets.top : (StatusBar.currentHeight || 0);
         const headerCenterY = topOffset + 28;
         const splashCenterY = height / 2;
         const targetTranslateY = headerCenterY - splashCenterY;
 
         const sequence = Animated.sequence([
-            Animated.delay(6000),
+            Animated.delay(1000), // Significantly reduced from 6000
             Animated.parallel([
                 Animated.timing(scaleAnim, {
                     toValue: targetScale,
-                    duration: 1500,
+                    duration: 800, // Reduced from 1500
                     easing: Easing.bezier(0.33, 1, 0.68, 1),
                     useNativeDriver: true,
                 }),
                 Animated.timing(translateYAnim, {
                     toValue: targetTranslateY,
-                    duration: 1500,
+                    duration: 800, // Reduced from 1500
                     easing: Easing.bezier(0.33, 1, 0.68, 1),
                     useNativeDriver: true,
                 }),
                 Animated.timing(bgFadeAnim, {
                     toValue: 0,
-                    duration: 1500,
+                    duration: 800, // Reduced from 1500
                     useNativeDriver: true,
                 }),
                 Animated.sequence([
-                    Animated.delay(1200),
+                    Animated.delay(600), // Reduced from 1200
                     Animated.timing(fadeAnim, {
                         toValue: 0,
-                        duration: 300,
+                        duration: 200, // Reduced from 300
                         useNativeDriver: true,
                     })
                 ])
