@@ -9,6 +9,16 @@ class KioskApp {
         this.device = null;
         this.queueData = { now_playing: null, queue: [] };
         this.audioPlayer = document.getElementById('audioPlayer');
+        this.spotifyController = null;
+        this.spotifyDeviceId = null;
+        this.spotifyReadyPromise = null;
+        this.spotifyReadyResolve = null;
+        this.spotifyPlayerState = null;
+        this.spotifyDeviceAuthController = null;
+        this.spotifyDeviceAuthStatus = null;
+        this.spotifyDeviceAuthReady = false;
+        this.spotifyDeviceAuthSetupState = this.loadSpotifyDeviceAuthSetupState();
+        this.spotifyTrackEnding = false;
         this.progressInterval = null;
         this.isPlaying = false;
         this.waveformCanvas = document.getElementById('waveformCanvas');
@@ -21,6 +31,7 @@ class KioskApp {
         // Debug Log
         this.logs = [];
         this.debugEl = this.createDebugOverlay();
+        this.brandingController = window.KioskBranding?.initializeBrandLogoFallback?.() ?? null;
 
         this.init();
     }
@@ -53,6 +64,174 @@ class KioskApp {
             this.logs.slice(0, 20).map(l => `<span style="color:${l.type === 'error' ? 'red' : 'inherit'}">[${l.time}] ${l.msg}</span>`).join('<br>');
     }
 
+    getSpotifyDeviceAuthSetupStateStorageKey() {
+        return 'spotify_device_auth_setup_state';
+    }
+
+    loadSpotifyDeviceAuthSetupState() {
+        try {
+            const raw = localStorage.getItem(this.getSpotifyDeviceAuthSetupStateStorageKey());
+            if (!raw) {
+                return null;
+            }
+
+            const parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== 'object') {
+                return null;
+            }
+
+            return parsed;
+        } catch (error) {
+            console.warn('⚠️ Spotify auth setup state yüklenemedi:', error?.message || error);
+            return null;
+        }
+    }
+
+    saveSpotifyDeviceAuthSetupState(reason) {
+        const state = {
+            required: true,
+            deviceId: this.device?.id || null,
+            reason: reason || 'Spotify authorization required for this device',
+            updatedAt: new Date().toISOString(),
+        };
+
+        this.spotifyDeviceAuthSetupState = state;
+
+        try {
+            localStorage.setItem(this.getSpotifyDeviceAuthSetupStateStorageKey(), JSON.stringify(state));
+        } catch (error) {
+            this.log(`⚠️ Spotify auth setup state kaydedilemedi: ${error.message}`, 'error');
+        }
+
+        return state;
+    }
+
+    clearSpotifyDeviceAuthSetupState() {
+        this.spotifyDeviceAuthSetupState = null;
+
+        try {
+            localStorage.removeItem(this.getSpotifyDeviceAuthSetupStateStorageKey());
+        } catch (error) {
+            this.log(`⚠️ Spotify auth setup state silinemedi: ${error.message}`, 'error');
+        }
+    }
+
+    hideSpotifyDeviceAuthSetupOverlay() {
+        const overlay = document.getElementById('spotifyDeviceAuthSetupOverlay');
+        if (overlay) {
+            overlay.remove?.();
+        }
+    }
+
+    showSpotifyDeviceAuthSetupOverlay(reason) {
+        if (!window.KioskDeviceSpotifyAuth?.renderSpotifyDeviceAuthSetup) {
+            return;
+        }
+
+        window.KioskDeviceSpotifyAuth.renderSpotifyDeviceAuthSetup(document, {
+            reason: reason || 'Spotify bağlantısı gerekli',
+            onConnect: () => this.openSpotifyDeviceAuthSetup(),
+        });
+    }
+
+    isSpotifyDeviceAuthConnected() {
+        if (!this.spotifyDeviceAuthController) {
+            return true;
+        }
+
+        if (this.spotifyDeviceAuthStatus?.connected === false) {
+            return false;
+        }
+
+        if (this.spotifyDeviceAuthSetupState?.required) {
+            return false;
+        }
+
+        return true;
+    }
+
+    async setupSpotifyDeviceAuthFlow() {
+        if (!window.KioskDeviceSpotifyAuth?.createSpotifyDeviceAuthController) {
+            this.spotifyDeviceAuthReady = true;
+            return { connected: true };
+        }
+
+        this.spotifyDeviceAuthController = window.KioskDeviceSpotifyAuth.createSpotifyDeviceAuthController({
+            apiBaseUrl: CONFIG.API_URL,
+            deviceId: this.device?.id,
+            devicePassword: localStorage.getItem('device_pwd') || CONFIG.DEVICE_PWD || '',
+            document,
+            fetch,
+            window,
+            onMissing: (status) => {
+                this.spotifyDeviceAuthStatus = status;
+                this.spotifyDeviceAuthReady = false;
+                this.saveSpotifyDeviceAuthSetupState(status?.reason || 'Spotify bağlantısı gerekli');
+                this.showSpotifyDeviceAuthSetupOverlay(status?.reason || 'Spotify bağlantısı gerekli');
+            },
+            onConnected: async (status) => {
+                this.spotifyDeviceAuthStatus = status;
+                this.spotifyDeviceAuthReady = true;
+                this.clearSpotifyDeviceAuthSetupState();
+                this.hideSpotifyDeviceAuthSetupOverlay();
+                await this.resumeAfterSpotifyDeviceAuth();
+            },
+        });
+
+        const status = await this.spotifyDeviceAuthController.refreshStatus();
+        this.spotifyDeviceAuthStatus = status;
+        this.spotifyDeviceAuthReady = Boolean(status?.connected);
+
+        if (!status?.connected) {
+            this.saveSpotifyDeviceAuthSetupState(status?.reason || 'Spotify bağlantısı gerekli');
+            this.showSpotifyDeviceAuthSetupOverlay(status?.reason || 'Spotify bağlantısı gerekli');
+        } else {
+            this.clearSpotifyDeviceAuthSetupState();
+        }
+
+        return status;
+    }
+
+    async resumeAfterSpotifyDeviceAuth() {
+        if (this.spotifyDeviceAuthController && !this.spotifyDeviceAuthReady) {
+            return;
+        }
+
+        if (!this.spotifyController) {
+            await this.initializeSpotifyPlayback();
+        }
+
+        if (!this.socket) {
+            this.connectSocket();
+        }
+
+        if (!document.getElementById('startupOverlay')) {
+            this.showStartupOverlay();
+        }
+    }
+
+    async openSpotifyDeviceAuthSetup() {
+        if (!this.spotifyDeviceAuthController) {
+            await this.setupSpotifyDeviceAuthFlow();
+        }
+
+        if (!this.spotifyDeviceAuthController) {
+            this.log('⚠️ Spotify device auth flow not available', 'error');
+            return;
+        }
+
+        try {
+            await this.spotifyDeviceAuthController.openConnectFlow();
+        } catch (error) {
+            this.log(`⚠️ Spotify bağlantı akışı açılamadı: ${error.message}`, 'error');
+        }
+    }
+
+    isSpotifyDeviceAuthRequiredError(error) {
+        const message = error?.message || String(error || '');
+        return message.includes('No Spotify authorization found');
+    }
+
     // ===== Initialization =====
     async init() {
         console.log('🎵 RadioTEDU Kiosk başlatılıyor...');
@@ -72,14 +251,31 @@ class KioskApp {
         // Setup audio player events
         this.setupAudioPlayer();
 
-        // Connect to server
         try {
             await this.registerDevice();
-            this.connectSocket();
         } catch (err) {
             this.log(`❌ Başlatma hatası: ${err.message}`, 'error');
-            // If registration fails (e.g. wrong password), show setup again
             this.showDeviceSetupOverlay();
+            return;
+        }
+
+        try {
+            await this.setupSpotifyDeviceAuthFlow();
+            if (this.spotifyDeviceAuthReady) {
+                await this.resumeAfterSpotifyDeviceAuth();
+            } else {
+                this.connectSocket();
+                if (!document.getElementById('startupOverlay')) {
+                    this.showStartupOverlay();
+                }
+            }
+        } catch (err) {
+            this.log(`⚠️ Spotify kurulum akışı sınırlı başlatıldı: ${err.message}`, 'error');
+            this.spotifyDeviceAuthReady = false;
+            this.connectSocket();
+            if (!document.getElementById('startupOverlay')) {
+                this.showStartupOverlay();
+            }
         }
 
         // Setup fullscreen on double click
@@ -88,8 +284,10 @@ class KioskApp {
         // Setup logout button
         this.setupLogoutButton();
 
-        // Interaction Overlay
-        this.showStartupOverlay();
+        // Interaction Overlay once Spotify auth is ready
+        if (this.spotifyDeviceAuthReady && !document.getElementById('startupOverlay')) {
+            this.showStartupOverlay();
+        }
 
         // Setup window resize handler
         window.addEventListener('resize', () => this.setupWaveform());
@@ -124,15 +322,32 @@ class KioskApp {
             const code = input.value.trim().toUpperCase();
             const pwd = pwdInput.value.trim();
             if (code) {
-                localStorage.setItem('device_code', code);
-                localStorage.setItem('device_pwd', pwd);
-                window.location.reload();
+                this.persistDeviceSetupCredentials(code, pwd);
             }
         };
 
         button.onclick = save;
         input.onkeydown = (e) => { if (e.key === 'Enter') pwdInput.focus(); };
         pwdInput.onkeydown = (e) => { if (e.key === 'Enter') save(); };
+    }
+
+    persistDeviceSetupCredentials(code, password) {
+        try {
+            localStorage.setItem('device_code', code);
+            localStorage.setItem('device_pwd', password);
+        } catch (error) {
+            this.log(`⚠️ Cihaz bilgileri localStorage'a yazılamadı: ${error.message}`, 'error');
+        }
+
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.set('code', code);
+        if (password) {
+            nextUrl.searchParams.set('pwd', password);
+        } else {
+            nextUrl.searchParams.delete('pwd');
+        }
+
+        window.location.href = nextUrl.toString();
     }
 
     // ===== Logout Button =====
@@ -158,6 +373,23 @@ class KioskApp {
             this.socket = null;
         }
 
+        if (this.spotifyController) {
+            this.reportSpotifyPlaybackDeviceState(false);
+            this.spotifyController.disconnect();
+            this.spotifyController = null;
+        }
+        if (this.spotifyDeviceAuthController?.destroy) {
+            this.spotifyDeviceAuthController.destroy();
+        }
+        this.spotifyDeviceAuthController = null;
+        this.spotifyDeviceAuthStatus = null;
+        this.spotifyDeviceAuthReady = false;
+        this.hideSpotifyDeviceAuthSetupOverlay();
+        this.spotifyDeviceId = null;
+        this.spotifyReadyPromise = null;
+        this.spotifyReadyResolve = null;
+        this.spotifyPlayerState = null;
+
         // Clear device data
         this.device = null;
         this.queueData = { now_playing: null, queue: [] };
@@ -174,17 +406,37 @@ class KioskApp {
         const div = document.createElement('div');
         div.id = 'startupOverlay';
         div.style = 'position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:10000; display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; backdrop-filter:blur(10px);';
+        const showSpotifyConnectCta = !this.spotifyDeviceAuthReady || !this.isSpotifyDeviceAuthConnected();
         div.innerHTML = `
             <div style="font-size:80px; margin-bottom:20px; animation: pulse 2s infinite">🎵</div>
             <h2 style="color:white; margin:0">Jukebox'u Başlatmak İçın Tıklayın</h2>
             <p style="color:rgba(255,255,255,0.5); margin-top:10px;">Tarayıcı ses kısıtlamasını aşmak için gereklidir</p>
         `;
-        div.onclick = () => {
+        if (showSpotifyConnectCta) {
+            div.innerHTML += `
+            <button id="startupSpotifyConnectButton" type="button" style="margin-top:18px; padding:14px 22px; border:none; border-radius:16px; font-weight:700; color:#fff; background:linear-gradient(135deg, #e31e26, #ff6b72); cursor:pointer; box-shadow:0 12px 30px rgba(227,30,38,0.35);">Spotify Bağla</button>
+            <p style="color:rgba(255,255,255,0.42); margin-top:10px; max-width:360px; text-align:center;">Bu kiosk kendi Spotify hesabıyla bağlanmadan Spotify şarkıları çalamaz.</p>
+            `;
+        }
+        div.onclick = (event) => {
+            if (event?.target?.id === 'startupSpotifyConnectButton') {
+                return;
+            }
             div.remove();
             this.log('🚀 Jukebox kullanıcı tarafından başlatıldı');
+            this.activateSpotifyPlayback();
             this.checkAndPlayNext();
         };
         document.body.appendChild(div);
+        const spotifyConnectButton = typeof div.querySelector === 'function'
+            ? div.querySelector('#startupSpotifyConnectButton')
+            : null;
+        if (spotifyConnectButton) {
+            spotifyConnectButton.onclick = async (event) => {
+                event?.stopPropagation?.();
+                await this.openSpotifyDeviceAuthSetup();
+            };
+        }
     }
 
     // ===== Waveform Visualization =====
@@ -286,6 +538,274 @@ class KioskApp {
             this.log('❌ QR API de başarısız!', 'error');
             qrContainer.innerHTML = '<div style="font-size:12px; color:red">QR Yüklenemedi</div>';
         };
+    }
+
+    async initializeSpotifyPlayback() {
+        if (!this.device || !window.KioskSpotifyPlayer) {
+            return null;
+        }
+
+        if (!this.isSpotifyDeviceAuthConnected()) {
+            return null;
+        }
+
+        if (this.spotifyController) {
+            return this.spotifyController;
+        }
+
+        if (!this.spotifyReadyPromise) {
+            this.spotifyReadyPromise = new Promise((resolve) => {
+                this.spotifyReadyResolve = resolve;
+            });
+        }
+
+        try {
+            await window.KioskSpotifyPlayer.loadSpotifySdk({ root: window });
+
+            this.spotifyController = window.KioskSpotifyPlayer.createSpotifyPlayer({
+                root: window,
+                deviceId: this.device.id,
+                playerName: this.device.name || `RadioTEDU ${this.device.device_code || ''}`.trim(),
+                getOAuthToken: async () => {
+                    const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/spotify-token?device_id=${this.device.id}`);
+                    if (!response.ok) {
+                        const errData = await response.json().catch(() => ({}));
+                        throw new Error(errData.error || `Spotify token request failed (${response.status})`);
+                    }
+
+                    const payload = await response.json();
+                    return payload.data.access_token;
+                },
+                onReady: async (payload) => {
+                    this.spotifyDeviceId = payload.spotify_device_id || null;
+                    this.spotifyPlayerState = payload.player_state || this.spotifyPlayerState;
+
+                    try {
+                        await this.registerSpotifyPlaybackDevice(payload);
+                    } catch (error) {
+                        this.log(`❌ Spotify cihaz kaydı başarısız: ${error.message}`, 'error');
+                    } finally {
+                        if (this.spotifyReadyResolve) {
+                            this.spotifyReadyResolve(payload);
+                            this.spotifyReadyResolve = null;
+                        }
+                    }
+                },
+                onNotReady: (payload) => {
+                    const offlineDeviceId = payload?.spotify_device_id || payload?.device_id || this.spotifyDeviceId;
+                    this.reportSpotifyPlaybackDeviceState(false, offlineDeviceId);
+                    if (payload?.spotify_device_id && payload.spotify_device_id === this.spotifyDeviceId) {
+                        this.spotifyDeviceId = null;
+                    }
+                    this.spotifyPlayerState = null;
+                    this.isPlaying = false;
+                    this.stopProgressUpdate();
+                    this.showIdleState();
+                },
+                onStateChange: (state) => this.handleSpotifyPlayerStateChange(state),
+                onAutoplayFailed: () => this.log('⚠️ Spotify autoplay başarısız oldu', 'error'),
+                onError: (error) => this.log(`❌ Spotify player hatası: ${error.message || error}`, 'error'),
+            });
+
+            await this.spotifyController.connect();
+            this.clearSpotifyDeviceAuthSetupState();
+            return this.spotifyController;
+        } catch (error) {
+            if (this.isSpotifyDeviceAuthRequiredError(error)) {
+                this.saveSpotifyDeviceAuthSetupState(error.message);
+                this.spotifyDeviceAuthReady = false;
+                this.showSpotifyDeviceAuthSetupOverlay(error.message);
+            }
+            this.log(`⚠️ Spotify başlatılamadı: ${error.message}`, 'error');
+            this.spotifyController = null;
+            this.spotifyReadyPromise = null;
+            this.spotifyReadyResolve = null;
+            return null;
+        }
+    }
+
+    async ensureSpotifyPlaybackReady() {
+        if (!this.spotifyController) {
+            await this.initializeSpotifyPlayback();
+        }
+
+        if (this.spotifyReadyPromise) {
+            await Promise.race([
+                this.spotifyReadyPromise,
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Spotify player readiness timeout')), 10000)),
+            ]);
+        }
+
+        return this.spotifyController;
+    }
+
+    reportSpotifyPlaybackDeviceState(isActive, spotifyDeviceId = this.spotifyDeviceId) {
+        if (!this.device) {
+            return Promise.resolve();
+        }
+
+        return fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/spotify-device`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            keepalive: true,
+            body: JSON.stringify({
+                device_id: this.device.id,
+                spotify_device_id: spotifyDeviceId || null,
+                player_name: this.device.name || null,
+                is_active: isActive,
+            }),
+        }).catch((error) => {
+            this.log(`âš ï¸ Spotify cihaz durumu bildirilemedi: ${error.message}`, 'error');
+        });
+    }
+
+    async registerSpotifyPlaybackDevice(payload) {
+        const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/spotify-device`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(
+                window.KioskSpotifyPlayer.buildSpotifyRegistrationPayload({
+                    deviceId: this.device.id,
+                    spotifyDeviceId: payload.spotify_device_id,
+                    playerName: payload.player_name || this.device.name || null,
+                    state: payload.player_state || null,
+                })
+            ),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || `Spotify device registration failed (${response.status})`);
+        }
+
+        return response.json();
+    }
+
+    activateSpotifyPlayback() {
+        if (this.spotifyController?.activateElement) {
+            try {
+                this.spotifyController.activateElement();
+            } catch (error) {
+                this.log(`⚠️ Spotify activateElement hatası: ${error.message}`, 'error');
+            }
+        }
+    }
+
+    handleSpotifyPlayerStateChange(state) {
+        const previousState = this.spotifyPlayerState;
+        this.spotifyPlayerState = state;
+        const activeSpotifyQueueItem = this.queueData?.now_playing?.playback_type === 'spotify';
+
+        const trackEnded = Boolean(state?.track_ended)
+            || Boolean(
+                previousState?.track_uri
+                && !state?.track_uri
+                && previousState.duration_ms
+                && previousState.position_ms >= Math.max(0, previousState.duration_ms - 1500)
+            );
+
+        if (trackEnded) {
+            this.handleSpotifyTrackEnded();
+            return;
+        }
+
+        this.isPlaying = !state?.paused;
+
+        if (this.isPlaying) {
+            this.startProgressUpdate();
+            this.syncNowPlayingUi();
+        } else if (state?.track_uri || activeSpotifyQueueItem) {
+            this.startProgressUpdate();
+        } else {
+            this.stopProgressUpdate();
+        }
+    }
+
+    syncNowPlayingUi() {
+        if (!window.KioskPlayback?.shouldSyncNowPlayingView) {
+            return;
+        }
+
+        const shouldSync = window.KioskPlayback.shouldSyncNowPlayingView({
+            nowPlaying: this.queueData.now_playing,
+            isPlaying: this.isPlaying,
+            spotifyTrackUri: this.spotifyPlayerState?.track_uri || null,
+            startupBlocked: Boolean(document.getElementById('startupOverlay')),
+        });
+
+        if (shouldSync) {
+            this.showPlayingState(this.queueData.now_playing);
+        }
+    }
+
+    handleSpotifyTrackEnded() {
+        if (this.spotifyTrackEnding) {
+            return;
+        }
+
+        this.spotifyTrackEnding = true;
+        this.stopPlayback();
+        setTimeout(() => {
+            this.spotifyTrackEnding = false;
+        }, 0);
+    }
+
+    pauseSpotifyPlayback() {
+        const player = this.spotifyController?.player;
+        if (!player || typeof player.pause !== 'function') {
+            return;
+        }
+
+        if (this.spotifyPlayerState?.paused) {
+            return;
+        }
+
+        Promise.resolve(player.pause()).catch((error) => {
+            this.log(`âš ï¸ Spotify durdurma hatasÄ±: ${error.message}`, 'error');
+        });
+    }
+
+    async refreshSpotifyPlaybackStateFromSdk() {
+        const player = this.spotifyController?.player;
+        const mapSpotifyPlayerState = window.KioskSpotifyPlayer?.mapSpotifyPlayerState;
+        const shouldPollSpotify = Boolean(
+            this.queueData?.now_playing?.playback_type === 'spotify'
+            || this.spotifyPlayerState?.track_uri
+        );
+
+        if (!shouldPollSpotify || !player || typeof player.getCurrentState !== 'function' || typeof mapSpotifyPlayerState !== 'function') {
+            return this.spotifyPlayerState;
+        }
+
+        try {
+            const previousState = this.spotifyPlayerState;
+            const sdkState = await player.getCurrentState();
+            const mappedState = mapSpotifyPlayerState(sdkState, previousState);
+            if (!mappedState) {
+                return this.spotifyPlayerState;
+            }
+
+            this.spotifyPlayerState = mappedState;
+
+            if (mappedState.track_ended) {
+                this.handleSpotifyTrackEnded();
+                return this.spotifyPlayerState;
+            }
+
+            if (mappedState.track_uri) {
+                this.isPlaying = !mappedState.paused;
+                if (this.isPlaying) {
+                    this.syncNowPlayingUi();
+                }
+            } else if (sdkState === null) {
+                this.isPlaying = false;
+            }
+
+            return this.spotifyPlayerState;
+        } catch (error) {
+            this.log(`âš ï¸ Spotify state yenileme hatasÄ±: ${error.message}`, 'error');
+            return this.spotifyPlayerState;
+        }
     }
 
     // ===== Device Registration =====
@@ -401,11 +921,13 @@ class KioskApp {
             console.log('📋 Kuyruk güncellendi:', data);
             this.queueData = data;
             this.renderQueue();
+            this.syncNowPlayingUi();
             this.checkAndPlayNext();
         });
 
         this.socket.on('song_skipped', () => {
             console.log('⏭️ Şarkı atlandı');
+            this.pauseSpotifyPlayback();
             this.playNextFromQueue();
         });
 
@@ -438,6 +960,7 @@ class KioskApp {
 
             this.queueData = await response.json();
             this.renderQueue();
+            this.syncNowPlayingUi();
             this.checkAndPlayNext();
 
         } catch (error) {
@@ -530,19 +1053,69 @@ class KioskApp {
             });
     }
 
-    async playSong(song) {
-        console.log('▶️ Çalınıyor:', song.title);
-        this.isPlaying = true; // Lock immediately
+    async skipUnsupportedSong(song, reason) {
+        this.log(`⚠️ ${reason}: ${song.title}`, 'error');
+        this.isPlaying = false;
+        this.showIdleState();
+
+        if (!this.device) {
+            return;
+        }
+
+        const songId = song.song_id || song.id;
+        if (!songId) {
+            return;
+        }
 
         try {
-            // Ensure URL is absolute
-            let audioUrl = song.file_url;
+            await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/now-playing`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    device_id: this.device.id,
+                    song_id: songId
+                })
+            });
+
+            await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/now-playing`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    device_id: this.device.id,
+                    song_id: null
+                })
+            });
+
+            await this.loadInitialQueue();
+        } catch (error) {
+            this.log(`❌ Desteklenmeyen şarkı atlama hatası: ${error.message}`, 'error');
+        }
+    }
+
+    async playSong(song) {
+        console.log('▶️ Çalınıyor:', song.title);
+
+        try {
+            const playbackPlan = window.KioskPlayback.getSongPlaybackPlan(song, CONFIG.API_URL);
 
             // Reset autoplay flag for new song
             this.autoplayTriggered = false;
-            if (audioUrl.startsWith('/')) {
-                audioUrl = CONFIG.API_URL + audioUrl;
+
+            if (playbackPlan.kind === 'spotify') {
+                if (!this.isSpotifyDeviceAuthConnected()) {
+                    this.showSpotifyDeviceAuthSetupOverlay(this.spotifyDeviceAuthSetupState?.reason || 'Spotify bağlantısı gerekli');
+                    return;
+                }
+                await this.playSpotifySong(song);
+                return;
             }
+
+            if (playbackPlan.kind !== 'local' || !playbackPlan.audioUrl) {
+                await this.skipUnsupportedSong(song, 'Geçerli bir local audio kaynağı bulunamadı');
+                return;
+            }
+
+            const audioUrl = playbackPlan.audioUrl;
 
             // Prevent loop: Don't re-play if same URL is already playing
             if (this.audioPlayer.src.includes(audioUrl) && this.isPlaying) {
@@ -550,24 +1123,18 @@ class KioskApp {
                 return;
             }
 
+            this.pauseSpotifyPlayback();
+            this.spotifyPlayerState = null;
             // LOCK: Set isPlaying immediately to prevent other triggers while loading
             this.isPlaying = true;
             this.audioPlayer.src = audioUrl;
 
             const playPromise = this.audioPlayer.play();
             if (playPromise !== undefined) {
-                playPromise.then(() => {
-                    this.log('✅ Çalma başladı');
-                    this.showPlayingState(song);
-                }).catch(error => {
-                    this.isPlaying = false; // Reset on failure
-                    this.log(`❌ Çalma başarısız: ${error.message}`, 'error');
-                    if (error.name === 'NotAllowedError') {
-                        this.log('👉 Lütfen ekrana bir kez tıklayın!');
-                        this.showStartupOverlay();
-                    }
-                });
+                await playPromise;
             }
+            this.log('✅ Çalma başladı');
+            this.showPlayingState(song);
 
             // Notify server
             if (this.device) {
@@ -582,11 +1149,50 @@ class KioskApp {
             }
 
         } catch (error) {
+            this.isPlaying = false;
             this.log(`❌ Beklenmedik hata: ${error.message}`, 'error');
         }
     }
 
+    async playSpotifySong(song) {
+        this.isPlaying = true;
+        await this.ensureSpotifyPlaybackReady();
+
+        if (!this.spotifyController) {
+            this.isPlaying = false;
+            throw new Error('Spotify player is not ready');
+        }
+
+        const songId = song.song_id || song.id;
+        if (!songId) {
+            this.isPlaying = false;
+            throw new Error('Spotify song id missing');
+        }
+
+        this.audioPlayer.pause();
+        this.audioPlayer.src = '';
+        const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/now-playing`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_id: this.device.id,
+                song_id: songId
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            this.isPlaying = false;
+            throw new Error(errorData.error || `Spotify playback handoff failed (${response.status})`);
+        }
+
+        this.isPlaying = true;
+        this.startProgressUpdate();
+        this.showPlayingState(song);
+    }
+
     stopPlayback() {
+        this.pauseSpotifyPlayback();
         this.audioPlayer.pause();
         this.audioPlayer.src = '';
         this.isPlaying = false;
@@ -619,9 +1225,17 @@ class KioskApp {
         }
     }
 
-    updateProgress() {
-        const current = this.audioPlayer.currentTime;
-        const total = this.audioPlayer.duration || 0;
+    async updateProgress() {
+        await this.refreshSpotifyPlaybackStateFromSdk();
+
+        const useSpotifyProgress = Boolean(this.spotifyPlayerState?.track_uri)
+            && (!this.audioPlayer.src || this.audioPlayer.src === window.location.href);
+        const current = useSpotifyProgress
+            ? (this.spotifyPlayerState?.position_ms || 0) / 1000
+            : this.audioPlayer.currentTime;
+        const total = useSpotifyProgress
+            ? (this.spotifyPlayerState?.duration_ms || 0) / 1000
+            : (this.audioPlayer.duration || 0);
         const percent = total > 0 ? (current / total) * 100 : 0;
 
         // Emit progress via socket only at larger intervals
@@ -801,6 +1415,74 @@ class KioskApp {
         div.textContent = text || '';
         return div.innerHTML;
     }
+}
+
+/* Obsolete prototype override kept commented out while the class method remains canonical.
+KioskApp.prototype.playSong = async function (song) {
+    console.log('â–¶ï¸ Ã‡alÄ±nÄ±yor:', song.title);
+    this.isPlaying = true;
+
+    try {
+        const playbackPlan = window.KioskPlayback.getSongPlaybackPlan(song, CONFIG.API_URL);
+        this.autoplayTriggered = false;
+
+        if (playbackPlan.kind === 'spotify') {
+            await this.playSpotifySong(song);
+            return;
+        }
+
+        if (playbackPlan.kind !== 'local' || !playbackPlan.audioUrl) {
+            await this.skipUnsupportedSong(song, 'GeÃ§erli bir local audio kaynaÄŸÄ± bulunamadÄ±');
+            return;
+        }
+
+        const audioUrl = playbackPlan.audioUrl;
+        if (this.audioPlayer.src.includes(audioUrl) && this.isPlaying) {
+            console.log('â­ï¸ ÅarkÄ± zaten Ã§alÄ±yor, atlandÄ±');
+            return;
+        }
+
+        this.isPlaying = true;
+        this.audioPlayer.src = audioUrl;
+
+        const playPromise = this.audioPlayer.play();
+        if (playPromise !== undefined) {
+            playPromise.then(() => {
+                this.log('âœ… Ã‡alma baÅŸladÄ±');
+                this.showPlayingState(song);
+            }).catch((error) => {
+                this.isPlaying = false;
+                this.log(`âŒ Ã‡alma baÅŸarÄ±sÄ±z: ${error.message}`, 'error');
+                if (error.name === 'NotAllowedError') {
+                    this.log('ğŸ‘‰ LÃ¼tfen ekrana bir kez tÄ±klayÄ±n!');
+                    this.showStartupOverlay();
+                }
+            });
+        }
+
+        if (this.device) {
+            fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/now-playing`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    device_id: this.device.id,
+                    song_id: song.song_id || (song.id.includes('autoplay') ? song.id.split('autoplay-')[1] : song.id)
+                })
+            }).catch((error) => this.log(`âš ï¸ Sunucu bildirim hatasÄ±: ${error.message}`, 'error'));
+        }
+    } catch (error) {
+        this.isPlaying = false;
+            this.isPlaying = false;
+            this.isPlaying = false;
+            this.log(`âŒ Beklenmedik hata: ${error.message}`, 'error');
+    }
+};
+*/
+
+const kioskRoot = typeof globalThis !== 'undefined' ? globalThis : window;
+kioskRoot.KioskApp = KioskApp;
+if (typeof window !== 'undefined') {
+    window.KioskApp = KioskApp;
 }
 
 // Initialize when DOM is ready

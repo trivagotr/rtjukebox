@@ -1,4 +1,4 @@
-import React, {useState, useEffect} from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,9 +9,9 @@ import {
   Linking,
   Alert,
 } from 'react-native';
-import {SafeAreaView} from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import {COLORS, SPACING} from '../theme/theme';
+import { COLORS, SPACING } from '../theme/theme';
 import {
   fetchPodcasts,
   fetchSpotifyUrl,
@@ -24,21 +24,45 @@ const PodcastScreen = () => {
   const [podcasts, setPodcasts] = useState<Podcast[]>([]);
   const [loading, setLoading] = useState(true);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
-    loadPodcasts();
+    loadPodcasts(1);
   }, []);
 
-  const loadPodcasts = async () => {
-    setLoading(true);
+  const loadPodcasts = async (pageToLoad: number, append: boolean = false) => {
+    if (pageToLoad === 1) setLoading(true);
+    else setLoadingMore(true);
+
     try {
-      const data = await fetchPodcasts();
-      setPodcasts(data);
+      const data = await fetchPodcasts(pageToLoad);
+
+      if (data.length < 8) { // Assuming 8 is our limit per page
+        setHasMore(false);
+      } else {
+        setHasMore(true);
+      }
+
+      if (append) {
+        setPodcasts(prev => [...prev, ...data]);
+      } else {
+        setPodcasts(data);
+      }
+      setPage(pageToLoad);
     } catch (e) {
       console.log('Failed to fetch podcasts', e);
       Alert.alert('Hata', 'Podcast listesi alınamadı.');
     } finally {
       setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (!loadingMore && hasMore) {
+      loadPodcasts(page + 1, true);
     }
   };
 
@@ -46,7 +70,8 @@ const PodcastScreen = () => {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadPodcasts();
+    setHasMore(true);
+    await loadPodcasts(1, false);
     setRefreshing(false);
   };
 
@@ -60,13 +85,6 @@ const PodcastScreen = () => {
     try {
       // Direct Audio Playback for RSS sources
       if (podcast.source === 'rss' && podcast.audioUrl) {
-        // Here you would integrate TrackPlayer or just open the audio URL
-        // For now ensuring we support opening the direct link like we do with Spotify
-        // If it's a direct audio file, Linking.openURL(audioUrl) might open it in browser player
-        // Better UX would be in-app player, but sticking to previous requirement of "Link opening" consistency
-        // unless specified otherwise. However, user asked to "fetch from spotify rss",
-        // typically we want to PLAY it.
-        // Let's open the link (Spotify/Web) or Audio URL.
         const urlToOpen = podcast.spotifyUrl || podcast.audioUrl || podcast.url;
         if (urlToOpen) {
           await Linking.openURL(urlToOpen);
@@ -82,7 +100,7 @@ const PodcastScreen = () => {
         if (fetchedUrl) {
           url = fetchedUrl;
           setPodcasts(prev =>
-            prev.map(p => (p.id === podcast.id ? {...p, spotifyUrl: url} : p)),
+            prev.map(p => (p.id === podcast.id ? { ...p, spotifyUrl: url } : p)),
           );
         } else {
           url = podcast.url;
@@ -105,7 +123,24 @@ const PodcastScreen = () => {
     }
   };
 
-  const renderItem = ({item}: {item: Podcast}) => (
+  const renderFooter = () => {
+    if (!hasMore) return <View style={{ height: 40 }} />;
+
+    return (
+      <View style={styles.footerContainer}>
+        {loadingMore ? (
+          <ActivityIndicator color={COLORS.primary} />
+        ) : (
+          <TouchableOpacity style={styles.loadMoreButton} onPress={handleLoadMore}>
+            <Text style={styles.loadMoreText}>Daha Fazla Yükle</Text>
+            <Icon name="chevron-down" size={20} color={COLORS.primary} />
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
+  const renderItem = ({ item }: { item: Podcast }) => (
     <TouchableOpacity
       style={styles.podcastItem}
       onPress={() => handlePodcastPress(item)}
@@ -141,7 +176,7 @@ const PodcastScreen = () => {
     <PageTransition>
       <SafeAreaView style={styles.container}>
         <GlobalHeader />
-        {loading && !refreshing ? (
+        {loading && page === 1 ? (
           <View style={styles.centered}>
             <ActivityIndicator size="large" color={COLORS.primary} />
             <Text style={styles.loadingText}>Podcastler yükleniyor...</Text>
@@ -154,6 +189,7 @@ const PodcastScreen = () => {
             contentContainerStyle={styles.listContent}
             refreshing={refreshing}
             onRefresh={onRefresh}
+            ListFooterComponent={renderFooter}
             ListEmptyComponent={() => (
               <View style={styles.emptyContainer}>
                 <Icon name="microphone-off" size={48} color={COLORS.surface} />
@@ -162,7 +198,7 @@ const PodcastScreen = () => {
                 </Text>
                 <TouchableOpacity
                   style={styles.retryButton}
-                  onPress={loadPodcasts}>
+                  onPress={() => loadPodcasts(1)}>
                   <Text style={styles.retryText}>Tekrar Dene</Text>
                 </TouchableOpacity>
               </View>
@@ -175,17 +211,17 @@ const PodcastScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {flex: 1, backgroundColor: COLORS.background},
+  container: { flex: 1, backgroundColor: COLORS.background },
   header: {
     padding: SPACING.lg,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
     backgroundColor: COLORS.background,
   },
-  headerTitle: {color: COLORS.text, fontSize: 24, fontWeight: 'bold'},
-  listContent: {padding: SPACING.md},
-  centered: {flex: 1, justifyContent: 'center', alignItems: 'center'},
-  loadingText: {color: COLORS.textMuted, marginTop: SPACING.sm},
+  headerTitle: { color: COLORS.text, fontSize: 24, fontWeight: 'bold' },
+  listContent: { padding: SPACING.md },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { color: COLORS.textMuted, marginTop: SPACING.sm },
   podcastItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -206,7 +242,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: SPACING.md,
   },
-  podcastInfo: {flex: 1, marginRight: SPACING.sm},
+  podcastInfo: { flex: 1, marginRight: SPACING.sm },
   podcastTitle: {
     color: COLORS.text,
     fontSize: 16,
@@ -228,7 +264,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  emptyContainer: {alignItems: 'center', marginTop: 100},
+  emptyContainer: { alignItems: 'center', marginTop: 100 },
   emptyText: {
     color: COLORS.textMuted,
     marginTop: SPACING.md,
@@ -240,7 +276,26 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     borderRadius: 20,
   },
-  retryText: {color: COLORS.background, fontWeight: 'bold'},
+  retryText: { color: COLORS.background, fontWeight: 'bold' },
+  footerContainer: {
+    paddingVertical: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 25,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  loadMoreText: {
+    color: COLORS.primary,
+    fontWeight: 'bold',
+    marginRight: 8,
+  },
 });
 
 export default PodcastScreen;

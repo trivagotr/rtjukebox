@@ -21,6 +21,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { launchImageLibrary } from 'react-native-image-picker';
 import axios from 'axios';
+import { BASE_API, STORAGE_API } from '../services/config';
 
 const ProfileScreen = () => {
   const { width } = useWindowDimensions();
@@ -33,8 +34,8 @@ const ProfileScreen = () => {
   const [localAvatar, setLocalAvatar] = useState<string | null>(null);
 
   // Use centralized API address
-  const BASE_API = 'http://192.168.0.13:3000/api/v1';
-  const STORAGE_API = 'http://192.168.0.13:3000';
+  const BASE_API_LOCAL = BASE_API;
+  const STORAGE_API_LOCAL = STORAGE_API;
 
   useEffect(() => {
     loadFeeds();
@@ -104,7 +105,7 @@ const ProfileScreen = () => {
           name: asset.fileName || 'avatar.jpg',
         } as any);
 
-        const response = await axios.post(`${BASE_API}/auth/upload-avatar`, formData, {
+        const response = await axios.post(`${BASE_API_LOCAL}/auth/upload-avatar`, formData, {
           headers: {
             'Content-Type': 'multipart/form-data',
           },
@@ -112,7 +113,7 @@ const ProfileScreen = () => {
 
         if (response.data.data?.avatar_url) {
           Alert.alert('Başarılı', 'Profil fotoğrafın güncellendi.');
-          setLocalAvatar(`${STORAGE_API}${response.data.data.avatar_url}`);
+          setLocalAvatar(`${STORAGE_API_LOCAL}${response.data.data.avatar_url}`);
         }
       } catch (error) {
         console.error('Upload error:', error);
@@ -123,7 +124,7 @@ const ProfileScreen = () => {
     }
   };
 
-  const currentAvatar = localAvatar || (user?.avatar_url ? `${STORAGE_API}${user.avatar_url}` : 'https://ui-avatars.com/api/?name=User&background=E31E24&color=fff&size=200');
+  const currentAvatar = localAvatar || (user?.avatar_url ? `${STORAGE_API_LOCAL}${user.avatar_url}` : 'https://ui-avatars.com/api/?name=User&background=E31E24&color=fff&size=200');
 
   const isUserAdmin = user?.role === 'admin' || user?.role === 'moderator';
 
