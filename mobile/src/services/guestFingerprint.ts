@@ -5,19 +5,36 @@ const GUEST_FINGERPRINT_HEADER = 'x-guest-fingerprint';
 
 type GuestFingerprintStorage = Pick<typeof AsyncStorage, 'getItem' | 'setItem'>;
 
+let cachedGuestFingerprint: string | null = null;
+let pendingGuestFingerprintPromise: Promise<string> | null = null;
+
 function generateGuestFingerprint() {
   return `guest-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 }
 
 export async function getGuestFingerprint(storage: GuestFingerprintStorage = AsyncStorage) {
-  const existing = await storage.getItem(GUEST_FINGERPRINT_STORAGE_KEY);
-  if (existing) {
-    return existing;
+  if (cachedGuestFingerprint) {
+    return cachedGuestFingerprint;
   }
 
-  const nextFingerprint = generateGuestFingerprint();
-  await storage.setItem(GUEST_FINGERPRINT_STORAGE_KEY, nextFingerprint);
-  return nextFingerprint;
+  if (!pendingGuestFingerprintPromise) {
+    pendingGuestFingerprintPromise = (async () => {
+      const existing = await storage.getItem(GUEST_FINGERPRINT_STORAGE_KEY);
+      if (existing) {
+        cachedGuestFingerprint = existing;
+        return existing;
+      }
+
+      const nextFingerprint = generateGuestFingerprint();
+      await storage.setItem(GUEST_FINGERPRINT_STORAGE_KEY, nextFingerprint);
+      cachedGuestFingerprint = nextFingerprint;
+      return nextFingerprint;
+    })().finally(() => {
+      pendingGuestFingerprintPromise = null;
+    });
+  }
+
+  return pendingGuestFingerprintPromise;
 }
 
 export async function buildGuestQueueHeaders(
@@ -31,4 +48,9 @@ export async function buildGuestQueueHeaders(
   return {
     [GUEST_FINGERPRINT_HEADER]: await getGuestFingerprint(storage),
   };
+}
+
+export function resetGuestFingerprintCache() {
+  cachedGuestFingerprint = null;
+  pendingGuestFingerprintPromise = null;
 }

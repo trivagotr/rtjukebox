@@ -211,7 +211,7 @@ const JukeboxScreen = ({ route }: any) => {
         const serverMessage = error.response?.data?.error || 'Misafir limitiniz doldu.';
         Alert.alert(
           'Limit Asildi',
-          `${serverMessage}\n\nGiris yapin veya uye olun.`,
+          serverMessage,
           [
             { text: 'Iptal', style: 'cancel' },
             { text: 'Giris Yap', onPress: () => navigation.navigate('Auth', { screen: 'Login' }) },
