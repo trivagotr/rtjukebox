@@ -185,7 +185,7 @@ const JukeboxScreen = ({ route }: any) => {
       setGuestName('');
 
       if (pendingSong) {
-        await addSongToQueue(pendingSong.id);
+        await addSongToQueue(pendingSong.id, true);
         setPendingSong(null);
       }
     } catch (error: any) {
@@ -195,10 +195,10 @@ const JukeboxScreen = ({ route }: any) => {
     }
   };
 
-  const addSongToQueue = async (songId: string) => {
+  const addSongToQueue = async (songId: string, isGuestRequest = Boolean(user?.is_guest)) => {
     try {
       setIsLoading(true);
-      const headers = await buildGuestQueueHeaders(Boolean(user?.is_guest));
+      const headers = await buildGuestQueueHeaders(isGuestRequest);
       await api.post('/jukebox/queue', {
         device_id: device.id,
         song_id: songId
@@ -208,9 +208,10 @@ const JukeboxScreen = ({ route }: any) => {
       setSearchResults([]);
     } catch (error: any) {
       if (error.response?.data?.code === 'GUEST_LIMIT_REACHED') {
+        const serverMessage = error.response?.data?.error || 'Misafir limitiniz doldu.';
         Alert.alert(
           'Limit Asildi',
-          'Misafir olarak bugun sadece 1 sarki ekleyebilirsiniz. Giris yapin veya uye olun.',
+          `${serverMessage}\n\nGiris yapin veya uye olun.`,
           [
             { text: 'Iptal', style: 'cancel' },
             { text: 'Giris Yap', onPress: () => navigation.navigate('Auth', { screen: 'Login' }) },
