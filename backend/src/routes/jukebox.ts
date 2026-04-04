@@ -15,6 +15,9 @@ import { buildSongFileUrl, normalizeText } from '../utils/textNormalization';
 import { CatalogSongSearchItem, spotifyService, toCatalogSongSearchItem, toContentFilterTrack, upsertSpotifyTrack } from '../services/spotify';
 import { buildAutoplaySelection, buildSystemQueueInsertions, loadEffectiveRadioProfileConfig } from '../services/radioProfiles';
 import { createDefaultFilterService, SpotifyTrack as ContentFilterTrack } from '../services/contentFilter';
+import { getInitialSongScore, getIstanbulDayKey, getIstanbulYearMonth } from '../services/jukeboxScoring';
+
+const GUEST_QUEUE_FINGERPRINT_HEADER = 'x-guest-fingerprint';
 
 export function normalizeDeviceAdminInput(input: { name: string; location?: string | null }) {
     const trimmedName = input.name.trim();
@@ -26,6 +29,99 @@ export function normalizeDeviceAdminInput(input: { name: string; location?: stri
         name: normalizeText(trimmedName),
         location: input.location === undefined || input.location === null ? null : normalizeText(input.location)
     };
+}
+
+export function readGuestQueueFingerprint(req: Pick<Request, 'headers'>) {
+    const headerValue = req.headers[GUEST_QUEUE_FINGERPRINT_HEADER];
+
+    if (Array.isArray(headerValue)) {
+        const firstValue = headerValue[0]?.trim();
+        return firstValue || null;
+    }
+
+    if (typeof headerValue === 'string') {
+        const fingerprint = headerValue.trim();
+        return fingerprint || null;
+    }
+
+    return null;
+}
+
+export function getQueueInsertPriorityScore() {
+    return getInitialSongScore();
+}
+
+export async function enforceGuestDailySongLimit(params: {
+    dbClient: Pick<typeof db, 'query'>;
+    isGuest: boolean;
+    guestFingerprint?: string | null;
+    now?: Date;
+}) {
+    if (!params.isGuest) {
+        return;
+    }
+
+    const guestFingerprint = params.guestFingerprint?.trim();
+    if (!guestFingerprint) {
+        throw new Error('Guest fingerprint required');
+    }
+
+    const dayKey = getIstanbulDayKey(params.now ?? new Date());
+    const result = await params.dbClient.query(
+        `SELECT songs_added
+         FROM guest_daily_song_limits
+         WHERE fingerprint = $1 AND day_key = $2`,
+        [guestFingerprint, dayKey]
+    );
+
+    const songsAdded = Number.parseInt(result.rows[0]?.songs_added ?? '0', 10);
+    if (songsAdded >= 1) {
+        throw new Error('Guest daily song limit reached');
+    }
+}
+
+export async function applyQueueAddStats(params: {
+    dbClient: Pick<typeof db, 'query'>;
+    userId: string;
+    isGuest: boolean;
+    guestFingerprint?: string | null;
+    now?: Date;
+}) {
+    const now = params.now ?? new Date();
+    await params.dbClient.query(
+        'UPDATE users SET total_songs_added = total_songs_added + 1 WHERE id = $1',
+        [params.userId]
+    );
+
+    if (params.isGuest) {
+        const guestFingerprint = params.guestFingerprint?.trim();
+        if (!guestFingerprint) {
+            throw new Error('Guest fingerprint required');
+        }
+
+        await params.dbClient.query(
+            `INSERT INTO guest_daily_song_limits (fingerprint, day_key, songs_added)
+             VALUES ($1, $2, 1)
+             ON CONFLICT (fingerprint, day_key)
+             DO UPDATE SET songs_added = guest_daily_song_limits.songs_added + 1,
+                           updated_at = NOW()`,
+            [guestFingerprint, getIstanbulDayKey(now)]
+        );
+        return;
+    }
+
+    await params.dbClient.query(
+        'UPDATE users SET rank_score = rank_score + 2 WHERE id = $1',
+        [params.userId]
+    );
+    await params.dbClient.query(
+        `INSERT INTO user_monthly_rank_scores (user_id, year_month, score)
+         VALUES ($1, $2, 2)
+         ON CONFLICT (user_id, year_month)
+         DO UPDATE SET score = user_monthly_rank_scores.score + EXCLUDED.score,
+                       updated_at = NOW()`,
+        [params.userId, getIstanbulYearMonth(now)]
+    );
 }
 
 export function normalizeDeviceAdminUpdateInput(input: { name?: string | null; location?: string | null }) {
@@ -1880,6 +1976,7 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
     const authReq = req as AuthRequest;
     const { device_id, song_id, spotify_uri } = req.body;
     const userId = authReq.user?.id;
+    const guestFingerprint = readGuestQueueFingerprint(req);
 
     if (!userId) {
         return res.status(401).json({ error: 'Authentication required to add songs' });
@@ -1901,26 +1998,34 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
 
         if (dbUser.role === ROLES.ADMIN) {
             // Admins have no limits
-        } else if (dbUser.role === ROLES.GUEST) {
-            // GUEST LIMIT: 1 song TOTAL (ever) per account OR (IP + UA)
-            if (dbUser.total_songs_added >= 1) {
-                return sendError(res, 'Guest limit reached', 403, 'GUEST_LIMIT_REACHED');
-            }
-
-            // IP + User-Agent Based Check (to prevent clearing cache to bypass while allowing different devices on same wifi)
-            const ua = req.headers['user-agent'];
-            const ipUA_Check = await db.query(
-                "SELECT id FROM users WHERE last_ip = $1 AND user_agent = $2 AND is_guest = TRUE AND total_songs_added >= 1 AND id != $3",
-                [req.ip, ua, userId]
-            );
-            if (ipUA_Check.rows.length > 0) {
-                return sendError(res, 'Guest limit reached (Identity Check)', 403, 'GUEST_LIMIT_REACHED');
-            }
         } else if (dbUser.role === ROLES.USER) {
             const USER_LIMIT = 5;
             if (songCount >= USER_LIMIT) {
                 return sendError(res, `Queue limit reached (${USER_LIMIT} songs)`, 403, `Kuyrukta en fazla ${USER_LIMIT} aktif şarkınız olabilir.`);
             }
+        }
+
+        try {
+            await enforceGuestDailySongLimit({
+                dbClient: db,
+                isGuest: dbUser.is_guest,
+                guestFingerprint,
+            });
+        } catch (guestLimitError: any) {
+            if (guestLimitError.message === 'Guest fingerprint required') {
+                return sendError(res, 'Guest fingerprint required', 400, 'GUEST_FINGERPRINT_REQUIRED');
+            }
+
+            if (guestLimitError.message === 'Guest daily song limit reached') {
+                return sendError(
+                    res,
+                    'Guest daily limit reached. Hesap açarsan sınırsız şarkı ekleyebilirsin.',
+                    403,
+                    'GUEST_LIMIT_REACHED'
+                );
+            }
+
+            throw guestLimitError;
         }
 
         let queueSelection;
@@ -1977,11 +2082,7 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
             return sendError(res, 'Song played recently', 400, 'Bu şarkı yakın zamanda çaldı. Lütfen biraz bekleyin.');
         }
 
-        // Get user rank for priority calculation
-        const user = await db.query('SELECT rank_score FROM users WHERE id = $1', [userId]);
-        const userRank = user.rows[0]?.rank_score || 0;
-
-        const priorityScore = calculatePriorityScore(0, 0, userRank);
+        const priorityScore = getQueueInsertPriorityScore();
 
         const result = await db.query(
             `INSERT INTO queue_items (device_id, song_id, added_by, priority_score, status, queue_reason)
@@ -2043,12 +2144,12 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
             }
         }
 
-        // Update user stats and award points (only for non-guests)
-        if (!dbUser.is_guest) {
-            await db.query('UPDATE users SET total_songs_added = total_songs_added + 1, rank_score = rank_score + 5 WHERE id = $1', [userId]);
-        } else {
-            await db.query('UPDATE users SET total_songs_added = total_songs_added + 1 WHERE id = $1', [userId]);
-        }
+        await applyQueueAddStats({
+            dbClient: db,
+            userId,
+            isGuest: dbUser.is_guest,
+            guestFingerprint,
+        });
 
         // Broadcast to all connected clients
         getIO()?.to(`device:${device_id}`).emit('queue_updated', await getQueueForDevice(device_id));

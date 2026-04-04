@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { describe, expect, it, vi } from 'vitest';
-import { buildVisibleQueueState, resolveQueueSongSelection } from './jukebox';
+import { buildVisibleQueueState, getQueueInsertPriorityScore, resolveQueueSongSelection } from './jukebox';
 import { ROLES } from '../middleware/rbac';
 
 describe('jukebox queue contract', () => {
@@ -81,6 +81,10 @@ describe('jukebox queue contract', () => {
 
     expect(schema).toContain("queue_reason VARCHAR(20) NOT NULL DEFAULT 'user'");
     expect(schema).toContain('ALTER TABLE queue_items ADD COLUMN IF NOT EXISTS queue_reason VARCHAR(20);');
+  });
+
+  it('starts pending queue items at zero song score', () => {
+    expect(getQueueInsertPriorityScore()).toBe(0);
   });
 
   it('hides pending jingle and ad items from the visible queue while preserving now playing', () => {
