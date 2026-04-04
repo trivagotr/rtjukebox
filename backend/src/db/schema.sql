@@ -246,7 +246,7 @@ CREATE TABLE IF NOT EXISTS votes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     queue_item_id UUID NOT NULL REFERENCES queue_items(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id),
-    vote_type SMALLINT NOT NULL, -- 1 = upvote, -1 = downvote
+    vote_type SMALLINT NOT NULL, -- 1 = upvote, -1 = downvote, 3 = supervote
     created_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(queue_item_id, user_id)
 );

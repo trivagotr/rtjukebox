@@ -41,7 +41,7 @@ export function normalizeVoteKind(value: unknown): JukeboxVoteKind {
         return 'downvote';
     }
 
-    if (value === 4 || value === 'supervote') {
+    if (value === 3 || value === 4 || value === 'supervote') {
         return 'supervote';
     }
 

@@ -4,7 +4,6 @@ import fs from 'fs';
 import { db } from '../db';
 import { getIO } from '../socket';
 import { MetadataService } from '../services/metadata';
-import { calculatePriorityScore } from '../services/ranking';
 import { authMiddleware, optionalAuth, AuthRequest } from '../middleware/auth';
 import { sendSuccess, sendError } from '../utils/response';
 import { ROLES } from '../middleware/rbac';
@@ -15,9 +14,17 @@ import { buildSongFileUrl, normalizeText } from '../utils/textNormalization';
 import { CatalogSongSearchItem, spotifyService, toCatalogSongSearchItem, toContentFilterTrack, upsertSpotifyTrack } from '../services/spotify';
 import { buildAutoplaySelection, buildSystemQueueInsertions, loadEffectiveRadioProfileConfig } from '../services/radioProfiles';
 import { createDefaultFilterService, SpotifyTrack as ContentFilterTrack } from '../services/contentFilter';
-import { getInitialSongScore, getIstanbulDayKey, getIstanbulYearMonth } from '../services/jukeboxScoring';
+import {
+    getInitialSongScore,
+    getIstanbulDayKey,
+    getIstanbulYearMonth,
+    getRequesterRankDelta,
+    getSongScoreDelta,
+    normalizeVoteKind,
+} from '../services/jukeboxScoring';
 
 const GUEST_QUEUE_FINGERPRINT_HEADER = 'x-guest-fingerprint';
+type QueueVoteKind = ReturnType<typeof normalizeVoteKind>;
 
 export function normalizeDeviceAdminInput(input: { name: string; location?: string | null }) {
     const trimmedName = input.name.trim();
@@ -49,6 +56,116 @@ export function readGuestQueueFingerprint(req: Pick<Request, 'headers'>) {
 
 export function getQueueInsertPriorityScore() {
     return getInitialSongScore();
+}
+
+export function getStoredVoteValue(voteKind: QueueVoteKind) {
+    switch (voteKind) {
+        case 'upvote':
+            return 1;
+        case 'downvote':
+            return -1;
+        case 'supervote':
+            return 3;
+        default:
+            return 0;
+    }
+}
+
+export function resolveFinalQueueVoteKind(params: {
+    previousVote: unknown;
+    requestedVote?: unknown;
+    isSuper?: boolean;
+}) {
+    if (params.isSuper) {
+        return 'supervote' as const;
+    }
+
+    const previousVoteKind = normalizeVoteKind(params.previousVote);
+    const requestedVoteKind = normalizeVoteKind(params.requestedVote);
+    if (requestedVoteKind === 'none') {
+        return 'none' as const;
+    }
+
+    if (previousVoteKind === requestedVoteKind) {
+        return 'none' as const;
+    }
+
+    return requestedVoteKind;
+}
+
+export function canUseDailySupervote(params: {
+    isGuest: boolean;
+    lastSuperVoteAt?: Date | string | null;
+    now?: Date;
+}) {
+    if (params.isGuest) {
+        return { allowed: false as const, reason: 'guest' as const };
+    }
+
+    if (!params.lastSuperVoteAt) {
+        return { allowed: true as const };
+    }
+
+    const lastSuperVoteAt = params.lastSuperVoteAt instanceof Date
+        ? params.lastSuperVoteAt
+        : new Date(params.lastSuperVoteAt);
+    const now = params.now ?? new Date();
+
+    if (getIstanbulDayKey(lastSuperVoteAt) === getIstanbulDayKey(now)) {
+        return { allowed: false as const, reason: 'cooldown' as const };
+    }
+
+    return { allowed: true as const };
+}
+
+export function buildQueueVoteScoreUpdate(params: {
+    previousVote: unknown;
+    nextVote: unknown;
+}) {
+    const previousVoteKind = normalizeVoteKind(params.previousVote);
+    const nextVoteKind = normalizeVoteKind(params.nextVote);
+
+    return {
+        previousVoteKind,
+        nextVoteKind,
+        storedVoteValue: getStoredVoteValue(nextVoteKind),
+        songDelta: getSongScoreDelta(previousVoteKind, nextVoteKind),
+        requesterRankDelta: getRequesterRankDelta(previousVoteKind, nextVoteKind),
+    };
+}
+
+export async function applyRequesterVoteRankDelta(params: {
+    dbClient: Pick<typeof db, 'query'>;
+    requesterId: string;
+    requesterRankDelta: number;
+    now?: Date;
+}) {
+    if (params.requesterRankDelta === 0) {
+        return;
+    }
+
+    const now = params.now ?? new Date();
+    const requesterRes = await params.dbClient.query(
+        'SELECT is_guest FROM users WHERE id = $1',
+        [params.requesterId]
+    );
+
+    if (!requesterRes.rows[0] || requesterRes.rows[0].is_guest) {
+        return;
+    }
+
+    await params.dbClient.query(
+        'UPDATE users SET rank_score = rank_score + $1 WHERE id = $2',
+        [params.requesterRankDelta, params.requesterId]
+    );
+    await params.dbClient.query(
+        `INSERT INTO user_monthly_rank_scores (user_id, year_month, score)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (user_id, year_month)
+         DO UPDATE SET score = user_monthly_rank_scores.score + EXCLUDED.score,
+                       updated_at = NOW()`,
+        [params.requesterId, getIstanbulYearMonth(now), params.requesterRankDelta]
+    );
 }
 
 export async function enforceGuestDailySongLimit(params: {
@@ -458,16 +575,7 @@ async function finalizeCurrentPlayingQueueItem(deviceId: string) {
     }
 
     const previousItem = prevPlaying.rows[0];
-    const requesterId = previousItem.added_by;
     await db.query("UPDATE queue_items SET status = 'played', played_at = NOW() WHERE id = $1", [previousItem.id]);
-
-    if (requesterId) {
-        const requesterRes = await db.query('SELECT is_guest FROM users WHERE id = $1', [requesterId]);
-        if (requesterRes.rows[0] && !requesterRes.rows[0].is_guest) {
-            await db.query('UPDATE users SET rank_score = rank_score + 10 WHERE id = $1', [requesterId]);
-            console.log(`[POINTS] Requester ${requesterId} awarded +10 for played song (reconciled stop event)`);
-        }
-    }
 
     await maybeEnqueueProfileSystemItems({
         deviceId,
@@ -2174,7 +2282,7 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
 // Vote on queue item or active song
 router.post('/vote', authMiddleware, checkDeviceSession, async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
-    const { queue_item_id, song_id, vote } = req.body; // vote: 1 or -1
+    const { queue_item_id, song_id, vote } = req.body;
     const userId = authReq.user?.id;
 
     if (!userId) return res.status(401).json({ error: 'Authentication required to vote' });
@@ -2184,133 +2292,141 @@ router.post('/vote', authMiddleware, checkDeviceSession, async (req: Request, re
         const dbUser = userRes.rows[0];
         if (!dbUser) return sendError(res, 'User not found', 404);
 
-        let targetQueueId = queue_item_id;
+        const isSuper = req.body.is_super === true;
+        const supervoteAvailability = canUseDailySupervote({
+            isGuest: dbUser.is_guest,
+            lastSuperVoteAt: dbUser.last_super_vote_at,
+        });
+        if (isSuper && !supervoteAvailability.allowed) {
+            if (supervoteAvailability.reason === 'guest') {
+                return sendError(res, 'Süper oy için giriş yapmalısın.', 403);
+            }
 
-        // If voting on active song (which might be autoplay/virtual), find/create context
-        if (!targetQueueId && song_id) {
-            // Update SONG score directly
-            await db.query(`UPDATE songs SET score = score + $1 WHERE id = $2`, [vote, song_id]);
-            return sendSuccess(res, { score_updated: true }, 'Vote cast on song');
+            return sendError(res, 'Bugün süper oy hakkını zaten kullandın!', 403, 'SUPER_VOTE_COOLDOWN');
         }
 
-        // Standard Queue Item Logic
-        const existingVote = await db.query('SELECT vote_type FROM votes WHERE queue_item_id = $1 AND user_id = $2', [targetQueueId, userId]);
-        const oldVote = existingVote.rows[0]?.vote_type || 0;
-        let finalVoteValue = vote;
+        const targetQueueId = queue_item_id;
 
-        // Super Upvote Logic
-        const isSuper = req.body.is_super === true;
+        if (!targetQueueId && song_id) {
+            const directVoteKind = resolveFinalQueueVoteKind({
+                previousVote: 0,
+                requestedVote: vote,
+                isSuper,
+            });
+            const directVoteUpdate = buildQueueVoteScoreUpdate({
+                previousVote: 0,
+                nextVote: directVoteKind,
+            });
+
+            if (isSuper) {
+                await db.query('UPDATE users SET last_super_vote_at = NOW() WHERE id = $1', [userId]);
+            }
+
+            await db.query('UPDATE songs SET score = score + $1 WHERE id = $2', [directVoteUpdate.songDelta, song_id]);
+            return sendSuccess(
+                res,
+                { score_updated: true, song_score_delta: directVoteUpdate.songDelta },
+                'Vote cast on song'
+            );
+        }
+
+        const existingVote = await db.query(
+            'SELECT vote_type FROM votes WHERE queue_item_id = $1 AND user_id = $2',
+            [targetQueueId, userId]
+        );
+        const oldVote = existingVote.rows[0]?.vote_type ?? 0;
+        const finalVoteKind = resolveFinalQueueVoteKind({
+            previousVote: oldVote,
+            requestedVote: vote,
+            isSuper,
+        });
+        const voteScoreUpdate = buildQueueVoteScoreUpdate({
+            previousVote: oldVote,
+            nextVote: finalVoteKind,
+        });
+
         if (isSuper) {
-            // Check if guest
-            if (dbUser.is_guest) {
-                return sendError(res, 'Süper oy için üye olmalısın!', 403);
-            }
-            // Check if used today
-            const lastSuper = dbUser.last_super_vote_at;
-            const today = new Date().toISOString().split('T')[0];
-            const lastSuperDate = lastSuper ? new Date(lastSuper).toISOString().split('T')[0] : null;
-
-            if (lastSuperDate === today) {
-                return sendError(res, 'Bugün süper oy hakkını zaten kullandın!', 403, 'SUPER_VOTE_COOLDOWN');
-            }
-            finalVoteValue = 4; // Super Upvote value
             await db.query('UPDATE users SET last_super_vote_at = NOW() WHERE id = $1', [userId]);
         }
 
-        if (oldVote === finalVoteValue && !isSuper) {
-            // TOGGLE OFF (Basic Up/Down only)
+        if (finalVoteKind === 'none') {
             await db.query('DELETE FROM votes WHERE queue_item_id = $1 AND user_id = $2', [targetQueueId, userId]);
-            finalVoteValue = 0;
         } else {
-            // UPDATE or NEW VOTE
             await db.query(
                 `INSERT INTO votes (queue_item_id, user_id, vote_type) VALUES ($1, $2, $3)
                  ON CONFLICT (queue_item_id, user_id) DO UPDATE SET vote_type = $3`,
-                [targetQueueId, userId, finalVoteValue]
+                [targetQueueId, userId, voteScoreUpdate.storedVoteValue]
             );
         }
 
         const votesRes = await db.query(
             `SELECT 
-                SUM(CASE WHEN vote_type > 0 THEN vote_type ELSE 0 END) as upvotes,
-                SUM(CASE WHEN vote_type < 0 THEN ABS(vote_type) ELSE 0 END) as downvotes
+                COALESCE(SUM(CASE WHEN vote_type > 0 THEN vote_type ELSE 0 END), 0) as upvotes,
+                COALESCE(SUM(CASE WHEN vote_type < 0 THEN ABS(vote_type) ELSE 0 END), 0) as downvotes
              FROM votes WHERE queue_item_id = $1`,
             [targetQueueId]
         );
 
-        const { upvotes = 0, downvotes = 0 } = votesRes.rows[0];
+        const upvotes = Number(votesRes.rows[0]?.upvotes ?? 0);
+        const downvotes = Number(votesRes.rows[0]?.downvotes ?? 0);
 
-        // Fetch queue item details
         const queueItemRes = await db.query('SELECT * FROM queue_items WHERE id = $1', [targetQueueId]);
         const queueItem = queueItemRes.rows[0];
         if (!queueItem) return sendError(res, 'Item not found', 404);
 
-        // Update Reputation Score of the Song
-        await db.query(`UPDATE songs SET score = score + $1 WHERE id = $2`, [finalVoteValue - oldVote, queueItem.song_id]);
+        await db.query('UPDATE songs SET score = score + $1 WHERE id = $2', [voteScoreUpdate.songDelta, queueItem.song_id]);
+        await applyRequesterVoteRankDelta({
+            dbClient: db,
+            requesterId: queueItem.added_by,
+            requesterRankDelta: voteScoreUpdate.requesterRankDelta,
+        });
 
-        // Award/Deduct points to the REQUESTER (if not guest)
-        const requesterRes = await db.query('SELECT is_guest FROM users WHERE id = $1', [queueItem.added_by]);
-        if (requesterRes.rows[0] && !requesterRes.rows[0].is_guest) {
-            if (oldVote !== finalVoteValue) {
-                let pointChange = 0;
-
-                // Regular Up (+2), Super Up (+10), Down (-2)
-                if (finalVoteValue === 1) pointChange = oldVote === -1 ? 4 : 2;
-                else if (finalVoteValue === 4) pointChange = 10;
-                else if (finalVoteValue === -1) pointChange = oldVote === 1 ? -4 : -2;
-                else if (finalVoteValue === 0) pointChange = oldVote === 1 ? -2 : (oldVote === 4 ? -10 : 2);
-
-                if (pointChange !== 0) {
-                    await db.query('UPDATE users SET rank_score = rank_score + $1 WHERE id = $2', [pointChange, queueItem.added_by]);
-                }
-            }
-        }
-
-        // Award points to the VOTER for using Super Upvote
-        if (isSuper) {
-            await db.query('UPDATE users SET rank_score = rank_score + 10 WHERE id = $1', [userId]);
-        }
-
-        // Auto-Skip Logic (Community Rejection)
         const SKIP_THRESHOLD = 3;
-        if (parseInt(downvotes) >= SKIP_THRESHOLD && (parseInt(downvotes) > parseInt(upvotes) + 1)) {
+        if (downvotes >= SKIP_THRESHOLD && downvotes > upvotes + 1) {
             await db.query("UPDATE queue_items SET status = 'skipped' WHERE id = $1", [targetQueueId]);
-
-            // Penalize User (-10 for skip)
-            if (requesterRes.rows[0] && !requesterRes.rows[0].is_guest) {
-                await db.query('UPDATE users SET rank_score = rank_score - 10 WHERE id = $1', [queueItem.added_by]);
-            }
-
-            await db.query('UPDATE songs SET score = score - 10 WHERE id = $1', [queueItem.song_id]);
-
-            // Emit song_rejected to trigger the "DJ Spin" effect on Kiosk
             getIO()?.to(`device:${queueItem.device_id}`).emit('song_rejected');
-            return sendSuccess(res, { skipped: true }, 'Song rejected by community vote');
+            return sendSuccess(
+                res,
+                {
+                    skipped: true,
+                    upvotes,
+                    downvotes,
+                    song_score: upvotes - downvotes,
+                    user_vote: voteScoreUpdate.storedVoteValue,
+                },
+                'Song rejected by community vote'
+            );
         }
 
-        // Update Priority if still pending
+        const nextSongScore = upvotes - downvotes;
         if (queueItem.status === 'pending') {
-            const user = await db.query('SELECT rank_score FROM users WHERE id = $1', [queueItem.added_by]);
-            const newPriority = calculatePriorityScore(
-                (parseInt(upvotes) || 0) - (parseInt(downvotes) || 0),
-                queueItem.added_at,
-                user.rows[0]?.rank_score || 0
+            await db.query(
+                'UPDATE queue_items SET priority_score = $1, upvotes = $2, downvotes = $3 WHERE id = $4',
+                [nextSongScore, upvotes, downvotes, targetQueueId]
             );
-            await db.query('UPDATE queue_items SET priority_score = $1, upvotes = $2, downvotes = $3 WHERE id = $4',
-                [newPriority, upvotes, downvotes, targetQueueId]);
         } else {
-            await db.query('UPDATE queue_items SET upvotes = $1, downvotes = $2 WHERE id = $3',
-                [upvotes, downvotes, targetQueueId]);
+            await db.query(
+                'UPDATE queue_items SET upvotes = $1, downvotes = $2 WHERE id = $3',
+                [upvotes, downvotes, targetQueueId]
+            );
         }
 
         getIO()?.to(`device:${queueItem.device_id}`).emit('queue_updated', await getQueueForDevice(queueItem.device_id));
-        return sendSuccess(res, { upvotes, downvotes, user_vote: finalVoteValue }, 'Vote cast successfully');
+        return sendSuccess(
+            res,
+            {
+                upvotes,
+                downvotes,
+                song_score: nextSongScore,
+                user_vote: voteScoreUpdate.storedVoteValue,
+            },
+            'Vote cast successfully'
+        );
     } catch (error) {
         console.error('Vote error:', error);
         return sendError(res, 'Vote failed', 500);
     }
 });
-
 // Get queue for device
 router.get('/queue/:deviceId', optionalAuth, async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
@@ -2748,15 +2864,7 @@ router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
             );
             if (prevPlaying.rows.length > 0) {
                 const previousItem = prevPlaying.rows[0];
-                const requesterId = prevPlaying.rows[0].added_by;
                 await db.query("UPDATE queue_items SET status = 'played', played_at = NOW() WHERE id = $1", [prevPlaying.rows[0].id]);
-
-                // Award points if not guest
-                const requesterRes = await db.query('SELECT is_guest FROM users WHERE id = $1', [requesterId]);
-                if (requesterRes.rows[0] && !requesterRes.rows[0].is_guest) {
-                    await db.query('UPDATE users SET rank_score = rank_score + 10 WHERE id = $1', [requesterId]);
-                    console.log(`[POINTS] Requester ${requesterId} awarded +10 for played song (stop event)`);
-                }
 
                 await maybeEnqueueProfileSystemItems({
                     deviceId: device_id,
@@ -2808,15 +2916,7 @@ router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
             );
             if (prevPlaying.rows.length > 0) {
                 const previousItem = prevPlaying.rows[0];
-                const requesterId = prevPlaying.rows[0].added_by;
                 await db.query("UPDATE queue_items SET status = 'played', played_at = NOW() WHERE id = $1", [prevPlaying.rows[0].id]);
-
-                // Award points if not guest
-                const requesterRes = await db.query('SELECT is_guest FROM users WHERE id = $1', [requesterId]);
-                if (requesterRes.rows[0] && !requesterRes.rows[0].is_guest) {
-                    await db.query('UPDATE users SET rank_score = rank_score + 10 WHERE id = $1', [requesterId]);
-                    console.log(`[POINTS] Requester ${requesterId} awarded +10 for played song`);
-                }
 
                 await maybeEnqueueProfileSystemItems({
                     deviceId: device_id,
@@ -2879,11 +2979,11 @@ router.post('/autoplay/trigger', async (req: Request, res: Response) => {
     }
 });
 
-// ──────────────────────────────────────────────
-// Content Filtering – Admin Block/Unblock Endpoints
-// ──────────────────────────────────────────────
+// ----------------------------------------------
+// Content Filtering - Admin Block/Unblock Endpoints
+// ----------------------------------------------
 
-// POST /admin/songs/:id/block – block a specific song
+// POST /admin/songs/:id/block - block a specific song
 router.post('/admin/songs/:id/block', authMiddleware, async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
     if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
@@ -2904,7 +3004,7 @@ router.post('/admin/songs/:id/block', authMiddleware, async (req: Request, res: 
     }
 });
 
-// DELETE /admin/songs/:id/block – unblock a song
+// DELETE /admin/songs/:id/block - unblock a song
 router.delete('/admin/songs/:id/block', authMiddleware, async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
     if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
@@ -2925,7 +3025,7 @@ router.delete('/admin/songs/:id/block', authMiddleware, async (req: Request, res
     }
 });
 
-// POST /admin/artists/block – block an artist
+// POST /admin/artists/block - block an artist
 router.post('/admin/artists/block', authMiddleware, async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
     if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
@@ -2960,7 +3060,7 @@ router.post('/admin/artists/block', authMiddleware, async (req: Request, res: Re
     }
 });
 
-// DELETE /admin/artists/:id/block – unblock an artist
+// DELETE /admin/artists/:id/block - unblock an artist
 router.delete('/admin/artists/:id/block', authMiddleware, async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
     if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
@@ -2981,7 +3081,7 @@ router.delete('/admin/artists/:id/block', authMiddleware, async (req: Request, r
     }
 });
 
-// GET /admin/blocked – list all blocked songs and artists
+// GET /admin/blocked - list all blocked songs and artists
 router.get('/admin/blocked', authMiddleware, async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
     if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
@@ -3055,3 +3155,4 @@ async function getQueueForDevice(deviceId: string, userId?: string, options?: { 
 }
 
 export default router;
+
