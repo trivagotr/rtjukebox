@@ -68,7 +68,10 @@ const hasSupervoteAvailableToday = (lastSuperVoteAt?: string) =>
   !lastSuperVoteAt || getIstanbulDayKey(lastSuperVoteAt) !== getIstanbulDayKey(new Date());
 
 const getQueueItemSongScore = (item: any) =>
-  item.song_score ?? 0;
+  item.song_score ?? item.priority_score ?? 0;
+
+const isSupervoteActive = (vote: number | undefined) =>
+  vote === 3 || vote === 4;
 
 // --- Components ---
 
@@ -504,10 +507,10 @@ const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user }: any) => {
             <button
               onClick={(e) => { e.stopPropagation(); handleVote(item.id, 1, true); }}
               disabled={!hasSupervoteAvailableToday(user?.last_super_vote_at)}
-              className={`p-1 rounded-md transition-all ${currentVote === 3 ? 'bg-amber-500/30 text-amber-500 scale-110' : 'text-text-muted hover:bg-amber-500/20 hover:text-amber-500 opacity-60 hover:opacity-100'}`}
+              className={`p-1 rounded-md transition-all ${isSupervoteActive(currentVote) ? 'bg-amber-500/30 text-amber-500 scale-110' : 'text-text-muted hover:bg-amber-500/20 hover:text-amber-500 opacity-60 hover:opacity-100'}`}
               title={!hasSupervoteAvailableToday(user?.last_super_vote_at) ? "Bugün süper oy hakkın bitti" : "Süper Oy (+3 şarkı / +2 rank)"}
             >
-              <Star size={14} fill={currentVote === 3 ? "currentColor" : "none"} />
+              <Star size={14} fill={isSupervoteActive(currentVote) ? "currentColor" : "none"} />
             </button>
           )}
         </div>
@@ -916,6 +919,7 @@ function App() {
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<'total' | 'monthly'>('total');
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const leaderboardRequestSeqRef = useRef(0);
 
   // Expose toggle to sub-components via window for simplicity (not ideal but works here)
   useEffect(() => {
@@ -926,13 +930,25 @@ function App() {
   }, []);
 
   const fetchLeaderboard = async (period: 'total' | 'monthly' = leaderboardPeriod) => {
+    const requestSeq = leaderboardRequestSeqRef.current + 1;
+    leaderboardRequestSeqRef.current = requestSeq;
+    setLeaderboardPeriod(period);
+
     try {
       const res = await axios.get(`${API_URL}/api/v1/users/leaderboard`, {
         params: { period }
       });
+
+      if (leaderboardRequestSeqRef.current !== requestSeq) {
+        return;
+      }
+
       setLeaderboard(res.data.data.leaderboard || []);
-      setLeaderboardPeriod((res.data.data.period || period) as 'total' | 'monthly');
     } catch (err) {
+      if (leaderboardRequestSeqRef.current !== requestSeq) {
+        return;
+      }
+
       console.error('Leaderboard fetch failed:', err);
     }
   };
