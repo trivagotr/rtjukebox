@@ -18,10 +18,4 @@ buildscript {
     }
 }
 
-allprojects {
-    tasks.withType(JavaCompile).configureEach {
-        options.release = 17
-    }
-}
-
 apply plugin: "com.facebook.react.rootproject"
