@@ -10,9 +10,12 @@ import authRoutes from './routes/auth';
 import podcastRoutes from './routes/podcasts';
 import radioRoutes from './routes/radio';
 import jukeboxRoutes from './routes/jukebox';
+import radioProfilesRoutes from './routes/radioProfiles';
 import usersRoutes from './routes/users';
+import spotifyRoutes from './routes/spotify';
 import { authMiddleware } from './middleware/auth';
 import { setupSocketHandlers } from './sockets';
+import { registerUtilityRoutes } from './utilityRoutes';
 
 const app = express();
 const httpServer = createServer(app);
@@ -37,15 +40,23 @@ app.use((req, res, next) => {
     next();
 });
 app.use(rateLimit({ windowMs: 60000, max: 500 }));
+registerUtilityRoutes(app);
 
 // Static: Kiosk Web App
-app.use('/kiosk', express.static(path.join(__dirname, '../../kiosk-web')));
+app.use('/kiosk', express.static(path.join(__dirname, '../../kiosk-web'), {
+    setHeaders: (res) => {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+    }
+}));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/podcasts', podcastRoutes);
 app.use('/api/v1/radio', radioRoutes);
+app.use('/api/v1/radio-profiles', radioProfilesRoutes);
 
 // Jukebox: Kiosk endpoints (no auth required)
 app.use('/jukebox', jukeboxRoutes);
@@ -53,6 +64,7 @@ app.use('/jukebox', jukeboxRoutes);
 // Jukebox: User endpoints (auth handled per-route in jukeboxRoutes)
 app.use('/api/v1/jukebox', jukeboxRoutes);
 app.use('/api/v1/users', usersRoutes);
+app.use('/api/v1/spotify', spotifyRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok' }));

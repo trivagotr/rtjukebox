@@ -20,16 +20,14 @@ import {
   Star
 } from 'lucide-react';
 import { AdminDashboard } from './AdminDashboard';
+import { buildQueueRequestPayload, getSearchResultKey, type CatalogSearchSong } from './jukeboxCatalog';
 
 const API_URL = import.meta.env.VITE_API_URL ||
-  (window.location.port ? `${window.location.protocol}//${window.location.hostname}:8080` : `${window.location.protocol}//${window.location.hostname}`);
+  `${window.location.protocol}//${window.location.hostname}:3000`;
 
-interface Song {
-  id: string;
+interface Song extends CatalogSearchSong {
   title: string;
   artist: string;
-  cover_url: string;
-  file_url: string;
 }
 
 interface AppUser {
@@ -70,24 +68,62 @@ const LoginView = ({
   handleLogin,
   logout
 }: any) => (
-  <div className="flex flex-col items-center justify-center min-h-screen p-6 max-w-sm mx-auto">
-    <div className="w-full text-center space-y-6">
-      <div className="relative inline-block">
-        <div className="absolute inset-0 bg-primary blur-2xl opacity-20 rounded-full"></div>
-        <div className="relative w-24 h-24 bg-primary rounded-[32px] flex items-center justify-center mx-auto mb-2 shadow-2xl shadow-primary/40 rotate-12">
-          <Music size={40} color="white" />
+  <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-6 py-10">
+    <div
+      className="pointer-events-none absolute inset-0 opacity-90"
+      style={{
+        background: [
+          'radial-gradient(circle at 18% 18%, rgba(227,30,38,0.22), transparent 28%)',
+          'radial-gradient(circle at 82% 14%, rgba(243,106,7,0.18), transparent 30%)',
+          'radial-gradient(circle at 50% 100%, rgba(227,30,38,0.10), transparent 42%)'
+        ].join(', ')
+      }}
+    ></div>
+    <div
+      className="relative z-10 w-full max-w-md text-center space-y-6 rounded-[32px] p-8"
+      style={{
+        background: 'linear-gradient(180deg, rgba(19,19,24,0.92) 0%, rgba(11,11,15,0.96) 100%)',
+        border: '1px solid var(--border)',
+        boxShadow: '0 24px 80px rgba(0,0,0,0.45)'
+      }}
+    >
+      <div className="relative mb-2">
+        <div
+          className="absolute inset-0 mx-auto h-24 w-24 rounded-full blur-3xl opacity-20"
+          style={{ background: 'linear-gradient(135deg, #E31E26, #F36A07)' }}
+        ></div>
+        <div
+          className="relative mx-auto flex h-20 w-20 items-center justify-center rounded-[28px] shadow-2xl"
+          style={{
+            background: 'linear-gradient(135deg, #E31E26 0%, #F36A07 100%)',
+            boxShadow: '0 20px 40px rgba(227,30,38,0.35), 0 0 0 1px rgba(255,255,255,0.08)'
+          }}
+        >
+          <Music size={36} color="white" />
         </div>
       </div>
 
-      <div>
-        <h1 className="text-4xl font-black mb-2 tracking-tight">Jukebox<span className="text-primary">.</span></h1>
+      <div className="space-y-3">
+        <h1 className="text-4xl font-black tracking-tight text-white">Jukebox<span style={{ color: 'var(--orange)' }}>.</span></h1>
         <p className="text-text-muted font-medium">TEDU kampüsünde müziği sen yönet.</p>
       </div>
 
       {user ? (
-        <div className="card w-full border-primary/20 bg-primary/5 p-6 animate-fade">
+        <div
+          className="w-full animate-fade rounded-[28px] p-6"
+          style={{
+            background: 'linear-gradient(180deg, rgba(227,30,38,0.10) 0%, rgba(243,106,7,0.07) 100%)',
+            border: '1px solid rgba(227,30,38,0.16)'
+          }}
+        >
           <div className="flex items-center gap-4 mb-6">
-            <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center font-black text-xl shadow-lg">
+            <div
+              className="flex h-14 w-14 items-center justify-center rounded-2xl font-black text-xl text-white"
+              style={{
+                background: 'linear-gradient(135deg, #E31E26 0%, #F36A07 100%)',
+                boxShadow: '0 16px 30px rgba(227,30,38,0.26)'
+              }}
+            >
               {user.display_name.substring(0, 1).toUpperCase()}
             </div>
             <div className="text-left flex-1">
@@ -107,7 +143,13 @@ const LoginView = ({
               />
               <button
                 onClick={() => connectToDevice(deviceCodeInput)}
-                className="btn-primary w-full py-4 text-sm"
+                className="w-full rounded-xl py-4 font-black text-white transition-all uppercase tracking-wider"
+                style={{
+                  background: 'linear-gradient(135deg, #E31E26 0%, #F36A07 100%)',
+                  boxShadow: '0 6px 20px rgba(227,30,38,0.25)',
+                  fontSize: '12px',
+                  letterSpacing: '0.08em'
+                }}
                 disabled={loading || !deviceCodeInput}
               >
                 Cihaza Bağlan
@@ -116,7 +158,13 @@ const LoginView = ({
           ) : (
             <button
               onClick={() => connectToDevice(deviceCode)}
-              className="btn-primary w-full py-4"
+              className="w-full rounded-xl py-4 font-black text-white transition-all uppercase tracking-wider"
+              style={{
+                background: 'linear-gradient(135deg, #E31E26 0%, #F36A07 100%)',
+                boxShadow: '0 6px 20px rgba(227,30,38,0.25)',
+                fontSize: '12px',
+                letterSpacing: '0.08em'
+              }}
               disabled={loading}
             >
               {loading ? 'Bağlanıyor...' : 'Müzik Kutusuna Gir'}
@@ -126,28 +174,52 @@ const LoginView = ({
           <button onClick={logout} className="mt-4 text-xs font-bold text-text-muted hover:text-rose-500 tracking-widest uppercase">Farklı Hesapla Giriş</button>
         </div>
       ) : (
-        <div className="space-y-6 w-full">
-          <div className="card space-y-4">
+        <div className="space-y-6 w-full text-left">
+          <div className="space-y-4 rounded-[28px] border p-6" style={{ borderColor: 'var(--border)' }}>
+            <div
+              className="text-[10px] font-black uppercase"
+              style={{ color: 'var(--orange)', letterSpacing: '0.18em' }}
+            >
+              HIZLI BASLA
+            </div>
             <input
               className="input-field py-4"
               placeholder="Adın nedir?"
               value={guestName}
               onChange={(e) => setGuestName(e.target.value)}
             />
-            <button onClick={handleGuestLogin} className="btn-primary w-full py-4" disabled={loading}>
-              {loading ? 'Bağlanıyor...' : 'Hızlı Başla'} <ChevronRight size={18} />
+            <button
+              onClick={handleGuestLogin}
+              className="flex w-full items-center justify-center gap-2 rounded-xl py-4 font-black text-white transition-all hover:-translate-y-0.5 active:scale-95"
+              style={{
+                background: 'linear-gradient(135deg, #E31E26 0%, #F36A07 100%)',
+                boxShadow: '0 8px 24px rgba(227,30,38,0.25)',
+                fontSize: '13px',
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase'
+              }}
+              disabled={loading}
+            >
+              {loading ? 'Baglaniyor...' : 'Hizli Basla'} <ChevronRight size={18} />
             </button>
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="flex-1 h-px bg-white/5"></div>
-            <span className="text-[10px] font-black text-text-muted tracking-widest uppercase">Veya</span>
-            <div className="flex-1 h-px bg-white/5"></div>
+            <div className="flex-1 h-px" style={{ background: 'var(--border-bright)' }}></div>
+            <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.12em' }}>VEYA</span>
+            <div className="flex-1 h-px" style={{ background: 'var(--border-bright)' }}></div>
           </div>
 
           <button
             onClick={() => setShowLoginModal(true)}
-            className="w-full flex items-center justify-center gap-2 text-white/50 hover:text-white font-bold py-2 text-xs tracking-widest uppercase transition-colors"
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all"
+            style={{
+              border: '1px solid var(--border-bright)',
+              color: 'var(--text-muted)',
+              fontSize: '12px',
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase'
+            }}
           >
             <User size={14} /> Üye Girişi
           </button>
@@ -158,7 +230,13 @@ const LoginView = ({
     {/* Login Modal */}
     {showLoginModal && (
       <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 animate-fade">
-        <div className="bg-surface w-full max-w-sm p-8 rounded-[32px] border border-white/5 shadow-2xl relative">
+        <div
+          className="w-full max-w-sm p-8 rounded-[32px] shadow-2xl relative"
+          style={{
+            background: 'linear-gradient(180deg, rgba(19,19,24,0.96) 0%, rgba(11,11,15,0.98) 100%)',
+            border: '1px solid var(--border)'
+          }}
+        >
           <button
             onClick={() => setShowLoginModal(false)}
             className="absolute top-6 right-6 text-text-muted hover:text-white transition-colors"
@@ -204,45 +282,121 @@ const LoginView = ({
 );
 
 const LeaderboardView = ({ leaderboard, onClose }: any) => (
-  <div className="fixed inset-0 z-[250] flex items-center justify-center p-6 backdrop-blur-2xl bg-black/80 animate-fade">
-    <div className="card w-full max-w-lg border-primary/20 bg-primary/5 p-8 relative overflow-hidden flex flex-col max-h-[80vh]">
-      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-primary to-transparent opacity-50"></div>
+  <div
+    className="fixed inset-0 z-[250] flex items-center justify-center p-4 sm:p-6 backdrop-blur-2xl animate-fade"
+    style={{ background: 'rgba(0,0,0,0.85)' }}
+  >
+    <div
+      className="w-full max-w-xl p-6 sm:p-8 relative overflow-hidden flex flex-col"
+      style={{
+        maxHeight: '80vh',
+        background: 'rgba(13,13,18,0.95)',
+        border: '1px solid var(--border-bright)',
+        borderRadius: '28px',
+        backdropFilter: 'blur(24px)',
+        boxShadow: '0 24px 80px rgba(0,0,0,0.45)'
+      }}
+    >
+      <div
+        className="absolute inset-x-0 top-0"
+        style={{ height: '2px', background: 'linear-gradient(90deg, transparent, #E31E26 30%, #F36A07 70%, transparent)', opacity: 0.7 }}
+      ></div>
 
-      <div className="flex items-center justify-between mb-8">
+      <div className="mb-8 flex items-start justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 bg-primary/20 rounded-2xl flex items-center justify-center border border-primary/30 text-primary">
-            <Trophy size={28} />
+          <div
+            className="w-12 h-12 rounded-2xl flex items-center justify-center"
+            style={{
+              background: 'linear-gradient(135deg, rgba(227,30,38,0.15), rgba(243,106,7,0.15))',
+              border: '1px solid rgba(243,106,7,0.25)'
+            }}
+          >
+            <Trophy size={26} style={{ color: 'var(--orange)' }} />
           </div>
           <div>
-            <h2 className="text-2xl font-black tracking-tight">Sıralama</h2>
-            <p className="text-xs text-text-muted font-bold uppercase tracking-widest">En Çok Katkı Sağlayanlar</p>
+            <h2 className="text-2xl font-black tracking-tight">Siralama</h2>
+            <p className="text-xs text-text-muted font-bold uppercase tracking-[0.18em]">En Cok Katki Saglayanlar</p>
           </div>
         </div>
-        <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors">✕</button>
+        <button
+          onClick={onClose}
+          className="flex h-11 w-11 items-center justify-center rounded-2xl transition-all"
+          style={{
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid var(--border)',
+            color: 'var(--text-secondary)'
+          }}
+        >
+          X
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
         {leaderboard.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 opacity-20 text-center">
-            <Trophy size={48} className="mb-4" />
-            <p className="font-bold uppercase tracking-widest">Henüz kimse yok</p>
+          <div
+            className="flex flex-col items-center justify-center rounded-[24px] py-20 text-center"
+            style={{
+              background: 'rgba(255,255,255,0.02)',
+              border: '1px solid var(--border)'
+            }}
+          >
+            <div
+              className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl"
+              style={{
+                background: 'linear-gradient(135deg, rgba(227,30,38,0.12), rgba(243,106,7,0.12))',
+                border: '1px solid rgba(243,106,7,0.2)'
+              }}
+            >
+              <Trophy size={28} style={{ color: 'var(--orange)' }} />
+            </div>
+            <p className="text-sm font-black uppercase tracking-[0.18em]">Henuz kimse yok</p>
+            <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">
+              Ilk siraya gecmek icin ilk sarkiyi ekle
+            </p>
           </div>
         ) : (
           leaderboard.map((u: any, idx: number) => (
-            <div key={u.id} className={`flex items-center gap-4 p-4 rounded-2xl border transition-all ${idx === 0 ? 'bg-primary/20 border-primary/30' : 'bg-white/[0.03] border-white/5'}`}>
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm ${idx === 0 ? 'bg-primary text-white' : idx === 1 ? 'bg-slate-400 text-white' : idx === 2 ? 'bg-amber-600/50 text-white' : 'bg-white/10 text-text-muted'}`}>
+            <div
+              key={u.id}
+              className="flex items-center gap-3 rounded-[22px] border p-4 transition-all sm:gap-4"
+              style={{
+                background: idx === 0 ? 'rgba(243,106,7,0.10)' : 'rgba(255,255,255,0.025)',
+                border: idx === 0 ? '1px solid rgba(243,106,7,0.25)' : '1px solid var(--border)',
+                boxShadow: idx === 0 ? '0 12px 32px rgba(243,106,7,0.12)' : 'none'
+              }}
+            >
+              <div
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl font-black text-sm"
+                style={{
+                  background: idx === 0
+                    ? 'linear-gradient(135deg, #E31E26, #F36A07)'
+                    : idx === 1 ? 'rgba(148,163,184,0.3)'
+                      : idx === 2 ? 'rgba(180,120,60,0.3)'
+                        : 'rgba(255,255,255,0.08)',
+                  color: 'white'
+                }}
+              >
                 {idx + 1}
               </div>
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-white/10 to-white/5 flex items-center justify-center font-black text-primary border border-white/10">
-                {u.display_name.substring(0, 1).toUpperCase()}
+              <div
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border font-black"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.04))',
+                  borderColor: 'rgba(255,255,255,0.10)',
+                  color: idx === 0 ? 'var(--orange)' : 'white'
+                }}
+              >
+                {(u.display_name?.substring(0, 1) || '?').toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-black truncate text-sm">{u.display_name}</div>
-                <div className="text-[10px] text-text-muted font-bold uppercase tracking-widest">{u.total_songs_added} Şarkı</div>
+                <div className="text-[10px] text-text-muted font-bold uppercase tracking-[0.16em]">
+                  {u.total_songs_added} sarki
+                </div>
               </div>
-              <div className="text-right">
-                <div className="text-sm font-black text-primary">{u.rank_score}</div>
-                <div className="text-[10px] text-primary/50 font-bold uppercase tracking-widest leading-none">Puan</div>
+              <div className="shrink-0 text-right">
+                <div style={{ fontSize: '16px', fontWeight: 900, color: idx === 0 ? 'var(--orange)' : 'var(--primary)' }}>{u.rank_score}</div>
+                <div className="text-[10px] text-primary/50 font-bold uppercase tracking-[0.16em] leading-none">puan</div>
               </div>
             </div>
           ))
@@ -252,26 +406,18 @@ const LeaderboardView = ({ leaderboard, onClose }: any) => (
   </div>
 );
 
-const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user, onGuestSuperVote }: any) => {
+const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user }: any) => {
   const currentVote = myVotes[item.id] !== undefined ? myVotes[item.id] : item.user_vote;
-  const isSuperVote = currentVote === 4;
-  const isNormalUpvote = currentVote === 1;
-  const isDownvote = currentVote === -1;
-
-  const handleSuperVoteClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (user?.is_guest) {
-      // Guest clicked super vote - redirect to login
-      onGuestSuperVote?.();
-    } else {
-      handleVote(item.id, 1, true);
-    }
-  };
-
-  const usedSuperVoteToday = user?.last_super_vote_at?.split('T')[0] === new Date().toISOString().split('T')[0];
 
   return (
-    <div className="group relative flex items-center gap-4 p-3 glass hover:bg-white/5 border border-white/5 rounded-2xl transition-all animate-fade">
+    <div
+      className="group relative flex items-center gap-4 p-3 rounded-2xl transition-all animate-fade"
+      style={{
+        background: 'rgba(255,255,255,0.025)',
+        border: '1px solid var(--border)',
+        marginBottom: '8px'
+      }}
+    >
       <div className="absolute -left-2 top-1/2 -translate-y-1/2 w-6 h-6 bg-primary rounded-lg flex items-center justify-center text-[10px] font-black shadow-lg shadow-primary/20 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
         {idx + 1}
       </div>
@@ -281,37 +427,45 @@ const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user, onGuestSuperV
         <div className="text-[10px] text-text-muted truncate font-semibold uppercase tracking-tight">{item.artist}</div>
       </div>
       <div className="flex flex-col items-end gap-1">
-        <div className="flex items-center gap-1.5 px-2 py-1 bg-primary/10 rounded-full border border-primary/20">
-          <TrendingUp size={10} className="text-primary" />
-          <span className="text-[10px] text-primary font-black">{item.priority_score}</span>
+        <div
+          className="flex items-center gap-1.5 px-2 py-1 rounded-full"
+          style={{
+            background: 'rgba(243,106,7,0.12)',
+            border: '1px solid rgba(243,106,7,0.22)'
+          }}
+        >
+          <TrendingUp size={9} style={{ color: 'var(--orange)' }} />
+          <span style={{ fontSize: '10px', color: 'var(--orange)', fontWeight: 800 }}>{item.priority_score}</span>
         </div>
         {/* Voting Controls */}
         <div className="flex items-center gap-1 mt-1">
           <button
-            onClick={(e) => { e.stopPropagation(); handleVote(item.id, 1, false); }}
-            className={`p-1 rounded-md transition-colors ${isNormalUpvote ? 'bg-emerald-500/20 text-emerald-500' : 'text-text-muted hover:bg-emerald-500/20 hover:text-emerald-500'}`}
+            onClick={(e) => { e.stopPropagation(); handleVote(item.id, 1); }}
+            className={`p-1 rounded-md transition-colors ${currentVote === 1 ? 'bg-emerald-500/20 text-emerald-500' : 'text-text-muted hover:bg-emerald-500/20 hover:text-emerald-500'}`}
             title="Upvote"
           >
-            <ArrowBigUp size={16} fill={isNormalUpvote ? "currentColor" : "none"} />
+            <ArrowBigUp size={16} fill={currentVote === 1 ? "currentColor" : "none"} />
           </button>
           <span className="text-[10px] font-bold text-text-muted min-w-[12px] text-center">{item.upvotes - item.downvotes}</span>
           <button
-            onClick={(e) => { e.stopPropagation(); handleVote(item.id, -1, false); }}
-            className={`p-1 rounded-md transition-colors ${isDownvote ? 'bg-rose-500/20 text-rose-500' : 'text-text-muted hover:bg-rose-500/20 hover:text-rose-500'}`}
+            onClick={(e) => { e.stopPropagation(); handleVote(item.id, -1); }}
+            className={`p-1 rounded-md transition-colors ${currentVote === -1 ? 'bg-rose-500/20 text-rose-500' : 'text-text-muted hover:bg-rose-500/20 hover:text-rose-500'}`}
             title="Downvote"
           >
-            <ArrowBigDown size={16} fill={isDownvote ? "currentColor" : "none"} />
+            <ArrowBigDown size={16} fill={currentVote === -1 ? "currentColor" : "none"} />
           </button>
 
-          {/* Super Upvote Button - Visible to everyone */}
-          <button
-            onClick={handleSuperVoteClick}
-            disabled={!user?.is_guest && usedSuperVoteToday}
-            className={`p-1 rounded-md transition-all ${isSuperVote ? 'bg-amber-500/30 text-amber-500 scale-110' : user?.is_guest ? 'text-amber-500/50 hover:text-amber-500' : 'text-text-muted hover:bg-amber-500/20 hover:text-amber-500 opacity-60 hover:opacity-100'}`}
-            title={user?.is_guest ? "Üye ol ve Süper Upvote kullan!" : usedSuperVoteToday ? "Bugün süper oy hakkın bitti" : "Süper Upvote (+4)"}
-          >
-            <Star size={14} fill={isSuperVote ? "currentColor" : "none"} />
-          </button>
+          {/* Super Upvote Button */}
+          {!user?.is_guest && (
+            <button
+              onClick={(e) => { e.stopPropagation(); handleVote(item.id, 1, true); }}
+              disabled={user?.last_super_vote_at?.split('T')[0] === new Date().toISOString().split('T')[0]}
+              className={`p-1 rounded-md transition-all ${currentVote === 4 ? 'bg-amber-500/30 text-amber-500 scale-110' : 'text-text-muted hover:bg-amber-500/20 hover:text-amber-500 opacity-60 hover:opacity-100'}`}
+              title={user?.last_super_vote_at?.split('T')[0] === new Date().toISOString().split('T')[0] ? "Bugün süper oy hakkın bitti" : "Süper Upvote (+4)"}
+            >
+              <Star size={14} fill={currentVote === 4 ? "currentColor" : "none"} />
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -339,14 +493,36 @@ const JukeboxView = ({
 }: any) => (
   <div className="flex flex-col min-h-screen lg:flex-row w-full max-w-full">
     {/* Global Desktop Sidebar (Mobile Top) */}
-    <div className="lg:w-80 glass border-b lg:border-r border-white/5 p-6 flex flex-col z-20 sticky top-0 lg:h-screen lg:shrink-0">
+    <div
+      className="lg:w-80 border-b lg:border-r p-6 flex flex-col z-20 sticky top-0 lg:h-screen lg:shrink-0"
+      style={{
+        background: 'rgba(13,13,18,0.92)',
+        backdropFilter: 'blur(28px)',
+        borderColor: 'var(--border)',
+        position: 'relative'
+      }}
+    >
+      <div
+        className="absolute top-0 left-0 right-0"
+        style={{
+          height: '2px',
+          background: 'linear-gradient(90deg, #E31E26, #F36A07 50%, transparent)',
+          opacity: 0.7
+        }}
+      ></div>
       <div className="flex items-center gap-3 mb-8">
-        <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
+        <div
+          className="w-11 h-11 rounded-2xl flex items-center justify-center shadow-lg flex-shrink-0"
+          style={{
+            background: 'linear-gradient(135deg, #E31E26, #F36A07)',
+            boxShadow: '0 8px 20px rgba(227,30,38,0.3)'
+          }}
+        >
           <Music size={20} color="white" />
         </div>
         <div>
-          <h1 className="font-black text-xl tracking-tighter">Jukebox<span className="text-primary">.</span></h1>
-          <div className="flex items-center gap-1.5">
+          <h1 className="font-black text-xl tracking-tight">Jukebox<span style={{ color: 'var(--orange)' }}>.</span></h1>
+          <div className="flex items-center gap-1.5 mt-0.5">
             <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
             <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{device?.name}</span>
           </div>
@@ -354,9 +530,10 @@ const JukeboxView = ({
       </div>
 
       <div className="relative mb-6">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted" size={16} />
+        <Search className="absolute left-5 top-1/2 -translate-y-1/2 z-10" size={15} style={{ color: 'var(--orange)' }} />
         <input
-          className="input-field pl-11 h-12 text-sm font-medium"
+          className="input-field pl-12 h-12"
+          style={{ fontSize: '13px', fontWeight: 500 }}
           placeholder="Şarkı veya Sanatçı Ara..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -373,18 +550,23 @@ const JukeboxView = ({
                 <button onClick={() => setSearch('')} className="text-[10px] font-bold text-primary">Temizle</button>
               </div>
             </div>
-            {results.map((song: any) => (
+            {results.map((song: Song, idx: number) => (
               <div
-                key={song.id}
-                className="group flex items-center gap-3 p-2 bg-white/[0.03] hover:bg-primary/10 border border-white/5 hover:border-primary/30 rounded-2xl transition-all cursor-pointer animate-fade"
-                onClick={() => addToQueue(song.id)}
+                key={getSearchResultKey(song, idx)}
+                className="group flex items-center gap-3 p-2.5 rounded-2xl transition-all cursor-pointer animate-fade"
+                style={{
+                  background: 'rgba(255,255,255,0.025)',
+                  border: '1px solid var(--border)',
+                  marginBottom: '6px'
+                }}
+                onClick={() => addToQueue(song)}
               >
-                <img src={song.cover_url} className="w-10 h-10 rounded-lg object-cover shadow-sm group-hover:scale-105 transition-transform" alt="" />
+                <img src={song.cover_url ?? ''} className="w-10 h-10 rounded-xl object-cover shadow-md group-hover:scale-105 transition-transform" alt="" />
                 <div className="flex-1 min-w-0">
-                  <div className="font-bold text-xs truncate group-hover:text-primary transition-colors">{song.title}</div>
-                  <div className="text-[10px] text-text-muted truncate font-medium">{song.artist}</div>
+                  <div className="font-bold text-xs truncate transition-colors group-hover:text-white">{song.title}</div>
+                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 500 }}>{song.artist}</div>
                 </div>
-                <div className="w-8 h-8 rounded-full flex items-center justify-center group-hover:bg-primary group-hover:text-white transition-all">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center transition-all" style={{ color: 'var(--text-muted)' }}>
                   <Plus size={16} />
                 </div>
               </div>
@@ -405,7 +587,7 @@ const JukeboxView = ({
       </div>
 
       {/* User Info Card */}
-      <div className="mt-6 pt-6 border-t border-white/5 space-y-4">
+      <div className="mt-6 pt-6 space-y-4" style={{ borderTop: '1px solid var(--border)' }}>
         {user?.role === 'admin' && (
           <AdminDashboard
             token={localStorage.getItem('token') || ''}
@@ -414,12 +596,26 @@ const JukeboxView = ({
           />
         )}
 
-        <div className="flex items-center justify-between p-3 glass rounded-2xl">
+        <div
+          className="flex items-center justify-between p-3 rounded-2xl"
+          style={{
+            background: 'rgba(255,255,255,0.025)',
+            border: '1px solid var(--border)'
+          }}
+        >
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-white/10 to-white/5 border border-white/10 flex items-center justify-center font-black text-primary shadow-inner relative">
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center font-black shadow-inner relative"
+              style={{
+                background: 'linear-gradient(135deg, rgba(227,30,38,0.2), rgba(243,106,7,0.15))',
+                border: '1px solid rgba(227,30,38,0.25)',
+                color: 'var(--primary)',
+                fontSize: '16px'
+              }}
+            >
               {user?.display_name.substring(0, 1).toUpperCase()}
               {!user?.is_guest && (
-                <div className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full flex items-center justify-center border-2 border-background">
+                <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: 'var(--green)', border: '2px solid var(--background)' }}>
                   <Trophy size={8} className="text-white" />
                 </div>
               )}
@@ -427,10 +623,10 @@ const JukeboxView = ({
             <div className="flex flex-col">
               <span className="text-xs font-black">{user?.display_name}</span>
               <div className="flex items-center gap-1.5">
-                <span className="text-[9px] text-text-muted uppercase font-bold tracking-widest">{user?.role === 'admin' ? 'Yönetici' : user?.is_guest ? 'Misafir' : 'Dinleyici'}</span>
+                <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{user?.role === 'admin' ? 'Yonetici' : user?.is_guest ? 'Misafir' : 'Dinleyici'}</span>
                 {!user?.is_guest && user?.rank_score !== undefined && (
-                  <span className="text-[10px] font-black text-emerald-500 flex items-center gap-0.5">
-                    • {user.rank_score} <span className="text-[8px] opacity-70">Puan</span>
+                  <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--orange)' }}>
+                    • {user.rank_score} puan
                   </span>
                 )}
               </div>
@@ -452,24 +648,38 @@ const JukeboxView = ({
           {nowPlaying ? (
             <div className="max-w-md w-full text-center space-y-8 animate-fade">
               <div className="relative inline-block group">
-                <div className="absolute inset-0 bg-primary blur-[60px] opacity-30 group-hover:opacity-50 transition-opacity"></div>
+                <div
+                  className="absolute inset-0 blur-[80px] opacity-30 transition-opacity"
+                  style={{ background: 'linear-gradient(135deg, #E31E26, #F36A07)' }}
+                ></div>
                 <div className="relative">
                   <img
                     src={nowPlaying.cover_url}
-                    className="w-56 h-56 lg:w-80 lg:h-80 rounded-[40px] shadow-2xl object-cover ring-1 ring-white/10"
+                    className="w-56 h-56 lg:w-80 lg:h-80 rounded-[40px] shadow-2xl object-cover"
+                    style={{
+                      boxShadow: '0 30px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.06)',
+                      transition: 'box-shadow 0.5s ease'
+                    }}
                     alt=""
                   />
-                  <div className="absolute inset-x-0 -bottom-4 flex justify-center gap-2">
-                    <div className="px-6 py-2 glass rounded-full flex items-center gap-3 shadow-xl border-primary/20">
-                      <Disc className="text-primary" size={16} />
+                  <div className="absolute inset-x-0 -bottom-4 flex items-center justify-center gap-2">
+                    <div
+                      className="px-6 py-2 rounded-full flex items-center gap-3 shadow-xl"
+                      style={{
+                        background: 'rgba(13,13,18,0.85)',
+                        backdropFilter: 'blur(12px)',
+                        border: '1px solid rgba(227,30,38,0.25)'
+                      }}
+                    >
+                      <Disc style={{ color: 'var(--orange)' }} size={14} />
                       <span className="text-[10px] font-black tracking-widest uppercase">Şu An Çalıyor</span>
                     </div>
                     <button
                       onClick={() => device && fetchCurrentQueue(device.id)}
-                      className="w-10 h-10 glass rounded-full flex items-center justify-center text-primary/50 hover:text-primary transition-colors shadow-lg border border-primary/20"
+                      className="w-8 h-8 glass rounded-full flex items-center justify-center text-primary/50 hover:text-primary transition-colors shadow-lg border border-primary/20"
                       title="Senkronize Et"
                     >
-                      <RefreshCw size={14} />
+                      <RefreshCw size={12} />
                     </button>
                   </div>
                 </div>
@@ -477,24 +687,28 @@ const JukeboxView = ({
 
               <div className="space-y-4">
                 <h1 className="text-2xl lg:text-5xl font-black tracking-tighter leading-tight">{nowPlaying.title}</h1>
-                <p className="text-lg lg:text-2xl text-primary font-bold">{nowPlaying.artist}</p>
+                <p style={{ fontSize: '22px', fontWeight: 700, color: 'var(--orange)', letterSpacing: '-0.01em' }}>{nowPlaying.artist}</p>
 
-                <div className="w-full max-w-xs mx-auto space-y-2 py-4 relative">
+                <div className="w-full max-w-xs mx-auto space-y-2 py-4">
                   {/* Kiosk Sync Status */}
-                  <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] bg-emerald-500/20 p-1 px-3 rounded-full border border-emerald-500/30 text-emerald-400 font-black tracking-tighter flex items-center gap-1.5 opacity-60">
-                    <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></div>
-                    KIOSK CANLI
+                  <div className="flex justify-center mb-2">
+                    <div className="text-[10px] bg-emerald-500/20 p-1 px-3 rounded-full border border-emerald-500/30 text-emerald-400 font-black tracking-tighter flex items-center gap-1.5 opacity-60">
+                      <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></div>
+                      KIOSK CANLI
+                    </div>
                   </div>
 
                   <div className="flex justify-between text-[10px] font-black tracking-widest text-text-muted uppercase">
                     <span>{formatTime(interpolatedProgress)}</span>
                     <span>{formatTime(progress?.duration || nowPlaying.duration_seconds || 0)}</span>
                   </div>
-                  <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden border border-white/5">
+                  <div className="h-2 w-full rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
                     <div
-                      className="h-full bg-gradient-to-r from-primary to-primary-hover shadow-[0_0_10px_rgba(227,30,38,0.5)] transition-all duration-1000 ease-linear"
+                      className="h-full rounded-full relative transition-all duration-1000 ease-linear"
                       style={{
-                        width: `${Math.min(100, (interpolatedProgress / (progress?.duration || nowPlaying.duration_seconds || 1)) * 100)}%`
+                        width: `${Math.min(100, (interpolatedProgress / (progress?.duration || nowPlaying.duration_seconds || 1)) * 100)}%`,
+                        background: 'linear-gradient(90deg, #E31E26, #F36A07)',
+                        boxShadow: '0 0 12px rgba(243,106,7,0.5)'
                       }}
                     ></div>
                   </div>
@@ -548,7 +762,6 @@ const JukeboxView = ({
                   myVotes={myVotes}
                   handleVote={handleVote}
                   user={user}
-                  onGuestSuperVote={logout}
                 />
               ))
             )}
@@ -716,18 +929,11 @@ function App() {
     if (!device) return;
 
     if (!socket) {
-      // Production: connect through IIS proxy (no port)
-      // Development: connect directly to backend port 3000
-      const socketUrl = window.location.port
-        ? `${window.location.protocol}//${window.location.hostname}:8080`
-        : `${window.location.protocol}//${window.location.hostname}`;
-
-      console.log('🚀 Initializing socket connection to:', socketUrl);
-      const newSocket = io(socketUrl, {
-        path: '/socket.io',
+      console.log('🚀 Initializing socket connection to:', API_URL);
+      const newSocket = io(API_URL, {
         reconnectionAttempts: 10,
         reconnectionDelay: 2000,
-        transports: ['polling', 'websocket']  // Polling first for IIS compatibility
+        transports: ['websocket', 'polling']
       });
       setSocket(newSocket);
 
@@ -1009,12 +1215,13 @@ function App() {
     }
   };
 
-  const addToQueue = async (songId: string) => {
-    if (!user) return;
+  const addToQueue = async (song: Song) => {
+    if (!user || !device) return;
     try {
       setLoading(true);
+      const payload = buildQueueRequestPayload(device.id, song);
       await axios.post(`${API_URL}/api/v1/jukebox/queue`,
-        { device_id: device.id, song_id: songId },
+        payload,
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
       setMsg({ type: 'success', text: 'Şarkı kuyruğa eklendi!' });

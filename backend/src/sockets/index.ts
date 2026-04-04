@@ -1,4 +1,5 @@
 import { Server, Socket } from 'socket.io';
+import { reconcileStoppedSpotifyPlaybackForDevice } from '../routes/jukebox';
 
 export function setupSocketHandlers(io: Server) {
     io.on('connection', (socket: Socket) => {
@@ -24,9 +25,14 @@ export function setupSocketHandlers(io: Server) {
             io.to(roomName).emit('playback_progress', data);
         });
 
-        socket.on('kiosk_heartbeat', (data: any) => {
+        socket.on('kiosk_heartbeat', async (data: any) => {
             if (!data || !data.device_id) return;
             const roomName = `device:${data.device_id}`;
+            try {
+                await reconcileStoppedSpotifyPlaybackForDevice({ deviceId: data.device_id });
+            } catch (error) {
+                console.warn('[SOCKET] Spotify playback reconciliation failed:', error);
+            }
             io.to(roomName).emit('kiosk_heartbeat', data);
         });
 

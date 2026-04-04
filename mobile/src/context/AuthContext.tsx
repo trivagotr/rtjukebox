@@ -2,8 +2,9 @@ import React, { createContext, useState, useContext, useEffect, ReactNode } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
-// Replace with your local network IP for physical device testing
-const API_URL = 'http://192.168.0.13:3000/api/v1';
+import { BASE_API } from '../services/config';
+
+const API_URL = BASE_API;
 
 interface User {
     id: string;

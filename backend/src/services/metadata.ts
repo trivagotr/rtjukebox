@@ -1,5 +1,14 @@
 import axios from 'axios';
 import { db } from '../db';
+import { normalizeText } from '../utils/textNormalization';
+
+export function normalizeItunesSongMetadata(input: { title: string; artist: string; album: string | null }) {
+    return {
+        title: normalizeText(input.title),
+        artist: normalizeText(input.artist),
+        album: input.album ? normalizeText(input.album) : null
+    };
+}
 
 export class MetadataService {
     /**
@@ -44,28 +53,30 @@ export class MetadataService {
 
             if (response.data.resultCount > 0) {
                 const result = response.data.results[0];
-                const newTitle = result.trackName || title;
-                const newArtist = result.artistName || artist;
-                const album = result.collectionName || null;
+                const normalizedMetadata = normalizeItunesSongMetadata({
+                    title: result.trackName || title,
+                    artist: result.artistName || artist,
+                    album: result.collectionName || null
+                });
                 const durationMs = result.trackTimeMillis || null;
                 const artworkUrl = result.artworkUrl100 ? result.artworkUrl100.replace('100x100bb', '600x600bb') : null;
 
                 const updateQuery = `
-                    UPDATE songs 
-                    SET title = $1, 
-                        artist = $2, 
-                        album = $3, 
+                    UPDATE songs
+                    SET title = $1,
+                        artist = $2,
+                        album = $3,
                         cover_url = COALESCE($4, cover_url),
-                        duration_seconds = COALESCE($5, duration_seconds)
+                        duration_ms = COALESCE($5, duration_ms)
                     WHERE id = $6
                     RETURNING *
                 `;
 
-                const finalDuration = durationMs ? Math.round(durationMs / 1000) : null;
+                const finalDuration = durationMs || null;
                 const updated = await db.query(updateQuery, [
-                    newTitle,
-                    newArtist,
-                    album,
+                    normalizedMetadata.title,
+                    normalizedMetadata.artist,
+                    normalizedMetadata.album,
                     artworkUrl,
                     finalDuration,
                     songId
@@ -85,7 +96,7 @@ export class MetadataService {
      * Syncs all active songs
      */
     static async syncAllSongs(): Promise<{ success: number; failed: number; failedSongs: any[] }> {
-        const songs = await db.query('SELECT id, title, artist FROM songs WHERE is_active = true');
+        const songs = await db.query('SELECT id, title, artist FROM songs WHERE is_blocked = false');
         let success = 0;
         let failed = 0;
         const failedSongs = [];
