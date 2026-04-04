@@ -8,6 +8,7 @@ import { upload } from '../middleware/upload';
 import { sendSuccess, sendError } from '../utils/response';
 import { ROLES } from '../middleware/rbac';
 import { normalizeText } from '../utils/textNormalization';
+import { getIstanbulYearMonth } from '../services/jukeboxScoring';
 
 const router = Router();
 
@@ -202,11 +203,24 @@ router.post('/refresh', async (req: Request, res: Response) => {
     }
 });
 
-router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
+export async function handleCurrentUserProfileRequest(req: AuthRequest, res: Response) {
     try {
+        const currentYearMonth = getIstanbulYearMonth(new Date());
         const result = await db.query(
-            'SELECT id, email, display_name, avatar_url, rank_score, total_songs_added, role FROM users WHERE id = $1',
-            [req.user?.id]
+            `SELECT u.id,
+                    u.email,
+                    u.display_name,
+                    u.avatar_url,
+                    u.rank_score,
+                    u.total_songs_added,
+                    u.role,
+                    u.last_super_vote_at,
+                    COALESCE(ums.score, 0) AS monthly_rank_score
+             FROM users u
+             LEFT JOIN user_monthly_rank_scores ums
+               ON ums.user_id = u.id AND ums.year_month = $2
+             WHERE u.id = $1`,
+            [req.user?.id, currentYearMonth]
         );
 
         if (!result.rows[0]) {
@@ -217,7 +231,9 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
     } catch (error) {
         return sendError(res, 'Failed to fetch profile', 500);
     }
-});
+}
+
+router.get('/me', authMiddleware, handleCurrentUserProfileRequest);
 
 router.post('/upload-avatar', authMiddleware, upload.single('avatar'), async (req: AuthRequest, res: Response) => {
     try {
