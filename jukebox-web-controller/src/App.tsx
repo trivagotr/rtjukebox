@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { AdminDashboard } from './AdminDashboard';
 import { buildQueueRequestPayload, getSearchResultKey, type CatalogSearchSong } from './jukeboxCatalog';
+import { buildGuestQueueHeaders } from './guestFingerprint';
 
 const API_URL = import.meta.env.VITE_API_URL ||
   `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -35,6 +36,7 @@ interface AppUser {
   display_name: string;
   is_guest: boolean;
   total_songs_added: number;
+  monthly_rank_score?: number;
   role?: string;
   last_super_vote_at?: string;
 }
@@ -46,6 +48,27 @@ const formatTime = (seconds: number) => {
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
+
+const getIstanbulDayKey = (value: string | Date) => {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: 'Europe/Istanbul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === 'year')?.value ?? '0000';
+  const month = parts.find((part) => part.type === 'month')?.value ?? '01';
+  const day = parts.find((part) => part.type === 'day')?.value ?? '01';
+  return `${year}-${month}-${day}`;
+};
+
+const hasSupervoteAvailableToday = (lastSuperVoteAt?: string) =>
+  !lastSuperVoteAt || getIstanbulDayKey(lastSuperVoteAt) !== getIstanbulDayKey(new Date());
+
+const getQueueItemSongScore = (item: any) =>
+  item.song_score ?? item.priority_score ?? ((item.upvotes ?? 0) - (item.downvotes ?? 0));
 
 // --- Components ---
 
@@ -281,7 +304,7 @@ const LoginView = ({
   </div>
 );
 
-const LeaderboardView = ({ leaderboard, onClose }: any) => (
+const LeaderboardView = ({ leaderboard, period, onPeriodChange, onClose }: any) => (
   <div
     className="fixed inset-0 z-[250] flex items-center justify-center p-4 sm:p-6 backdrop-blur-2xl animate-fade"
     style={{ background: 'rgba(0,0,0,0.85)' }}
@@ -315,20 +338,39 @@ const LeaderboardView = ({ leaderboard, onClose }: any) => (
           </div>
           <div>
             <h2 className="text-2xl font-black tracking-tight">Siralama</h2>
-            <p className="text-xs text-text-muted font-bold uppercase tracking-[0.18em]">En Cok Katki Saglayanlar</p>
+            <p className="text-xs text-text-muted font-bold uppercase tracking-[0.18em]">
+              {period === 'monthly' ? 'Bu Ay En Cok Katki Saglayanlar' : 'Tum Zamanlar En Cok Katki Saglayanlar'}
+            </p>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          className="flex h-11 w-11 items-center justify-center rounded-2xl transition-all"
-          style={{
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid var(--border)',
-            color: 'var(--text-secondary)'
-          }}
-        >
-          X
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center rounded-2xl border border-white/10 bg-white/[0.03] p-1">
+            {['total', 'monthly'].map((value) => (
+              <button
+                key={value}
+                onClick={() => onPeriodChange(value)}
+                className="px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.16em] transition-all"
+                style={{
+                  background: period === value ? 'linear-gradient(135deg, rgba(227,30,38,0.22), rgba(243,106,7,0.22))' : 'transparent',
+                  color: period === value ? 'white' : 'var(--text-muted)',
+                }}
+              >
+                {value === 'monthly' ? 'Aylik' : 'Total'}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={onClose}
+            className="flex h-11 w-11 items-center justify-center rounded-2xl transition-all"
+            style={{
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid var(--border)',
+              color: 'var(--text-secondary)'
+            }}
+          >
+            X
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
@@ -395,7 +437,9 @@ const LeaderboardView = ({ leaderboard, onClose }: any) => (
                 </div>
               </div>
               <div className="shrink-0 text-right">
-                <div style={{ fontSize: '16px', fontWeight: 900, color: idx === 0 ? 'var(--orange)' : 'var(--primary)' }}>{u.rank_score}</div>
+                <div style={{ fontSize: '16px', fontWeight: 900, color: idx === 0 ? 'var(--orange)' : 'var(--primary)' }}>
+                  {u.score ?? u.monthly_rank_score ?? u.rank_score}
+                </div>
                 <div className="text-[10px] text-primary/50 font-bold uppercase tracking-[0.16em] leading-none">puan</div>
               </div>
             </div>
@@ -435,7 +479,7 @@ const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user }: any) => {
           }}
         >
           <TrendingUp size={9} style={{ color: 'var(--orange)' }} />
-          <span style={{ fontSize: '10px', color: 'var(--orange)', fontWeight: 800 }}>{item.priority_score}</span>
+          <span style={{ fontSize: '10px', color: 'var(--orange)', fontWeight: 800 }}>{getQueueItemSongScore(item)}</span>
         </div>
         {/* Voting Controls */}
         <div className="flex items-center gap-1 mt-1">
@@ -446,7 +490,7 @@ const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user }: any) => {
           >
             <ArrowBigUp size={16} fill={currentVote === 1 ? "currentColor" : "none"} />
           </button>
-          <span className="text-[10px] font-bold text-text-muted min-w-[12px] text-center">{item.upvotes - item.downvotes}</span>
+          <span className="text-[10px] font-bold text-text-muted min-w-[12px] text-center">{getQueueItemSongScore(item)}</span>
           <button
             onClick={(e) => { e.stopPropagation(); handleVote(item.id, -1); }}
             className={`p-1 rounded-md transition-colors ${currentVote === -1 ? 'bg-rose-500/20 text-rose-500' : 'text-text-muted hover:bg-rose-500/20 hover:text-rose-500'}`}
@@ -459,11 +503,11 @@ const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user }: any) => {
           {!user?.is_guest && (
             <button
               onClick={(e) => { e.stopPropagation(); handleVote(item.id, 1, true); }}
-              disabled={user?.last_super_vote_at?.split('T')[0] === new Date().toISOString().split('T')[0]}
-              className={`p-1 rounded-md transition-all ${currentVote === 4 ? 'bg-amber-500/30 text-amber-500 scale-110' : 'text-text-muted hover:bg-amber-500/20 hover:text-amber-500 opacity-60 hover:opacity-100'}`}
-              title={user?.last_super_vote_at?.split('T')[0] === new Date().toISOString().split('T')[0] ? "Bugün süper oy hakkın bitti" : "Süper Upvote (+4)"}
+              disabled={!hasSupervoteAvailableToday(user?.last_super_vote_at)}
+              className={`p-1 rounded-md transition-all ${currentVote === 3 ? 'bg-amber-500/30 text-amber-500 scale-110' : 'text-text-muted hover:bg-amber-500/20 hover:text-amber-500 opacity-60 hover:opacity-100'}`}
+              title={!hasSupervoteAvailableToday(user?.last_super_vote_at) ? "Bugün süper oy hakkın bitti" : "Süper Oy (+3 şarkı / +2 rank)"}
             >
-              <Star size={14} fill={currentVote === 4 ? "currentColor" : "none"} />
+              <Star size={14} fill={currentVote === 3 ? "currentColor" : "none"} />
             </button>
           )}
         </div>
@@ -870,6 +914,7 @@ function App() {
   }, []);
 
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [leaderboardPeriod, setLeaderboardPeriod] = useState<'total' | 'monthly'>('total');
   const [showLeaderboard, setShowLeaderboard] = useState(false);
 
   // Expose toggle to sub-components via window for simplicity (not ideal but works here)
@@ -880,10 +925,13 @@ function App() {
     };
   }, []);
 
-  const fetchLeaderboard = async () => {
+  const fetchLeaderboard = async (period: 'total' | 'monthly' = leaderboardPeriod) => {
     try {
-      const res = await axios.get(`${API_URL}/api/v1/users/leaderboard`);
+      const res = await axios.get(`${API_URL}/api/v1/users/leaderboard`, {
+        params: { period }
+      });
       setLeaderboard(res.data.data.leaderboard || []);
+      setLeaderboardPeriod((res.data.data.period || period) as 'total' | 'monthly');
     } catch (err) {
       console.error('Leaderboard fetch failed:', err);
     }
@@ -1222,7 +1270,12 @@ function App() {
       const payload = buildQueueRequestPayload(device.id, song);
       await axios.post(`${API_URL}/api/v1/jukebox/queue`,
         payload,
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token')}`,
+            ...buildGuestQueueHeaders(Boolean(user.is_guest))
+          }
+        }
       );
       setMsg({ type: 'success', text: 'Şarkı kuyruğa eklendi!' });
       setSearch('');
@@ -1234,7 +1287,7 @@ function App() {
     } catch (err: any) {
       const resp = err.response?.data;
       if (resp?.code === 'GUEST_LIMIT_REACHED') {
-        setMsg({ type: 'error', text: 'Misafir limitin doldu! Daha fazla şarkı için giriş yapmalısın.' });
+        setMsg({ type: 'error', text: 'Misafir limitin doldu. Giriş yaparsan sınırsız şarkı ekleyebilirsin.' });
         setShowLoginModal(true);
       } else {
         setMsg({ type: 'error', text: resp?.message || 'Şarkı eklenemedi.' });
@@ -1302,6 +1355,10 @@ function App() {
         {showLeaderboard && (
           <LeaderboardView
             leaderboard={leaderboard}
+            period={leaderboardPeriod}
+            onPeriodChange={(period: 'total' | 'monthly') => {
+              fetchLeaderboard(period);
+            }}
             onClose={() => setShowLeaderboard(false)}
           />
         )}
