@@ -1,29 +1,57 @@
 :root {
-  font-family: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Albert Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
   color-scheme: dark;
   color: #ffffff;
-  background-color: #0a0a0f;
+  background-color: #0B0B0F;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  /* Brand Colors - Matching Kiosk */
-  --primary: #E31E26;
-  --primary-hover: #ff4757;
+  --red: #E31E26;
+  --red-light: #FF4757;
+  --red-dark: #C0392B;
+  --orange: #F36A07;
+  --orange-dim: rgba(243, 106, 7, 0.15);
+  --orange-glow: rgba(243, 106, 7, 0.25);
+  --green: #10B981;
+  --blue: #3B5BFF;
+
+  --bg-base: #0B0B0F;
+  --bg-surface: #131318;
+  --bg-lift: #1A1A22;
+
+  /* Legacy/admin uyum */
+  --background: var(--bg-base);
+  --primary: var(--red);
+  --primary-hover: var(--red-light);
   --primary-glow: rgba(227, 30, 38, 0.3);
-  --gradient-primary: linear-gradient(135deg, #E31E26 0%, #ff4757 100%);
-  --secondary: #c0392b;
-  --surface: #12121a;
-  --surface-hover: #1a1a26;
-  --border: rgba(255, 255, 255, 0.05);
-  --text-muted: rgba(255, 255, 255, 0.5);
-  --glass-bg: rgba(18, 18, 26, 0.6);
-  --glass-border: rgba(255, 255, 255, 0.1);
+  --gradient-primary: linear-gradient(135deg, var(--red) 0%, var(--red-light) 100%);
+  --gradient-warm: linear-gradient(135deg, var(--red) 0%, var(--orange) 100%);
+  --secondary: var(--red-dark);
+  --surface: var(--bg-surface);
+  --surface-hover: var(--bg-lift);
+  --border: rgba(255, 255, 255, 0.06);
+  --border-bright: rgba(255, 255, 255, 0.12);
+  --text-muted: rgba(255, 255, 255, 0.40);
+  --text-secondary: rgba(255, 255, 255, 0.70);
+  --glass-bg: rgba(19, 19, 24, 0.6);
+  --glass-border: rgba(255, 255, 255, 0.08);
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-size: 256px 256px;
 }
 
 body {
@@ -67,7 +95,7 @@ body {
 .orb-2 {
   width: 500px;
   height: 500px;
-  background: radial-gradient(circle, var(--primary-hover) 0%, transparent 70%);
+  background: radial-gradient(circle, var(--orange) 0%, transparent 70%);
   bottom: -150px;
   right: -100px;
   animation-delay: -7s;
@@ -198,4 +226,51 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.2);
+}
+
+/* Mobile optimizations */
+@media (max-width: 640px) {
+  .card {
+    padding: 16px;
+    border-radius: 16px;
+  }
+
+  .btn-primary {
+    padding: 14px 20px;
+    font-size: 12px;
+  }
+
+  .input-field {
+    padding: 14px 14px;
+    font-size: 15px;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade {
+  animation: fade 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
 }

@@ -20,6 +20,8 @@ import { COLORS, SPACING } from '../../theme/theme';
 import io from 'socket.io-client';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
+import { buildGuestQueueHeaders } from '../../services/guestFingerprint';
+import { STORAGE_API } from '../../services/config';
 import GlobalHeader from '../../components/GlobalHeader';
 import PageTransition from '../../components/PageTransition';
 
@@ -46,6 +48,7 @@ const JukeboxScreen = ({ route }: any) => {
   const [showGuestModal, setShowGuestModal] = useState(false);
   const [guestName, setGuestName] = useState('');
   const [pendingSong, setPendingSong] = useState<any>(null);
+  const canSupervote = Boolean(user && !user.is_guest);
 
 
   // Fetch available devices on mount
@@ -103,7 +106,13 @@ const JukeboxScreen = ({ route }: any) => {
   useEffect(() => {
     if (!device) return;
 
-    const socket = io(api.defaults.baseURL?.split('/api/v1')[0] || '');
+    const socket = io(api.defaults.baseURL?.split('/api/v1')[0] || '', {
+      path: "/socket.io",
+      transports: ["websocket", "polling"],
+      secure: true,
+      forceNew: true,
+      reconnectionAttempts: 10
+    });
 
 
     // JOIN THE DEVICE ROOM
@@ -151,7 +160,7 @@ const JukeboxScreen = ({ route }: any) => {
 
   const handleRequestSong = async (song: any) => {
     if (!device) {
-      Alert.alert('Hata', 'Lütfen önce bir müzik kutusuna bağlanın.');
+      Alert.alert('Hata', 'Lutfen once bir muzik kutusuna baglanin.');
       return;
     }
 
@@ -159,20 +168,8 @@ const JukeboxScreen = ({ route }: any) => {
       return addSongToQueue(song.id);
     }
 
-    const guestUsed = await AsyncStorage.getItem('guest_request_used');
-    if (guestUsed === 'true') {
-      Alert.alert(
-        'Limit Aşıldı',
-        'Misafir olarak ücretsiz şarkı hakkınızı kullandınız. Daha fazla şarkı eklemek için lütfen giriş yapın.',
-        [
-          { text: 'İptal', style: 'cancel' },
-          { text: 'Giriş Yap', onPress: () => navigation.navigate('Auth', { screen: 'Login' }) }
-        ]
-      );
-    } else {
-      setPendingSong(song);
-      setShowGuestModal(true);
-    }
+    setPendingSong(song);
+    setShowGuestModal(true);
   };
 
   const handleGuestSubmit = async () => {
@@ -184,12 +181,11 @@ const JukeboxScreen = ({ route }: any) => {
     try {
       setIsLoading(true);
       await guestLogin(guestName);
-      await AsyncStorage.setItem('guest_request_used', 'true');
       setShowGuestModal(false);
       setGuestName('');
 
       if (pendingSong) {
-        await addSongToQueue(pendingSong.id);
+        await addSongToQueue(pendingSong.id, true);
         setPendingSong(null);
       }
     } catch (error: any) {
@@ -199,31 +195,47 @@ const JukeboxScreen = ({ route }: any) => {
     }
   };
 
-  const addSongToQueue = async (songId: string) => {
+  const addSongToQueue = async (songId: string, isGuestRequest = Boolean(user?.is_guest)) => {
     try {
       setIsLoading(true);
+      const headers = await buildGuestQueueHeaders(isGuestRequest);
       await api.post('/jukebox/queue', {
         device_id: device.id,
         song_id: songId
-      });
-      Alert.alert('Başarılı', 'Şarkı kuyruğa eklendi.');
+      }, { headers });
+      Alert.alert('Basarili', 'Sarki kuyruga eklendi.');
       setSearch('');
       setSearchResults([]);
     } catch (error: any) {
-      Alert.alert('Hata', error.response?.data?.error || 'Şarkı eklenemedi.');
+      if (error.response?.data?.code === 'GUEST_LIMIT_REACHED') {
+        const serverMessage = error.response?.data?.error || 'Misafir limitiniz doldu.';
+        Alert.alert(
+          'Limit Asildi',
+          serverMessage,
+          [
+            { text: 'Iptal', style: 'cancel' },
+            { text: 'Giris Yap', onPress: () => navigation.navigate('Auth', { screen: 'Login' }) },
+            { text: 'Uye Ol', onPress: () => navigation.navigate('Auth', { screen: 'Register' }) },
+          ]
+        );
+      } else {
+        Alert.alert('Hata', error.response?.data?.error || 'Sarki eklenemedi.');
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleVote = async (item: any, voteType: number) => {
+  const handleVote = async (item: any, voteType: number, isSuper: boolean = false) => {
     if (!device) return;
+    if (isSuper && user?.is_guest) return;
     try {
       await api.post('/jukebox/vote', {
         queue_item_id: item.id.startsWith('autoplay') ? null : item.id,
         song_id: item.song_id,
         vote: voteType,
-        device_id: device.id
+        device_id: device.id,
+        is_super: isSuper,
       });
     } catch (error: any) {
       Alert.alert('Hata', error.response?.data?.error || 'Oy verilemedi.');
@@ -231,7 +243,7 @@ const JukeboxScreen = ({ route }: any) => {
   };
 
   const renderQueueItem = ({ item, index }: { item: any; index: number }) => {
-    const storageApi = 'http://192.168.0.13:3000';
+    const storageApi = STORAGE_API;
 
     let coverUrl = item.cover_url;
     if (coverUrl && coverUrl.startsWith('/')) {
@@ -258,8 +270,13 @@ const JukeboxScreen = ({ route }: any) => {
             <Icon name="arrow-up-bold" size={20} color={item.user_vote === 1 ? COLORS.primary : COLORS.textMuted} />
           </TouchableOpacity>
           <Text style={[styles.miniVoteText, item.user_vote !== 0 && { color: item.user_vote === 1 ? COLORS.primary : COLORS.error }]}>
-            {(item.upvotes || 0) - (item.downvotes || 0)}
+            {item.song_score ?? item.priority_score ?? 0}
           </Text>
+          {canSupervote && (
+            <TouchableOpacity onPress={() => handleVote(item, 1, true)} style={styles.miniVoteButton}>
+              <Icon name={item.user_vote === 3 || item.user_vote === 4 ? 'star' : 'star-outline'} size={18} color={item.user_vote === 3 || item.user_vote === 4 ? '#F59E0B' : COLORS.textMuted} />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={() => handleVote(item, -1)} style={styles.miniVoteButton}>
             <Icon name="arrow-down-bold" size={20} color={item.user_vote === -1 ? COLORS.error : COLORS.textMuted} />
           </TouchableOpacity>
@@ -288,7 +305,7 @@ const JukeboxScreen = ({ route }: any) => {
       </View>
     );
 
-    const storageApi = 'http://192.168.0.13:3000';
+    const storageApi = STORAGE_API;
     let coverUrl = song.cover_url;
     if (coverUrl && coverUrl.startsWith('/')) coverUrl = storageApi + coverUrl;
     else if (!coverUrl) coverUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(song.title)}&background=random&color=fff`;
@@ -313,14 +330,24 @@ const JukeboxScreen = ({ route }: any) => {
         <View style={styles.voteBar}>
           <TouchableOpacity style={styles.voteBtn} onPress={() => handleVote(song, 1)}>
             <Icon name="thumb-up" size={24} color="#4ADE80" />
-            <Text style={[styles.voteBtnText, { color: '#4ADE80' }]}>Beğen</Text>
+            <Text style={[styles.voteBtnText, { color: '#4ADE80' }]}>Begen</Text>
           </TouchableOpacity>
 
           <View style={styles.voteDivider} />
 
+          {canSupervote && (
+            <>
+              <TouchableOpacity style={styles.voteBtn} onPress={() => handleVote(song, 1, true)}>
+                <Icon name={song.user_vote === 3 || song.user_vote === 4 ? 'star' : 'star-outline'} size={24} color="#F59E0B" />
+                <Text style={[styles.voteBtnText, { color: '#F59E0B' }]}>Super</Text>
+              </TouchableOpacity>
+              <View style={styles.voteDivider} />
+            </>
+          )}
+
           <TouchableOpacity style={styles.voteBtn} onPress={() => handleVote(song, -1)}>
             <Icon name="thumb-down" size={24} color="#F87171" />
-            <Text style={[styles.voteBtnText, { color: '#F87171' }]}>Beğenme</Text>
+            <Text style={[styles.voteBtnText, { color: '#F87171' }]}>Begenme</Text>
           </TouchableOpacity>
         </View>
       </View>

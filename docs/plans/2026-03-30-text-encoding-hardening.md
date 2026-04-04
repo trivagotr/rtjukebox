@@ -55,6 +55,9 @@ git add backend/src/utils/textNormalization.ts backend/src/utils/textNormalizati
 git commit -m "feat: add text normalization utilities"
 ```
 
+Task 1 execution note:
+- add `iconv-lite` as a direct dependency in `backend/package.json` and `backend/package-lock.json` because the utility imports it directly
+
 ### Task 2: Apply Normalization to Auth and Upload Ingestion
 
 **Files:**

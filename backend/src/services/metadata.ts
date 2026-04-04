@@ -62,17 +62,17 @@ export class MetadataService {
                 const artworkUrl = result.artworkUrl100 ? result.artworkUrl100.replace('100x100bb', '600x600bb') : null;
 
                 const updateQuery = `
-                    UPDATE songs 
-                    SET title = $1, 
-                        artist = $2, 
-                        album = $3, 
+                    UPDATE songs
+                    SET title = $1,
+                        artist = $2,
+                        album = $3,
                         cover_url = COALESCE($4, cover_url),
-                        duration_seconds = COALESCE($5, duration_seconds)
+                        duration_ms = COALESCE($5, duration_ms)
                     WHERE id = $6
                     RETURNING *
                 `;
 
-                const finalDuration = durationMs ? Math.round(durationMs / 1000) : null;
+                const finalDuration = durationMs || null;
                 const updated = await db.query(updateQuery, [
                     normalizedMetadata.title,
                     normalizedMetadata.artist,
@@ -96,7 +96,7 @@ export class MetadataService {
      * Syncs all active songs
      */
     static async syncAllSongs(): Promise<{ success: number; failed: number; failedSongs: any[] }> {
-        const songs = await db.query('SELECT id, title, artist FROM songs WHERE is_active = true');
+        const songs = await db.query('SELECT id, title, artist FROM songs WHERE is_blocked = false');
         let success = 0;
         let failed = 0;
         const failedSongs = [];

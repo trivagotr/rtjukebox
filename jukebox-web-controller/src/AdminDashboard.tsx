@@ -16,9 +16,21 @@ import {
     Edit2,
     Check,
     X,
-    Settings,
     LogOut
 } from 'lucide-react';
+import {
+    buildSpotifyAppConfigPayload,
+    buildSpotifyDeviceAuthDisconnectRequest,
+    buildSpotifyDeviceAuthStartRequest,
+    formatSpotifyDeviceAuthStatus,
+    isSpotifyDeviceAuthSuccessMessage,
+    maskSpotifyAppConfigForForm,
+    SPOTIFY_APP_SECRET_MASK,
+    type SpotifyAppConfigApiResponse,
+    type SpotifyAppConfigFormState,
+    type SpotifyDeviceAuthStatusApiResponse,
+    type SpotifyDeviceAuthStatusView
+} from './adminSpotifyConfig';
 
 const API_URL = import.meta.env.VITE_API_URL ||
     `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -51,6 +63,11 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
     const [newDevice, setNewDevice] = useState({ device_code: '', name: '', location: '', password: '' });
     const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
     const [editValues, setEditValues] = useState({ name: '', location: '', password: '' });
+    const [spotifyAppConfig, setSpotifyAppConfig] = useState<SpotifyAppConfigFormState>({
+        client_id: '',
+        client_secret: '',
+    });
+    const [spotifyDeviceAuthStatuses, setSpotifyDeviceAuthStatuses] = useState<Record<string, SpotifyDeviceAuthStatusView>>({});
 
     // Song management
     const [showSongs, setShowSongs] = useState(false);
@@ -61,15 +78,61 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
             const res = await axios.get(`${API_URL}/api/v1/jukebox/admin/devices`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            setDevices(res.data.data.devices);
+            const nextDevices = res.data.data.devices || [];
+            setDevices(nextDevices);
+            refreshSpotifyDeviceStatuses(nextDevices);
         } catch (err) {
             console.error('Failed to fetch devices', err);
         }
     };
 
+    const fetchSpotifyAppConfig = async () => {
+        try {
+            const res = await axios.get(`${API_URL}/api/v1/spotify/app-config`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setSpotifyAppConfig(maskSpotifyAppConfigForForm(res.data.data as SpotifyAppConfigApiResponse));
+        } catch (err) {
+            console.error('Failed to fetch Spotify app config', err);
+        }
+    };
+
+    const refreshSpotifyDeviceStatuses = async (nextDevices: Device[]) => {
+        const entries = await Promise.all(
+            nextDevices.map(async (nextDevice) => {
+                try {
+                    const res = await axios.get(`${API_URL}/api/v1/spotify/device-auth/status`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                        params: { device_id: nextDevice.id }
+                    });
+                    return [nextDevice.id, formatSpotifyDeviceAuthStatus(res.data.data as SpotifyDeviceAuthStatusApiResponse)] as const;
+                } catch (err) {
+                    return [nextDevice.id, formatSpotifyDeviceAuthStatus(null)] as const;
+                }
+            })
+        );
+
+        setSpotifyDeviceAuthStatuses(Object.fromEntries(entries));
+    };
+
     useEffect(() => {
-        if (showDevices) fetchDevices();
+        if (showDevices) {
+            fetchDevices();
+            fetchSpotifyAppConfig();
+        }
     }, [showDevices]);
+
+    useEffect(() => {
+        const handleSpotifyMessage = (event: MessageEvent) => {
+            if (!isSpotifyDeviceAuthSuccessMessage(event.data)) return;
+
+            setStatus('Spotify cihaz bağlantısı güncellendi');
+            fetchDevices();
+        };
+
+        window.addEventListener('message', handleSpotifyMessage);
+        return () => window.removeEventListener('message', handleSpotifyMessage);
+    }, []);
 
     const skipSong = async () => {
         if (!confirm('Şu an çalan şarkıyı geçmek istediğine emin misin?')) return;
@@ -166,6 +229,68 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
             setEditingDeviceId(null);
             fetchDevices();
             setStatus('Cihaz güncellendi');
+        } catch (err: any) {
+            setStatus('Hata: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const saveSpotifyAppConfig = async () => {
+        try {
+            setLoading(true);
+            const payload = buildSpotifyAppConfigPayload(spotifyAppConfig);
+            const res = await axios.put(`${API_URL}/api/v1/spotify/app-config`, payload, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            setSpotifyAppConfig(maskSpotifyAppConfigForForm(res.data.data as SpotifyAppConfigApiResponse));
+            setStatus('Spotify uygulama ayarları kaydedildi');
+        } catch (err: any) {
+            setStatus('Hata: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const openSpotifyDeviceAuth = async (deviceId: string) => {
+        const popup = window.open('', '_blank');
+        try {
+            setLoading(true);
+            const request = buildSpotifyDeviceAuthStartRequest(API_URL, token, deviceId);
+            const res = await axios.get(request.url, {
+                headers: request.headers,
+            });
+            const authUrl = res.data?.data?.authUrl;
+
+            if (!authUrl) {
+                throw new Error('Spotify auth URL alınamadı');
+            }
+
+            if (popup) {
+                popup.location.href = authUrl;
+                popup.focus();
+            } else {
+                window.open(authUrl, '_blank', 'noopener,noreferrer');
+            }
+        } catch (err: any) {
+            if (popup) popup.close();
+            setStatus('Hata: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const disconnectSpotifyDeviceAuth = async (e: React.MouseEvent, deviceId: string) => {
+        e.stopPropagation();
+        try {
+            setLoading(true);
+            const request = buildSpotifyDeviceAuthDisconnectRequest(API_URL, token, deviceId);
+            await axios.delete(request.url, {
+                headers: request.headers
+            });
+            setStatus('Spotify cihaz bağlantısı kaldırıldı');
+            refreshSpotifyDeviceStatuses(devices);
         } catch (err: any) {
             setStatus('Hata: ' + (err.response?.data?.error || err.message));
         } finally {
@@ -295,74 +420,112 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
     };
 
     return (
-        <div className="card border-primary/20 bg-primary/5 mb-6 overflow-hidden">
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2 text-primary font-bold uppercase tracking-widest text-xs">
-                    <Shield size={14} /> Admin Paneli
-                </div>
-                {status && (
-                    <div className="px-3 py-1 bg-primary/20 rounded-full text-[10px] font-bold text-primary animate-pulse">
-                        {status}
+        <div
+            className="mb-6 overflow-hidden rounded-2xl"
+            style={{
+                border: '1px solid rgba(243,106,7,0.25)',
+                background: 'rgba(19,19,24,0.9)',
+                backdropFilter: 'blur(20px)'
+            }}
+        >
+            <div
+                style={{
+                    height: '2px',
+                    background: 'linear-gradient(90deg, var(--orange), #E31E26 50%, transparent)',
+                    opacity: 0.8
+                }}
+            ></div>
+            <div className="p-5">
+                <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center gap-2">
+                        <div
+                            className="w-7 h-7 rounded-lg flex items-center justify-center"
+                            style={{ background: 'var(--orange-dim)', border: '1px solid rgba(243,106,7,0.25)' }}
+                        >
+                            <Shield size={13} style={{ color: 'var(--orange)' }} />
+                        </div>
+                        <span style={{ fontSize: '11px', fontWeight: 800, color: 'var(--orange)', letterSpacing: '0.10em', textTransform: 'uppercase' }}>
+                            Admin Paneli
+                        </span>
                     </div>
-                )}
-            </div>
+                    {status && (
+                        <div
+                            className="px-3 py-1 rounded-full text-[10px] font-bold animate-pulse"
+                            style={{ background: 'rgba(243,106,7,0.15)', color: 'var(--orange)', border: '1px solid rgba(243,106,7,0.25)' }}
+                        >
+                            {status}
+                        </div>
+                    )}
+                </div>
 
             {/* Quick Actions */}
-            <div className="grid grid-cols-5 gap-2 mb-4">
+            <div className="mb-5 grid grid-cols-5 gap-1.5">
                 <button
                     onClick={skipSong}
                     disabled={loading}
-                    className="flex flex-col items-center justify-center p-2 glass hover:bg-white/10 rounded-xl transition-all active:scale-95 disabled:opacity-50"
+                    className="flex flex-col items-center justify-center p-2 rounded-xl transition-all active:scale-95 disabled:opacity-50"
+                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)' }}
                 >
-                    <SkipForward size={18} className="mb-1 text-primary" />
-                    <span className="text-[9px] font-bold opacity-80 uppercase">Atla</span>
+                    <SkipForward size={16} className="mb-1" style={{ color: 'var(--primary)' }} />
+                    <span style={{ fontSize: '8px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Atla</span>
                 </button>
 
                 <button
                     onClick={processSong}
                     disabled={loading}
-                    className="flex flex-col items-center justify-center p-2 glass hover:bg-white/10 rounded-xl transition-all active:scale-95 disabled:opacity-50"
+                    className="flex flex-col items-center justify-center p-2 rounded-xl transition-all active:scale-95 disabled:opacity-50"
+                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)' }}
                 >
-                    <Activity size={18} className="mb-1 text-blue-400" />
-                    <span className="text-[9px] font-bold opacity-80 uppercase">Düzelt</span>
+                    <Activity size={16} className="mb-1" style={{ color: '#3B5BFF' }} />
+                    <span style={{ fontSize: '8px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Düzelt</span>
                 </button>
 
                 <button
                     onClick={syncMetadata}
                     disabled={loading}
-                    className="flex flex-col items-center justify-center p-2 glass hover:bg-white/10 rounded-xl transition-all active:scale-95 disabled:opacity-50"
+                    className="flex flex-col items-center justify-center p-2 rounded-xl transition-all active:scale-95 disabled:opacity-50"
+                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)' }}
                 >
-                    <RefreshCw size={18} className={`mb-1 text-emerald-400 ${loading ? 'animate-spin' : ''}`} />
-                    <span className="text-[9px] font-bold opacity-80 uppercase">Sync</span>
+                    <RefreshCw size={16} className={`mb-1 ${loading ? 'animate-spin' : ''}`} style={{ color: '#10B981' }} />
+                    <span style={{ fontSize: '8px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Sync</span>
                 </button>
 
                 <button
                     onClick={() => setShowDevices(!showDevices)}
-                    className="flex flex-col items-center justify-center p-2 glass hover:bg-white/10 rounded-xl transition-all active:scale-95"
+                    className="flex flex-col items-center justify-center p-2 rounded-xl transition-all active:scale-95"
+                    style={{
+                        background: showDevices ? 'rgba(227,30,38,0.12)' : 'rgba(255,255,255,0.04)',
+                        border: showDevices ? '1px solid rgba(227,30,38,0.30)' : '1px solid var(--border)'
+                    }}
                 >
-                    <Monitor size={18} className="mb-1 text-purple-400" />
-                    <span className="text-[9px] font-bold opacity-80 uppercase">Cihazlar</span>
+                    <Monitor size={16} className="mb-1" style={{ color: showDevices ? 'var(--primary)' : '#A78BFA' }} />
+                    <span style={{ fontSize: '8px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Cihazlar</span>
                 </button>
 
                 <button
                     onClick={() => setShowSongs(!showSongs)}
-                    className="flex flex-col items-center justify-center p-2 glass hover:bg-white/10 rounded-xl transition-all active:scale-95"
+                    className="flex flex-col items-center justify-center p-2 rounded-xl transition-all active:scale-95"
+                    style={{
+                        background: showSongs ? 'rgba(243,106,7,0.12)' : 'rgba(255,255,255,0.04)',
+                        border: showSongs ? '1px solid rgba(243,106,7,0.30)' : '1px solid var(--border)'
+                    }}
                 >
-                    <Music size={18} className="mb-1 text-orange-400" />
-                    <span className="text-[9px] font-bold opacity-80 uppercase">Şarkılar</span>
+                    <Music size={16} className="mb-1" style={{ color: 'var(--orange)' }} />
+                    <span style={{ fontSize: '8px', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Şarkılar</span>
                 </button>
             </div>
 
             {/* Device Management Section */}
             {showDevices && (
-                <div className="border-t border-white/10 pt-4">
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
                     <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs font-bold uppercase tracking-widest text-purple-400">
+                        <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.10em', color: '#A78BFA' }}>
                             Kayıtlı Cihazlar ({devices.length})
                         </span>
                         <button
                             onClick={() => setShowNewDevice(!showNewDevice)}
-                            className="flex items-center gap-1 px-2 py-1 bg-purple-500/20 rounded-lg text-[10px] font-bold text-purple-400 hover:bg-purple-500/30"
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-colors"
+                            style={{ background: 'rgba(167,139,250,0.12)', color: '#A78BFA', border: '1px solid rgba(167,139,250,0.20)' }}
                         >
                             <Plus size={12} /> Yeni
                         </button>
@@ -370,52 +533,123 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
 
                     {/* New Device Form */}
                     {showNewDevice && (
-                        <div className="glass rounded-xl p-3 mb-3 space-y-2">
+                        <div
+                            className="mb-3 space-y-2 rounded-2xl p-4"
+                            style={{
+                                background: 'rgba(255,255,255,0.03)',
+                                border: '1px solid var(--border)'
+                            }}
+                        >
                             <input
                                 type="text"
                                 placeholder="Cihaz Kodu (örn: CAFE-01)"
                                 value={newDevice.device_code}
                                 onChange={(e) => setNewDevice({ ...newDevice, device_code: e.target.value.toUpperCase() })}
-                                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                                className="input-field !rounded-xl !px-3 !py-2.5 !text-sm"
                             />
                             <input
                                 type="text"
                                 placeholder="Cihaz Adı (örn: Ana Salon)"
                                 value={newDevice.name}
                                 onChange={(e) => setNewDevice({ ...newDevice, name: e.target.value })}
-                                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                                className="input-field !rounded-xl !px-3 !py-2.5 !text-sm"
                             />
                             <input
                                 type="text"
                                 placeholder="Konum (opsiyonel)"
                                 value={newDevice.location}
                                 onChange={(e) => setNewDevice({ ...newDevice, location: e.target.value })}
-                                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                                className="input-field !rounded-xl !px-3 !py-2.5 !text-sm"
                             />
                             <input
                                 type="password"
                                 placeholder="Giriş Şifresi (opsiyonel)"
                                 value={newDevice.password}
                                 onChange={(e) => setNewDevice({ ...newDevice, password: e.target.value })}
-                                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                                className="input-field !rounded-xl !px-3 !py-2.5 !text-sm"
                             />
                             <button
                                 onClick={createDevice}
                                 disabled={loading}
-                                className="w-full py-2 bg-purple-500 hover:bg-purple-600 rounded-lg text-sm font-bold transition-colors"
+                                className="w-full rounded-xl py-2.5 text-sm font-bold text-white transition-all disabled:opacity-50"
+                                style={{
+                                    background: 'linear-gradient(135deg, #E31E26, #F36A07)',
+                                    boxShadow: '0 12px 24px rgba(227,30,38,0.18)'
+                                }}
                             >
                                 Cihaz Oluştur
                             </button>
                         </div>
                     )}
 
+                    <div
+                        className="mb-3 rounded-2xl p-4"
+                        style={{
+                            background: 'rgba(255,255,255,0.03)',
+                            border: '1px solid rgba(243,106,7,0.18)'
+                        }}
+                    >
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                            <div>
+                                <div className="text-xs font-bold uppercase tracking-widest text-cyan-400">
+                                    Spotify App Credentials
+                                </div>
+                                <div className="text-[10px] text-text-muted mt-1">
+                                    Global client bilgileri backend tarafında saklanır. Secret kaydedildikten sonra masked kalır.
+                                </div>
+                            </div>
+                            <div className="text-[10px] font-bold uppercase tracking-widest text-text-muted">
+                                {SPOTIFY_APP_SECRET_MASK} = masked
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <input
+                                type="text"
+                                placeholder="Spotify Client ID"
+                                value={spotifyAppConfig.client_id}
+                                onChange={(e) => setSpotifyAppConfig({ ...spotifyAppConfig, client_id: e.target.value })}
+                                className="input-field !rounded-xl !px-3 !py-2.5 !text-sm"
+                            />
+                            <input
+                                type="password"
+                                placeholder="Spotify Client Secret"
+                                value={spotifyAppConfig.client_secret}
+                                onFocus={() => {
+                                    if (spotifyAppConfig.client_secret === SPOTIFY_APP_SECRET_MASK) {
+                                        setSpotifyAppConfig({ ...spotifyAppConfig, client_secret: '' });
+                                    }
+                                }}
+                                onChange={(e) => setSpotifyAppConfig({ ...spotifyAppConfig, client_secret: e.target.value })}
+                                className="input-field !rounded-xl !px-3 !py-2.5 !text-sm"
+                            />
+                            <button
+                                onClick={saveSpotifyAppConfig}
+                                disabled={loading}
+                                className="w-full rounded-xl py-2.5 text-sm font-bold text-white transition-all disabled:opacity-50"
+                                style={{
+                                    background: 'linear-gradient(135deg, rgba(227,30,38,0.95), rgba(243,106,7,0.95))',
+                                    boxShadow: '0 12px 24px rgba(227,30,38,0.18)'
+                                }}
+                            >
+                                Spotify Ayarlarını Kaydet
+                            </button>
+                        </div>
+                    </div>
+
                     {/* Device List */}
-                    <div className="space-y-2 max-h-60 overflow-y-auto">
-                        {devices.map((d) => (
+                    <div className="custom-scrollbar max-h-60 space-y-2 overflow-y-auto">
+                        {devices.map((d) => {
+                            const spotifyStatus = spotifyDeviceAuthStatuses[d.id];
+
+                            return (
                             <div
                                 key={d.id}
                                 onClick={() => onSelectDevice?.(d)}
-                                className={`glass rounded-xl p-3 cursor-pointer transition-all hover:bg-white/5 ${d.id === device?.id ? 'ring-2 ring-primary bg-primary/10' : ''}`}
+                                className="rounded-xl p-3 cursor-pointer transition-all mb-2"
+                                style={{
+                                    background: d.id === device?.id ? 'rgba(227,30,38,0.08)' : 'rgba(255,255,255,0.025)',
+                                    border: d.id === device?.id ? '1px solid rgba(227,30,38,0.30)' : '1px solid var(--border)'
+                                }}
                             >
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
@@ -509,13 +743,42 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
                                         </div>
                                     </div>
                                 </div>
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                    <span className={`text-[9px] px-2 py-1 rounded-full font-bold border ${spotifyStatus?.tone === 'success'
+                                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/20'
+                                        : 'bg-white/10 text-text-muted border-white/10'
+                                        }`}>
+                                        Spotify: {spotifyStatus?.label || 'Kontrol ediliyor'}
+                                    </span>
+                                    <span className="text-[9px] text-text-muted">
+                                        {spotifyStatus?.detail || 'Spotify bağlantısı sorgulanıyor'}
+                                    </span>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            void openSpotifyDeviceAuth(d.id);
+                                        }}
+                                        className="text-[9px] px-2 py-1 rounded-full font-bold bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 transition-colors"
+                                    >
+                                        {spotifyStatus?.actionLabel || 'Bağla'}
+                                    </button>
+                                    {spotifyStatus?.isConnected && (
+                                        <button
+                                            onClick={(e) => disconnectSpotifyDeviceAuth(e, d.id)}
+                                            className="text-[9px] px-2 py-1 rounded-full font-bold bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 transition-colors"
+                                        >
+                                            Ayır
+                                        </button>
+                                    )}
+                                </div>
                                 {d.current_song_title && (
                                     <div className="mt-2 text-[10px] text-text-muted truncate">
                                         🎵 {d.current_song_title} - {d.current_song_artist}
                                     </div>
                                 )}
                             </div>
-                        ))}
+                            );
+                        })}
                         {devices.length === 0 && (
                             <div className="text-center text-text-muted text-sm py-4">
                                 Henüz cihaz yok
@@ -527,9 +790,9 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
 
             {/* Songs Management Section */}
             {showSongs && (
-                <div className="border-t border-white/10 pt-4">
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
                     <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs font-bold uppercase tracking-widest text-orange-400">
+                        <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.10em', color: 'var(--orange)' }}>
                             Şarkı Kütüphanesi ({songs.length})
                         </span>
                         <div className="flex gap-2">
@@ -558,9 +821,13 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
                     </div>
 
                     {/* Song List */}
-                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                    <div className="custom-scrollbar max-h-60 space-y-2 overflow-y-auto">
                         {songs.map((s) => (
-                            <div key={s.id} className="glass rounded-xl p-3 flex items-center justify-between">
+                            <div
+                                key={s.id}
+                                className="rounded-xl p-3 flex items-center justify-between"
+                                style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid var(--border)' }}
+                            >
                                 <div className="flex items-center gap-3 min-w-0">
                                     <Music size={16} className="text-orange-400 flex-shrink-0" />
                                     <div className="min-w-0">
@@ -595,6 +862,7 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
                     </div>
                 </div>
             )}
+            </div>
         </div>
     );
 }

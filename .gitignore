@@ -2,6 +2,9 @@
 node_modules/
 npm-debug.log
 yarn-error.log
+*.log
+*.out.log
+*.err.log
 
 # Build
 dist/
@@ -19,11 +22,16 @@ build/
 # IDE
 .vscode/
 .idea/
+.claude/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# Tooling cache
+.vite/
+*/.vite/
 
 # OS
 .DS_Store

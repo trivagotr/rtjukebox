@@ -6,6 +6,7 @@
         "build": "tsc",
         "start": "node dist/server.js",
         "test": "vitest",
+        "db:migrate": "node src/db/migrate.js",
         "repair:text": "tsx src/scripts/repairTextEncoding.ts"
     },
     "dependencies": {
