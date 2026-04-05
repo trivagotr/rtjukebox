@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, ActivityIndicator, RefreshControl } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, Image, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { COLORS, SPACING } from '../theme/theme';
@@ -11,26 +11,40 @@ const LeaderboardScreen = () => {
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [period, setPeriod] = useState<'total' | 'monthly'>('total');
+  const requestSeqRef = useRef(0);
 
   useEffect(() => {
-    fetchLeaderboard();
-  }, []);
+    fetchLeaderboard(period);
+  }, [period]);
 
-  const fetchLeaderboard = async () => {
+  const fetchLeaderboard = async (nextPeriod: 'total' | 'monthly' = period) => {
+    const requestSeq = ++requestSeqRef.current;
+    setLoading(true);
+
     try {
-      const response = await api.get('/users/leaderboard');
+      const response = await api.get('/users/leaderboard', {
+        params: { period: nextPeriod },
+      });
+
+      if (requestSeq !== requestSeqRef.current) {
+        return;
+      }
+
       setLeaderboard(response.data.data.leaderboard || []);
     } catch (error) {
       console.error('Failed to fetch leaderboard:', error);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (requestSeq === requestSeqRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   };
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchLeaderboard();
+    fetchLeaderboard(period);
   };
 
   const renderItem = ({
@@ -44,13 +58,13 @@ const LeaderboardScreen = () => {
     let rankIcon = null;
 
     if (index === 0) {
-      rankColor = '#FFD700'; // Gold
+      rankColor = '#FFD700';
       rankIcon = 'crown';
     } else if (index === 1) {
-      rankColor = '#C0C0C0'; // Silver
+      rankColor = '#C0C0C0';
       rankIcon = 'medal';
     } else if (index === 2) {
-      rankColor = '#CD7F32'; // Bronze
+      rankColor = '#CD7F32';
       rankIcon = 'medal-outline';
     }
 
@@ -71,11 +85,11 @@ const LeaderboardScreen = () => {
 
         <View style={styles.infoContainer}>
           <Text style={styles.name}>{item.display_name}</Text>
-          <Text style={styles.songsAdded}>{item.total_songs_added} Şarkı</Text>
+          <Text style={styles.songsAdded}>{item.total_songs_added} Sarki</Text>
         </View>
 
         <View style={styles.pointsContainer}>
-          <Text style={styles.points}>{item.rank_score}</Text>
+          <Text style={styles.points}>{item.score ?? item.monthly_rank_score ?? item.rank_score ?? 0}</Text>
           <Text style={styles.pointsLabel}>Puan</Text>
         </View>
       </View>
@@ -87,8 +101,31 @@ const LeaderboardScreen = () => {
       <SafeAreaView style={styles.container}>
         <GlobalHeader />
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Sıralama</Text>
-          <Text style={styles.headerSubtitle}>En Aktif Dinleyiciler</Text>
+          <Text style={styles.headerTitle}>Siralama</Text>
+          <Text style={styles.headerSubtitle}>
+            {period === 'monthly' ? 'Bu ay en aktif dinleyiciler' : 'Tum zamanlar en aktif dinleyiciler'}
+          </Text>
+          <View style={styles.periodToggle}>
+            {(['total', 'monthly'] as const).map((value) => (
+              <TouchableOpacity
+                key={value}
+                onPress={() => setPeriod(value)}
+                style={[
+                  styles.periodButton,
+                  period === value && styles.periodButtonActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.periodButtonText,
+                    period === value && styles.periodButtonTextActive,
+                  ]}
+                >
+                  {value === 'monthly' ? 'Aylik' : 'Total'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
 
         {loading && !refreshing ? (
@@ -121,6 +158,35 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 24, fontWeight: 'bold', color: COLORS.text },
   headerSubtitle: { fontSize: 14, color: COLORS.textMuted, marginTop: 4 },
+  periodToggle: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: SPACING.md,
+  },
+  periodButton: {
+    flex: 1,
+    height: 38,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  periodButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  periodButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  periodButtonTextActive: {
+    color: '#fff',
+  },
   listContent: { padding: SPACING.md },
   itemContainer: {
     flexDirection: 'row',

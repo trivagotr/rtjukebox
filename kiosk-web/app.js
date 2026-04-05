@@ -889,7 +889,9 @@ class KioskApp {
             return;
         }
 
-        this.socket = io(CONFIG.WS_URL);
+        this.socket = io(CONFIG.WS_URL, {
+            path: CONFIG.SOCKET_PATH || '/socket.io',
+        });
 
         this.socket.on('connect', () => {
             this.log('🔌 Socket bağlandı');

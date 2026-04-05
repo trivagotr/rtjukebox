@@ -23,6 +23,7 @@ vi.mock('axios', () => ({
 }));
 
 import {
+  deriveSpotifyDeviceAuthRedirectUri,
   SPOTIFY_REQUIRED_SCOPES,
   SpotifyService,
 } from './spotify';
@@ -310,6 +311,12 @@ describe('SpotifyService', () => {
     expect(url.searchParams.get('redirect_uri')).toBe('http://127.0.0.1:3000/api/v1/spotify/callback');
     expect(url.searchParams.get('state')).toMatch(/^device\./);
     expect(url.searchParams.get('state')).toContain('device-1');
+  });
+
+  it('preserves the public jukebox prefix when deriving the device auth callback uri', () => {
+    expect(
+      deriveSpotifyDeviceAuthRedirectUri('https://radiotedu.com/jukebox/api/v1/spotify/callback')
+    ).toBe('https://radiotedu.com/jukebox/api/v1/spotify/device-auth/callback');
   });
 
   it('stores device-scoped spotify auth on callback using the device encoded in state', async () => {
