@@ -12,10 +12,12 @@ interface User {
     display_name: string;
     avatar_url?: string;
     rank_score: number;
+    monthly_rank_score?: number;
     role: string;
     is_guest: boolean;
     total_songs_added: number;
     total_upvotes_received: number;
+    last_super_vote_at?: string | null;
 }
 
 interface AuthContextType {
@@ -28,6 +30,20 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const normalizeUser = (user: Partial<User> & Record<string, any>): User => ({
+    id: String(user.id ?? ''),
+    email: String(user.email ?? ''),
+    display_name: String(user.display_name ?? ''),
+    avatar_url: user.avatar_url,
+    rank_score: Number(user.rank_score ?? 0),
+    monthly_rank_score: Number(user.monthly_rank_score ?? 0),
+    role: String(user.role ?? 'guest'),
+    is_guest: Boolean(user.is_guest),
+    total_songs_added: Number(user.total_songs_added ?? 0),
+    total_upvotes_received: Number(user.total_upvotes_received ?? 0),
+    last_super_vote_at: user.last_super_vote_at ?? null,
+});
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const [user, setUser] = useState<User | null>(null);
@@ -46,7 +62,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
                 // Fetch profile to verify token
                 const response = await axios.get(`${API_URL}/auth/me`);
-                setUser(response.data.data);
+                setUser(normalizeUser(response.data.data));
             }
         } catch (error) {
             console.log('[AuthContext] No valid session found');
@@ -65,7 +81,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             await AsyncStorage.setItem('refresh_token', refresh_token);
 
             axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-            setUser(userData);
+            setUser(normalizeUser(userData));
         } catch (error: any) {
             throw new Error(error.response?.data?.error || 'Login failed');
         }
@@ -84,7 +100,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             await AsyncStorage.setItem('refresh_token', refresh_token);
 
             axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-            setUser(userData);
+            setUser(normalizeUser(userData));
         } catch (error: any) {
             throw new Error(error.response?.data?.error || 'Registration failed');
         }
@@ -101,7 +117,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             await AsyncStorage.setItem('refresh_token', refresh_token);
 
             axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-            setUser(userData);
+            setUser(normalizeUser(userData));
         } catch (error: any) {
             throw new Error(error.response?.data?.error || 'Guest login failed');
         }

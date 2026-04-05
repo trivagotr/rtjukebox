@@ -8,6 +8,7 @@ import { upload } from '../middleware/upload';
 import { sendSuccess, sendError } from '../utils/response';
 import { ROLES } from '../middleware/rbac';
 import { normalizeText } from '../utils/textNormalization';
+import { getIstanbulYearMonth } from '../services/jukeboxScoring';
 
 const router = Router();
 
@@ -19,6 +20,20 @@ const registerSchema = z.object({
 
 export function normalizeDisplayNameInput(displayName: string): string {
     return normalizeText(displayName);
+}
+
+export function mapCurrentUserProfile(row: Record<string, unknown>) {
+    return {
+        id: row.id,
+        email: row.email,
+        display_name: row.display_name,
+        avatar_url: row.avatar_url ?? null,
+        rank_score: Number(row.rank_score ?? 0),
+        monthly_rank_score: Number(row.monthly_rank_score ?? 0),
+        total_songs_added: Number(row.total_songs_added ?? 0),
+        role: row.role,
+        last_super_vote_at: row.last_super_vote_at ?? null,
+    };
 }
 
 // Helper to generate and store tokens
@@ -202,22 +217,37 @@ router.post('/refresh', async (req: Request, res: Response) => {
     }
 });
 
-router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
+export async function handleCurrentUserProfileRequest(req: AuthRequest, res: Response) {
     try {
+        const currentYearMonth = getIstanbulYearMonth(new Date());
         const result = await db.query(
-            'SELECT id, email, display_name, avatar_url, rank_score, total_songs_added, role FROM users WHERE id = $1',
-            [req.user?.id]
+            `SELECT u.id,
+                    u.email,
+                    u.display_name,
+                    u.avatar_url,
+                    u.rank_score,
+                    u.total_songs_added,
+                    u.role,
+                    u.last_super_vote_at,
+                    COALESCE(ums.score, 0) AS monthly_rank_score
+             FROM users u
+             LEFT JOIN user_monthly_rank_scores ums
+               ON ums.user_id = u.id AND ums.year_month = $2
+             WHERE u.id = $1`,
+            [req.user?.id, currentYearMonth]
         );
 
         if (!result.rows[0]) {
             return sendError(res, 'User not found', 404);
         }
 
-        return sendSuccess(res, result.rows[0]);
+        return sendSuccess(res, mapCurrentUserProfile(result.rows[0] as Record<string, unknown>));
     } catch (error) {
         return sendError(res, 'Failed to fetch profile', 500);
     }
-});
+}
+
+router.get('/me', authMiddleware, handleCurrentUserProfileRequest);
 
 router.post('/upload-avatar', authMiddleware, upload.single('avatar'), async (req: AuthRequest, res: Response) => {
     try {

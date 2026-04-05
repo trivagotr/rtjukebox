@@ -21,9 +21,27 @@ import {
 } from 'lucide-react';
 import { AdminDashboard } from './AdminDashboard';
 import { buildQueueRequestPayload, getSearchResultKey, type CatalogSearchSong } from './jukeboxCatalog';
+import { buildGuestQueueHeaders } from './guestFingerprint';
+import {
+  getDisplayedSongScore,
+  hasSupervoteAvailableToday,
+  isSupervoteActive,
+  resolveDisplayedVote,
+} from './nowPlayingVotes';
+import { resolveWebRuntimeConfig } from './runtimeConfig';
 
-const API_URL = import.meta.env.VITE_API_URL ||
-  `${window.location.protocol}//${window.location.hostname}:3000`;
+const runtimeConfig = resolveWebRuntimeConfig({
+  windowOrigin: window.location.origin,
+  windowProtocol: window.location.protocol,
+  windowHostname: window.location.hostname,
+  isDev: import.meta.env.DEV,
+  baseUrl: import.meta.env.BASE_URL,
+  apiOriginOverride: import.meta.env.VITE_API_ORIGIN,
+});
+
+const API_URL = runtimeConfig.apiRoot;
+const SOCKET_URL = runtimeConfig.socketUrl;
+const SOCKET_PATH = runtimeConfig.socketPath;
 
 interface Song extends CatalogSearchSong {
   title: string;
@@ -35,6 +53,7 @@ interface AppUser {
   display_name: string;
   is_guest: boolean;
   total_songs_added: number;
+  monthly_rank_score?: number;
   role?: string;
   last_super_vote_at?: string;
 }
@@ -281,7 +300,7 @@ const LoginView = ({
   </div>
 );
 
-const LeaderboardView = ({ leaderboard, onClose }: any) => (
+const LeaderboardView = ({ leaderboard, period, onPeriodChange, onClose }: any) => (
   <div
     className="fixed inset-0 z-[250] flex items-center justify-center p-4 sm:p-6 backdrop-blur-2xl animate-fade"
     style={{ background: 'rgba(0,0,0,0.85)' }}
@@ -315,20 +334,39 @@ const LeaderboardView = ({ leaderboard, onClose }: any) => (
           </div>
           <div>
             <h2 className="text-2xl font-black tracking-tight">Siralama</h2>
-            <p className="text-xs text-text-muted font-bold uppercase tracking-[0.18em]">En Cok Katki Saglayanlar</p>
+            <p className="text-xs text-text-muted font-bold uppercase tracking-[0.18em]">
+              {period === 'monthly' ? 'Bu Ay En Cok Katki Saglayanlar' : 'Tum Zamanlar En Cok Katki Saglayanlar'}
+            </p>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          className="flex h-11 w-11 items-center justify-center rounded-2xl transition-all"
-          style={{
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid var(--border)',
-            color: 'var(--text-secondary)'
-          }}
-        >
-          X
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center rounded-2xl border border-white/10 bg-white/[0.03] p-1">
+            {['total', 'monthly'].map((value) => (
+              <button
+                key={value}
+                onClick={() => onPeriodChange(value)}
+                className="px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.16em] transition-all"
+                style={{
+                  background: period === value ? 'linear-gradient(135deg, rgba(227,30,38,0.22), rgba(243,106,7,0.22))' : 'transparent',
+                  color: period === value ? 'white' : 'var(--text-muted)',
+                }}
+              >
+                {value === 'monthly' ? 'Aylik' : 'Total'}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={onClose}
+            className="flex h-11 w-11 items-center justify-center rounded-2xl transition-all"
+            style={{
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid var(--border)',
+              color: 'var(--text-secondary)'
+            }}
+          >
+            X
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
@@ -395,7 +433,9 @@ const LeaderboardView = ({ leaderboard, onClose }: any) => (
                 </div>
               </div>
               <div className="shrink-0 text-right">
-                <div style={{ fontSize: '16px', fontWeight: 900, color: idx === 0 ? 'var(--orange)' : 'var(--primary)' }}>{u.rank_score}</div>
+                <div style={{ fontSize: '16px', fontWeight: 900, color: idx === 0 ? 'var(--orange)' : 'var(--primary)' }}>
+                  {u.score ?? u.monthly_rank_score ?? u.rank_score}
+                </div>
                 <div className="text-[10px] text-primary/50 font-bold uppercase tracking-[0.16em] leading-none">puan</div>
               </div>
             </div>
@@ -407,7 +447,7 @@ const LeaderboardView = ({ leaderboard, onClose }: any) => (
 );
 
 const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user }: any) => {
-  const currentVote = myVotes[item.id] !== undefined ? myVotes[item.id] : item.user_vote;
+  const currentVote = resolveDisplayedVote(item, myVotes);
 
   return (
     <div
@@ -435,7 +475,7 @@ const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user }: any) => {
           }}
         >
           <TrendingUp size={9} style={{ color: 'var(--orange)' }} />
-          <span style={{ fontSize: '10px', color: 'var(--orange)', fontWeight: 800 }}>{item.priority_score}</span>
+          <span style={{ fontSize: '10px', color: 'var(--orange)', fontWeight: 800 }}>{getDisplayedSongScore(item)}</span>
         </div>
         {/* Voting Controls */}
         <div className="flex items-center gap-1 mt-1">
@@ -446,7 +486,7 @@ const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user }: any) => {
           >
             <ArrowBigUp size={16} fill={currentVote === 1 ? "currentColor" : "none"} />
           </button>
-          <span className="text-[10px] font-bold text-text-muted min-w-[12px] text-center">{item.upvotes - item.downvotes}</span>
+          <span className="text-[10px] font-bold text-text-muted min-w-[12px] text-center">{getDisplayedSongScore(item)}</span>
           <button
             onClick={(e) => { e.stopPropagation(); handleVote(item.id, -1); }}
             className={`p-1 rounded-md transition-colors ${currentVote === -1 ? 'bg-rose-500/20 text-rose-500' : 'text-text-muted hover:bg-rose-500/20 hover:text-rose-500'}`}
@@ -459,11 +499,11 @@ const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user }: any) => {
           {!user?.is_guest && (
             <button
               onClick={(e) => { e.stopPropagation(); handleVote(item.id, 1, true); }}
-              disabled={user?.last_super_vote_at?.split('T')[0] === new Date().toISOString().split('T')[0]}
-              className={`p-1 rounded-md transition-all ${currentVote === 4 ? 'bg-amber-500/30 text-amber-500 scale-110' : 'text-text-muted hover:bg-amber-500/20 hover:text-amber-500 opacity-60 hover:opacity-100'}`}
-              title={user?.last_super_vote_at?.split('T')[0] === new Date().toISOString().split('T')[0] ? "Bugün süper oy hakkın bitti" : "Süper Upvote (+4)"}
+              disabled={!hasSupervoteAvailableToday(user?.last_super_vote_at)}
+              className={`p-1 rounded-md transition-all ${isSupervoteActive(currentVote) ? 'bg-amber-500/30 text-amber-500 scale-110' : 'text-text-muted hover:bg-amber-500/20 hover:text-amber-500 opacity-60 hover:opacity-100'}`}
+              title={!hasSupervoteAvailableToday(user?.last_super_vote_at) ? "Bugün süper oy hakkın bitti" : "Süper Oy (+3 şarkı / +2 rank)"}
             >
-              <Star size={14} fill={currentVote === 4 ? "currentColor" : "none"} />
+              <Star size={14} fill={isSupervoteActive(currentVote) ? "currentColor" : "none"} />
             </button>
           )}
         </div>
@@ -490,7 +530,11 @@ const JukeboxView = ({
   handleVote,
   onShowLeaderboard,
   myVotes
-}: any) => (
+}: any) => {
+  const nowPlayingCurrentVote = nowPlaying ? resolveDisplayedVote(nowPlaying, myVotes) : undefined;
+  const nowPlayingSongScore = nowPlaying ? getDisplayedSongScore(nowPlaying) : 0;
+
+  return (
   <div className="flex flex-col min-h-screen lg:flex-row w-full max-w-full">
     {/* Global Desktop Sidebar (Mobile Top) */}
     <div
@@ -720,6 +764,57 @@ const JukeboxView = ({
                   </div>
                   <span className="text-xs text-text-muted font-bold tracking-tight">İsteyen: <span className="text-white">{nowPlaying.added_by_name}</span></span>
                 </div>
+
+                <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+                  <div
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-full"
+                    style={{
+                      background: 'rgba(243,106,7,0.12)',
+                      border: '1px solid rgba(243,106,7,0.22)'
+                    }}
+                  >
+                    <TrendingUp size={11} style={{ color: 'var(--orange)' }} />
+                    <span className="text-[10px] font-black uppercase tracking-[0.16em]" style={{ color: 'var(--orange)' }}>
+                      {nowPlayingSongScore} puan
+                    </span>
+                  </div>
+
+                  <div
+                    className="flex items-center gap-1 rounded-full px-2 py-1.5"
+                    style={{
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid var(--border)'
+                    }}
+                  >
+                    <button
+                      onClick={() => handleVote(nowPlaying.id, 1)}
+                      className={`p-2 rounded-full transition-colors ${nowPlayingCurrentVote === 1 ? 'bg-emerald-500/20 text-emerald-500' : 'text-text-muted hover:bg-emerald-500/20 hover:text-emerald-500'}`}
+                      title="Upvote"
+                    >
+                      <ArrowBigUp size={18} fill={nowPlayingCurrentVote === 1 ? "currentColor" : "none"} />
+                    </button>
+                    <span className="min-w-[28px] text-center text-xs font-black text-text-muted">
+                      {nowPlayingSongScore}
+                    </span>
+                    <button
+                      onClick={() => handleVote(nowPlaying.id, -1)}
+                      className={`p-2 rounded-full transition-colors ${nowPlayingCurrentVote === -1 ? 'bg-rose-500/20 text-rose-500' : 'text-text-muted hover:bg-rose-500/20 hover:text-rose-500'}`}
+                      title="Downvote"
+                    >
+                      <ArrowBigDown size={18} fill={nowPlayingCurrentVote === -1 ? "currentColor" : "none"} />
+                    </button>
+                    {!user?.is_guest && (
+                      <button
+                        onClick={() => handleVote(nowPlaying.id, 1, true)}
+                        disabled={!hasSupervoteAvailableToday(user?.last_super_vote_at)}
+                        className={`p-2 rounded-full transition-all ${isSupervoteActive(nowPlayingCurrentVote) ? 'bg-amber-500/30 text-amber-500 scale-110' : 'text-text-muted hover:bg-amber-500/20 hover:text-amber-500 opacity-70 hover:opacity-100'} ${!hasSupervoteAvailableToday(user?.last_super_vote_at) ? 'cursor-not-allowed opacity-40' : ''}`}
+                        title={!hasSupervoteAvailableToday(user?.last_super_vote_at) ? "Bugün süper oy hakkın bitti" : "Süper Oy (+3 şarkı / +2 rank)"}
+                      >
+                        <Star size={16} fill={isSupervoteActive(nowPlayingCurrentVote) ? "currentColor" : "none"} />
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
@@ -790,7 +885,8 @@ const JukeboxView = ({
       )}
     </div>
   </div>
-);
+  );
+};
 
 function App() {
   const [deviceCode, setDeviceCode] = useState('');
@@ -870,21 +966,43 @@ function App() {
   }, []);
 
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [leaderboardPeriod, setLeaderboardPeriod] = useState<'total' | 'monthly'>('total');
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const leaderboardRequestSeqRef = useRef(0);
+  const leaderboardPeriodRef = useRef<'total' | 'monthly'>('total');
+
+  useEffect(() => {
+    leaderboardPeriodRef.current = leaderboardPeriod;
+  }, [leaderboardPeriod]);
 
   // Expose toggle to sub-components via window for simplicity (not ideal but works here)
   useEffect(() => {
     (window as any).toggleLeaderboard = () => {
-      fetchLeaderboard();
+      fetchLeaderboard(leaderboardPeriodRef.current);
       setShowLeaderboard(true);
     };
   }, []);
 
-  const fetchLeaderboard = async () => {
+  const fetchLeaderboard = async (period: 'total' | 'monthly' = leaderboardPeriod) => {
+    const requestSeq = leaderboardRequestSeqRef.current + 1;
+    leaderboardRequestSeqRef.current = requestSeq;
+    setLeaderboardPeriod(period);
+
     try {
-      const res = await axios.get(`${API_URL}/api/v1/users/leaderboard`);
+      const res = await axios.get(`${API_URL}/api/v1/users/leaderboard`, {
+        params: { period }
+      });
+
+      if (leaderboardRequestSeqRef.current !== requestSeq) {
+        return;
+      }
+
       setLeaderboard(res.data.data.leaderboard || []);
     } catch (err) {
+      if (leaderboardRequestSeqRef.current !== requestSeq) {
+        return;
+      }
+
       console.error('Leaderboard fetch failed:', err);
     }
   };
@@ -929,8 +1047,9 @@ function App() {
     if (!device) return;
 
     if (!socket) {
-      console.log('🚀 Initializing socket connection to:', API_URL);
-      const newSocket = io(API_URL, {
+      console.log('🚀 Initializing socket connection to:', SOCKET_URL, SOCKET_PATH);
+      const newSocket = io(SOCKET_URL, {
+        path: SOCKET_PATH,
         reconnectionAttempts: 10,
         reconnectionDelay: 2000,
         transports: ['websocket', 'polling']
@@ -1222,7 +1341,12 @@ function App() {
       const payload = buildQueueRequestPayload(device.id, song);
       await axios.post(`${API_URL}/api/v1/jukebox/queue`,
         payload,
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token')}`,
+            ...buildGuestQueueHeaders(Boolean(user.is_guest))
+          }
+        }
       );
       setMsg({ type: 'success', text: 'Şarkı kuyruğa eklendi!' });
       setSearch('');
@@ -1234,7 +1358,7 @@ function App() {
     } catch (err: any) {
       const resp = err.response?.data;
       if (resp?.code === 'GUEST_LIMIT_REACHED') {
-        setMsg({ type: 'error', text: 'Misafir limitin doldu! Daha fazla şarkı için giriş yapmalısın.' });
+        setMsg({ type: 'error', text: 'Misafir limitin doldu. Giris yap veya uye ol; sinirsiz sarki ekleyebilirsin.' });
         setShowLoginModal(true);
       } else {
         setMsg({ type: 'error', text: resp?.message || 'Şarkı eklenemedi.' });
@@ -1302,6 +1426,10 @@ function App() {
         {showLeaderboard && (
           <LeaderboardView
             leaderboard={leaderboard}
+            period={leaderboardPeriod}
+            onPeriodChange={(period: 'total' | 'monthly') => {
+              fetchLeaderboard(period);
+            }}
             onClose={() => setShowLeaderboard(false)}
           />
         )}

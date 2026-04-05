@@ -18,6 +18,7 @@ async function applySchemaSql(client, schemaSql) {
     await client.query('BEGIN');
 
     try {
+        // The bootstrap schema is intentionally idempotent and owns all table creation.
         await client.query(schemaSql);
         await client.query('COMMIT');
     } catch (error) {

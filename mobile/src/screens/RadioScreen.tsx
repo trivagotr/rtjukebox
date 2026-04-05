@@ -10,7 +10,6 @@ import {
   ImageBackground,
   LayoutAnimation,
   Platform,
-  UIManager,
   useWindowDimensions,
   ScrollView,
   Modal,
@@ -71,14 +70,6 @@ const RadioScreen = () => {
   const isBuffering =
     (state === State.Buffering || state === State.Loading) &&
     currentPlayingId === selectedChannel.id;
-
-  useEffect(() => {
-    if (Platform.OS === 'android') {
-      if (UIManager.setLayoutAnimationEnabledExperimental) {
-        UIManager.setLayoutAnimationEnabledExperimental(true);
-      }
-    }
-  }, []);
 
   useEffect(() => {
     if (
