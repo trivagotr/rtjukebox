@@ -134,6 +134,23 @@ export function buildQueueVoteScoreUpdate(params: {
     };
 }
 
+export function buildQueueVoteSkipDecision(params: {
+    status?: string | null;
+    songScore: number;
+}) {
+    if (params.songScore > -5) {
+        return null;
+    }
+
+    const isPlaying = params.status === 'playing';
+    return {
+        skipped: true as const,
+        clearCurrentSong: isPlaying,
+        emitSongRejected: !isPlaying,
+        emitSongSkipped: isPlaying,
+    };
+}
+
 export async function applyRequesterVoteRankDelta(params: {
     dbClient: Pick<typeof db, 'query'>;
     requesterId: string;
@@ -2381,35 +2398,53 @@ router.post('/vote', authMiddleware, checkDeviceSession, async (req: Request, re
             requesterRankDelta: voteScoreUpdate.requesterRankDelta,
         });
 
-        const SKIP_THRESHOLD = 3;
-        if (downvotes >= SKIP_THRESHOLD && downvotes > upvotes + 1) {
-            await db.query("UPDATE queue_items SET status = 'skipped' WHERE id = $1", [targetQueueId]);
-            getIO()?.to(`device:${queueItem.device_id}`).emit('song_rejected');
+        const nextSongScore = upvotes - downvotes;
+        const skipDecision = buildQueueVoteSkipDecision({
+            status: queueItem.status,
+            songScore: nextSongScore,
+        });
+
+        if (skipDecision) {
+            await db.query(
+                `UPDATE queue_items
+                 SET status = 'skipped',
+                     priority_score = $1,
+                     upvotes = $2,
+                     downvotes = $3
+                 WHERE id = $4`,
+                [nextSongScore, upvotes, downvotes, targetQueueId]
+            );
+
+            if (skipDecision.clearCurrentSong) {
+                await db.query('UPDATE devices SET current_song_id = NULL WHERE id = $1', [queueItem.device_id]);
+            }
+
+            const io = getIO();
+            if (skipDecision.emitSongRejected) {
+                io?.to(`device:${queueItem.device_id}`).emit('song_rejected');
+            }
+            if (skipDecision.emitSongSkipped) {
+                io?.to(`device:${queueItem.device_id}`).emit('song_skipped');
+            }
+            io?.to(`device:${queueItem.device_id}`).emit('queue_updated', await getQueueForDevice(queueItem.device_id));
+
             return sendSuccess(
                 res,
                 {
                     skipped: true,
                     upvotes,
                     downvotes,
-                    song_score: upvotes - downvotes,
+                    song_score: nextSongScore,
                     user_vote: voteScoreUpdate.storedVoteValue,
                 },
-                'Song rejected by community vote'
+                'Song skipped by score threshold'
             );
         }
 
-        const nextSongScore = upvotes - downvotes;
-        if (queueItem.status === 'pending') {
-            await db.query(
-                'UPDATE queue_items SET priority_score = $1, upvotes = $2, downvotes = $3 WHERE id = $4',
-                [nextSongScore, upvotes, downvotes, targetQueueId]
-            );
-        } else {
-            await db.query(
-                'UPDATE queue_items SET upvotes = $1, downvotes = $2 WHERE id = $3',
-                [upvotes, downvotes, targetQueueId]
-            );
-        }
+        await db.query(
+            'UPDATE queue_items SET priority_score = $1, upvotes = $2, downvotes = $3 WHERE id = $4',
+            [nextSongScore, upvotes, downvotes, targetQueueId]
+        );
 
         getIO()?.to(`device:${queueItem.device_id}`).emit('queue_updated', await getQueueForDevice(queueItem.device_id));
         return sendSuccess(

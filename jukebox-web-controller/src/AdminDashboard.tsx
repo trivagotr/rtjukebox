@@ -31,9 +31,16 @@ import {
     type SpotifyDeviceAuthStatusApiResponse,
     type SpotifyDeviceAuthStatusView
 } from './adminSpotifyConfig';
+import { resolveWebRuntimeConfig } from './runtimeConfig';
 
-const API_URL = import.meta.env.VITE_API_URL ||
-    `${window.location.protocol}//${window.location.hostname}:3000`;
+const API_URL = resolveWebRuntimeConfig({
+    windowOrigin: window.location.origin,
+    windowProtocol: window.location.protocol,
+    windowHostname: window.location.hostname,
+    isDev: import.meta.env.DEV,
+    baseUrl: import.meta.env.BASE_URL,
+    apiOriginOverride: import.meta.env.VITE_API_ORIGIN,
+}).apiRoot;
 
 interface Device {
     id: string;

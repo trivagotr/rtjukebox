@@ -22,9 +22,26 @@ import {
 import { AdminDashboard } from './AdminDashboard';
 import { buildQueueRequestPayload, getSearchResultKey, type CatalogSearchSong } from './jukeboxCatalog';
 import { buildGuestQueueHeaders } from './guestFingerprint';
+import {
+  getDisplayedSongScore,
+  hasSupervoteAvailableToday,
+  isSupervoteActive,
+  resolveDisplayedVote,
+} from './nowPlayingVotes';
+import { resolveWebRuntimeConfig } from './runtimeConfig';
 
-const API_URL = import.meta.env.VITE_API_URL ||
-  `${window.location.protocol}//${window.location.hostname}:3000`;
+const runtimeConfig = resolveWebRuntimeConfig({
+  windowOrigin: window.location.origin,
+  windowProtocol: window.location.protocol,
+  windowHostname: window.location.hostname,
+  isDev: import.meta.env.DEV,
+  baseUrl: import.meta.env.BASE_URL,
+  apiOriginOverride: import.meta.env.VITE_API_ORIGIN,
+});
+
+const API_URL = runtimeConfig.apiRoot;
+const SOCKET_URL = runtimeConfig.socketUrl;
+const SOCKET_PATH = runtimeConfig.socketPath;
 
 interface Song extends CatalogSearchSong {
   title: string;
@@ -48,30 +65,6 @@ const formatTime = (seconds: number) => {
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
-
-const getIstanbulDayKey = (value: string | Date) => {
-  const date = value instanceof Date ? value : new Date(value);
-  const parts = new Intl.DateTimeFormat('en', {
-    timeZone: 'Europe/Istanbul',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date);
-
-  const year = parts.find((part) => part.type === 'year')?.value ?? '0000';
-  const month = parts.find((part) => part.type === 'month')?.value ?? '01';
-  const day = parts.find((part) => part.type === 'day')?.value ?? '01';
-  return `${year}-${month}-${day}`;
-};
-
-const hasSupervoteAvailableToday = (lastSuperVoteAt?: string) =>
-  !lastSuperVoteAt || getIstanbulDayKey(lastSuperVoteAt) !== getIstanbulDayKey(new Date());
-
-const getQueueItemSongScore = (item: any) =>
-  item.song_score ?? item.priority_score ?? 0;
-
-const isSupervoteActive = (vote: number | undefined) =>
-  vote === 3 || vote === 4;
 
 // --- Components ---
 
@@ -454,7 +447,7 @@ const LeaderboardView = ({ leaderboard, period, onPeriodChange, onClose }: any) 
 );
 
 const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user }: any) => {
-  const currentVote = myVotes[item.id] !== undefined ? myVotes[item.id] : item.user_vote;
+  const currentVote = resolveDisplayedVote(item, myVotes);
 
   return (
     <div
@@ -482,7 +475,7 @@ const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user }: any) => {
           }}
         >
           <TrendingUp size={9} style={{ color: 'var(--orange)' }} />
-          <span style={{ fontSize: '10px', color: 'var(--orange)', fontWeight: 800 }}>{getQueueItemSongScore(item)}</span>
+          <span style={{ fontSize: '10px', color: 'var(--orange)', fontWeight: 800 }}>{getDisplayedSongScore(item)}</span>
         </div>
         {/* Voting Controls */}
         <div className="flex items-center gap-1 mt-1">
@@ -493,7 +486,7 @@ const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user }: any) => {
           >
             <ArrowBigUp size={16} fill={currentVote === 1 ? "currentColor" : "none"} />
           </button>
-          <span className="text-[10px] font-bold text-text-muted min-w-[12px] text-center">{getQueueItemSongScore(item)}</span>
+          <span className="text-[10px] font-bold text-text-muted min-w-[12px] text-center">{getDisplayedSongScore(item)}</span>
           <button
             onClick={(e) => { e.stopPropagation(); handleVote(item.id, -1); }}
             className={`p-1 rounded-md transition-colors ${currentVote === -1 ? 'bg-rose-500/20 text-rose-500' : 'text-text-muted hover:bg-rose-500/20 hover:text-rose-500'}`}
@@ -537,7 +530,11 @@ const JukeboxView = ({
   handleVote,
   onShowLeaderboard,
   myVotes
-}: any) => (
+}: any) => {
+  const nowPlayingCurrentVote = nowPlaying ? resolveDisplayedVote(nowPlaying, myVotes) : undefined;
+  const nowPlayingSongScore = nowPlaying ? getDisplayedSongScore(nowPlaying) : 0;
+
+  return (
   <div className="flex flex-col min-h-screen lg:flex-row w-full max-w-full">
     {/* Global Desktop Sidebar (Mobile Top) */}
     <div
@@ -767,6 +764,57 @@ const JukeboxView = ({
                   </div>
                   <span className="text-xs text-text-muted font-bold tracking-tight">İsteyen: <span className="text-white">{nowPlaying.added_by_name}</span></span>
                 </div>
+
+                <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+                  <div
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-full"
+                    style={{
+                      background: 'rgba(243,106,7,0.12)',
+                      border: '1px solid rgba(243,106,7,0.22)'
+                    }}
+                  >
+                    <TrendingUp size={11} style={{ color: 'var(--orange)' }} />
+                    <span className="text-[10px] font-black uppercase tracking-[0.16em]" style={{ color: 'var(--orange)' }}>
+                      {nowPlayingSongScore} puan
+                    </span>
+                  </div>
+
+                  <div
+                    className="flex items-center gap-1 rounded-full px-2 py-1.5"
+                    style={{
+                      background: 'rgba(255,255,255,0.04)',
+                      border: '1px solid var(--border)'
+                    }}
+                  >
+                    <button
+                      onClick={() => handleVote(nowPlaying.id, 1)}
+                      className={`p-2 rounded-full transition-colors ${nowPlayingCurrentVote === 1 ? 'bg-emerald-500/20 text-emerald-500' : 'text-text-muted hover:bg-emerald-500/20 hover:text-emerald-500'}`}
+                      title="Upvote"
+                    >
+                      <ArrowBigUp size={18} fill={nowPlayingCurrentVote === 1 ? "currentColor" : "none"} />
+                    </button>
+                    <span className="min-w-[28px] text-center text-xs font-black text-text-muted">
+                      {nowPlayingSongScore}
+                    </span>
+                    <button
+                      onClick={() => handleVote(nowPlaying.id, -1)}
+                      className={`p-2 rounded-full transition-colors ${nowPlayingCurrentVote === -1 ? 'bg-rose-500/20 text-rose-500' : 'text-text-muted hover:bg-rose-500/20 hover:text-rose-500'}`}
+                      title="Downvote"
+                    >
+                      <ArrowBigDown size={18} fill={nowPlayingCurrentVote === -1 ? "currentColor" : "none"} />
+                    </button>
+                    {!user?.is_guest && (
+                      <button
+                        onClick={() => handleVote(nowPlaying.id, 1, true)}
+                        disabled={!hasSupervoteAvailableToday(user?.last_super_vote_at)}
+                        className={`p-2 rounded-full transition-all ${isSupervoteActive(nowPlayingCurrentVote) ? 'bg-amber-500/30 text-amber-500 scale-110' : 'text-text-muted hover:bg-amber-500/20 hover:text-amber-500 opacity-70 hover:opacity-100'} ${!hasSupervoteAvailableToday(user?.last_super_vote_at) ? 'cursor-not-allowed opacity-40' : ''}`}
+                        title={!hasSupervoteAvailableToday(user?.last_super_vote_at) ? "Bugün süper oy hakkın bitti" : "Süper Oy (+3 şarkı / +2 rank)"}
+                      >
+                        <Star size={16} fill={isSupervoteActive(nowPlayingCurrentVote) ? "currentColor" : "none"} />
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
@@ -837,7 +885,8 @@ const JukeboxView = ({
       )}
     </div>
   </div>
-);
+  );
+};
 
 function App() {
   const [deviceCode, setDeviceCode] = useState('');
@@ -998,8 +1047,9 @@ function App() {
     if (!device) return;
 
     if (!socket) {
-      console.log('🚀 Initializing socket connection to:', API_URL);
-      const newSocket = io(API_URL, {
+      console.log('🚀 Initializing socket connection to:', SOCKET_URL, SOCKET_PATH);
+      const newSocket = io(SOCKET_URL, {
+        path: SOCKET_PATH,
         reconnectionAttempts: 10,
         reconnectionDelay: 2000,
         transports: ['websocket', 'polling']

@@ -21,7 +21,12 @@ import io from 'socket.io-client';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import { buildGuestQueueHeaders } from '../../services/guestFingerprint';
-import { STORAGE_API } from '../../services/config';
+import { SOCKET_ORIGIN, SOCKET_PATH, STORAGE_API } from '../../services/config';
+import {
+  buildQueueSongSelectionPayload,
+  canUseSupervoteToday,
+  getCatalogSongKey,
+} from '../../services/jukeboxContract';
 import GlobalHeader from '../../components/GlobalHeader';
 import PageTransition from '../../components/PageTransition';
 
@@ -48,7 +53,17 @@ const JukeboxScreen = ({ route }: any) => {
   const [showGuestModal, setShowGuestModal] = useState(false);
   const [guestName, setGuestName] = useState('');
   const [pendingSong, setPendingSong] = useState<any>(null);
-  const canSupervote = Boolean(user && !user.is_guest);
+  const [lastSupervoteAtOverride, setLastSupervoteAtOverride] = useState<string | null>(null);
+  const canSupervote = Boolean(
+    user && canUseSupervoteToday({
+      isGuest: Boolean(user.is_guest),
+      lastSuperVoteAt: lastSupervoteAtOverride ?? user.last_super_vote_at ?? null,
+    })
+  );
+
+  useEffect(() => {
+    setLastSupervoteAtOverride(user?.last_super_vote_at ?? null);
+  }, [user?.id, user?.last_super_vote_at]);
 
 
   // Fetch available devices on mount
@@ -106,10 +121,10 @@ const JukeboxScreen = ({ route }: any) => {
   useEffect(() => {
     if (!device) return;
 
-    const socket = io(api.defaults.baseURL?.split('/api/v1')[0] || '', {
-      path: "/socket.io",
+    const socket = io(SOCKET_ORIGIN, {
+      path: SOCKET_PATH,
       transports: ["websocket", "polling"],
-      secure: true,
+      secure: SOCKET_ORIGIN.startsWith('https://'),
       forceNew: true,
       reconnectionAttempts: 10
     });
@@ -165,7 +180,7 @@ const JukeboxScreen = ({ route }: any) => {
     }
 
     if (user) {
-      return addSongToQueue(song.id);
+      return addSongToQueue(song);
     }
 
     setPendingSong(song);
@@ -185,7 +200,7 @@ const JukeboxScreen = ({ route }: any) => {
       setGuestName('');
 
       if (pendingSong) {
-        await addSongToQueue(pendingSong.id, true);
+        await addSongToQueue(pendingSong, true);
         setPendingSong(null);
       }
     } catch (error: any) {
@@ -195,13 +210,14 @@ const JukeboxScreen = ({ route }: any) => {
     }
   };
 
-  const addSongToQueue = async (songId: string, isGuestRequest = Boolean(user?.is_guest)) => {
+  const addSongToQueue = async (song: any, isGuestRequest = Boolean(user?.is_guest)) => {
     try {
       setIsLoading(true);
       const headers = await buildGuestQueueHeaders(isGuestRequest);
+      const songSelectionPayload = buildQueueSongSelectionPayload(song);
       await api.post('/jukebox/queue', {
         device_id: device.id,
-        song_id: songId
+        ...songSelectionPayload,
       }, { headers });
       Alert.alert('Basarili', 'Sarki kuyruga eklendi.');
       setSearch('');
@@ -231,13 +247,19 @@ const JukeboxScreen = ({ route }: any) => {
     if (isSuper && user?.is_guest) return;
     try {
       await api.post('/jukebox/vote', {
-        queue_item_id: item.id.startsWith('autoplay') ? null : item.id,
+        queue_item_id: typeof item.id === 'string' && item.id.startsWith('autoplay') ? null : item.id,
         song_id: item.song_id,
         vote: voteType,
         device_id: device.id,
         is_super: isSuper,
       });
+      if (isSuper) {
+        setLastSupervoteAtOverride(new Date().toISOString());
+      }
     } catch (error: any) {
+      if (error.response?.data?.code === 'SUPER_VOTE_COOLDOWN') {
+        setLastSupervoteAtOverride(new Date().toISOString());
+      }
       Alert.alert('Hata', error.response?.data?.error || 'Oy verilemedi.');
     }
   };
@@ -506,7 +528,7 @@ const JukeboxScreen = ({ route }: any) => {
             <Text style={styles.sectionTitle}>Sonuçlar</Text>
             <FlatList
               data={searchResults}
-              keyExtractor={item => item.id}
+              keyExtractor={item => getCatalogSongKey(item)}
               renderItem={renderSearchResult}
             />
           </View>

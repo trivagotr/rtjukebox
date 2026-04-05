@@ -3,6 +3,7 @@ import path from 'path';
 import { describe, expect, it, vi } from 'vitest';
 import {
     applyRequesterVoteRankDelta,
+    buildQueueVoteSkipDecision,
     buildQueueVoteScoreUpdate,
     canUseDailySupervote,
     getStoredVoteValue,
@@ -72,6 +73,41 @@ describe('jukebox vote scoring contract', () => {
             })
         ).toEqual({
             allowed: true,
+        });
+    });
+
+    it('skips pending queue items once the visible song score reaches -5', () => {
+        expect(
+            buildQueueVoteSkipDecision({
+                status: 'pending',
+                songScore: -4,
+            })
+        ).toBeNull();
+
+        expect(
+            buildQueueVoteSkipDecision({
+                status: 'pending',
+                songScore: -5,
+            })
+        ).toEqual({
+            skipped: true,
+            clearCurrentSong: false,
+            emitSongRejected: true,
+            emitSongSkipped: false,
+        });
+    });
+
+    it('treats playing queue items at -5 as immediate skips that clear device playback state', () => {
+        expect(
+            buildQueueVoteSkipDecision({
+                status: 'playing',
+                songScore: -5,
+            })
+        ).toEqual({
+            skipped: true,
+            clearCurrentSong: true,
+            emitSongRejected: false,
+            emitSongSkipped: true,
         });
     });
 

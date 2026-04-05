@@ -14,7 +14,7 @@ import SplashScreen from './src/screens/SplashScreen';
 import { RADIO_CHANNELS } from './src/data/radioChannels';
 
 const linking: any = {
-  prefixes: ['radiotedu://', 'https://radiotedu.com'],
+  prefixes: ['radiotedu://', 'https://radiotedu.com', 'https://radiotedu.com/jukebox'],
   config: {
     screens: {
       MainTabs: {
