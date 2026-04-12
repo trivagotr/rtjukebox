@@ -79,14 +79,15 @@ Phone remains the full surface:
 Vehicle surfaces expose only:
 
 - `Radyolar`
-- `Podcastler`
+- `Son Bölümler`
 
 Behavior:
 
 - selecting a radio starts live stream playback on the phone
-- selecting a podcast episode starts podcast playback on the phone
+- selecting a podcast episode starts podcast playback on the phone immediately
 - transport controls stay synced with the phone app
 - no jukebox tab, vote UI, ranking UI, or queue controls appear
+- if there are no directly playable podcast episodes, podcast is hidden from the vehicle surface entirely
 
 ### Wearable Companion
 
@@ -144,7 +145,7 @@ CarPlay should be implemented as a media-only surface, not a general app shell.
 Phase 1 CarPlay content tree:
 
 - `Radyolar`
-- `Podcastler`
+- `Son Bölümler` only when directly playable podcast episodes are available
 
 Important constraint:
 
@@ -161,7 +162,7 @@ Android already has the start of a media browsing bridge. That should be replace
 
 Phase 1 Android Auto:
 
-- root menu exposes `Radyolar` and `Podcastler`
+- root menu exposes `Radyolar` and `Son Bölümler`
 - playable media items resolve back into the shared playback controller
 - current playing metadata and state stay in sync with TrackPlayer
 
@@ -179,8 +180,21 @@ For phase 1:
 - RSS-backed podcast episodes should play directly in-app when `audioUrl` exists
 - web-scraped podcast entries should resolve to a playable URL or remain phone-only fallback if no direct media URL exists
 - vehicle surfaces should only expose episodes that can actually be played through the shared playback domain
+- vehicle surfaces should use a flat `Son Bölümler` list, not show/category drilldown
+- if no playable episodes remain after filtering, the podcast section should disappear from vehicle surfaces completely
 
 This keeps CarPlay and Android Auto behavior predictable and avoids dead-end podcast entries in the car.
+
+## Vehicle Playback Expectations
+
+Vehicle surfaces should behave like mainstream audio apps:
+
+- tapping a radio item starts playback immediately
+- tapping a playable podcast episode starts playback immediately
+- playback still happens on the phone through the shared `TrackPlayer` session
+- `play/pause/next/previous` from the vehicle surface must execute directly against the shared playback controller, not just deep-link back into the app
+
+This means the remaining implementation work is not just catalog rendering. The selection-to-playback chain must be fully wired for both Android Auto and CarPlay.
 
 ## Wearable Companion Strategy
 
@@ -250,6 +264,7 @@ This matters because “podcast exists in phone UI” is not the same as “podc
 1. Shared playback domain extraction for radio + podcast
 2. Android Auto + iOS lock screen/background parity
 3. CarPlay media browsing
-4. Wearable companion state + transport controls
+4. Vehicle playback dispatch and playable-podcast filtering
+5. Wearable companion state + transport controls
 
 This ordering gives a usable result early and keeps the riskiest platform integrations isolated behind a stable shared playback core.
