@@ -8,6 +8,7 @@ import rateLimit from 'express-rate-limit';
 import path from 'path';
 import authRoutes from './routes/auth';
 import podcastRoutes from './routes/podcasts';
+import podcastFeedRoutes from './routes/podcastFeeds';
 import radioRoutes from './routes/radio';
 import jukeboxRoutes from './routes/jukebox';
 import radioProfilesRoutes from './routes/radioProfiles';
@@ -82,6 +83,7 @@ mountWithOptionalPublicBase('/uploads', express.static(path.join(__dirname, '../
 // Routes
 mountWithOptionalPublicBase('/api/v1/auth', authRoutes);
 mountWithOptionalPublicBase('/api/v1/podcasts', podcastRoutes);
+mountWithOptionalPublicBase('/api/v1/podcast-feeds', podcastFeedRoutes);
 mountWithOptionalPublicBase('/api/v1/radio', radioRoutes);
 mountWithOptionalPublicBase('/api/v1/radio-profiles', radioProfilesRoutes);
 

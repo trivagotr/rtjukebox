@@ -1,44 +1,106 @@
 import { Router, Request, Response } from 'express';
-import axios from 'axios';
-import { sendSuccess, sendError } from '../utils/response';
+import { db } from '../db';
+import { sendError, sendSuccess } from '../utils/response';
 
 const router = Router();
-const WP_API_URL = process.env.WORDPRESS_API_URL || 'https://radiotedu.com/wp-json/wp/v2';
-const PODCAST_CATEGORY_ID = process.env.PODCAST_CATEGORY_ID;
 
-// Proxy to WordPress REST API
+function getFirstString(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (Array.isArray(value) && typeof value[0] === 'string') {
+    return value[0];
+  }
+
+  return undefined;
+}
+
+function parseClampedInteger(value: unknown, fallback: number, min: number, max: number) {
+  const raw = getFirstString(value);
+  if (raw === undefined) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function stripHtml(value: unknown): string {
+  return String(value ?? '').replace(/<[^>]*>?/gm, '').trim();
+}
+
+export function normalizePodcastListQuery(input: {
+  page?: unknown;
+  per_page?: unknown;
+}) {
+  const page = parseClampedInteger(input.page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const perPage = parseClampedInteger(input.per_page, 10, 1, 50);
+
+  return {
+    page,
+    perPage,
+  };
+}
+
 router.get('/', async (req: Request, res: Response) => {
-    try {
-        const { page = 1, per_page = 10 } = req.query;
+  try {
+    const { page, perPage } = normalizePodcastListQuery(req.query);
+    const offset = (page - 1) * perPage;
 
-        const response = await axios.get(`${WP_API_URL}/posts`, {
-            params: {
-                categories: PODCAST_CATEGORY_ID,
-                page,
-                per_page,
-                _embed: 1, // To get featured image
-            }
-        });
+    const totalResult = await db.query(
+      `SELECT COUNT(*)::int AS total
+       FROM podcast_episodes pe
+       INNER JOIN podcast_feeds pf ON pf.id = pe.feed_id
+       WHERE pf.is_active = true`,
+    );
 
-        const items = response.data.map((post: any) => ({
-            id: post.id,
-            title: post.title.rendered,
-            excerpt: post.excerpt.rendered.replace(/<[^>]*>?/gm, ''),
-            featured_image: post._embedded?.['wp:featuredmedia']?.[0]?.source_url,
-            audio_url: post.meta?._podcast_audio_url || null,
-            external_url: post.meta?._podcast_external_url || post.link,
-            published_at: post.date
-        }));
+    const episodesResult = await db.query(
+      `SELECT
+         pe.id,
+         pe.title,
+         pe.description,
+         pe.audio_url,
+         pe.episode_url,
+         pe.image_url,
+         pe.published_at,
+         pf.title AS feed_title
+       FROM podcast_episodes pe
+       INNER JOIN podcast_feeds pf ON pf.id = pe.feed_id
+       WHERE pf.is_active = true
+       ORDER BY pe.published_at DESC NULLS LAST, pe.created_at DESC
+       LIMIT $1 OFFSET $2`,
+      [perPage, offset],
+    );
 
-        return sendSuccess(res, {
-            items,
-            total: parseInt(response.headers['x-wp-total'] || '0'),
-            total_pages: parseInt(response.headers['x-wp-totalpages'] || '0')
-        });
-    } catch (error) {
-        console.error('WordPress API Error:', error);
-        return sendError(res, 'Failed to fetch podcasts', 500);
-    }
+    const total = Number(totalResult.rows[0]?.total ?? 0);
+    const items = episodesResult.rows.map((row: any) => ({
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      excerpt: stripHtml(row.description),
+      audio_url: row.audio_url,
+      episode_url: row.episode_url,
+      external_url: row.external_url ?? row.episode_url ?? row.audio_url ?? null,
+      featured_image: row.image_url ?? null,
+      image_url: row.image_url ?? null,
+      published_at: row.published_at,
+      feed_title: row.feed_title,
+    }));
+
+    return sendSuccess(res, {
+      items,
+      total,
+      total_pages: total === 0 ? 0 : Math.ceil(total / perPage),
+    });
+  } catch (error) {
+    console.error('Podcast list error:', error);
+    return sendError(res, 'Failed to fetch podcasts', 500);
+  }
 });
 
 export default router;

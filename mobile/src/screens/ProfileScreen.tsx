@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,83 +8,159 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
-  Dimensions,
   Platform,
   ActivityIndicator,
-  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { COLORS, SPACING } from '../theme/theme';
-import { addRssFeed, getStoredRssFeeds, removeRssFeed } from '../utils/storage';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { launchImageLibrary } from 'react-native-image-picker';
 import axios from 'axios';
 import { BASE_API, STORAGE_API } from '../services/config';
+import {
+  createPodcastFeed,
+  deletePodcastFeed,
+  hasDuplicatePodcastFeedUrl,
+  hasDuplicatePodcastFeedUrlOnServer,
+  listPodcastFeeds,
+  syncPodcastFeeds,
+  type PodcastFeedRow,
+} from '../services/podcastFeedsAdmin';
 
 const ProfileScreen = () => {
-  const { width } = useWindowDimensions();
   const navigation = useNavigation<any>();
   const { user, logout } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
   const [showAdminTab, setShowAdminTab] = useState(false);
-  const [rssUrl, setRssUrl] = useState('');
-  const [savedFeeds, setSavedFeeds] = useState<string[]>([]);
+  const [feedTitle, setFeedTitle] = useState('');
+  const [feedUrl, setFeedUrl] = useState('');
+  const [savedFeeds, setSavedFeeds] = useState<PodcastFeedRow[]>([]);
+  const [isLoadingFeeds, setIsLoadingFeeds] = useState(false);
+  const [isSavingFeed, setIsSavingFeed] = useState(false);
+  const [isSyncingFeeds, setIsSyncingFeeds] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [localAvatar, setLocalAvatar] = useState<string | null>(null);
 
-  // Use centralized API address
   const BASE_API_LOCAL = BASE_API;
   const STORAGE_API_LOCAL = STORAGE_API;
 
-  useEffect(() => {
-    loadFeeds();
-  }, []);
-
-  const loadFeeds = async () => {
-    try {
-      const feeds = await getStoredRssFeeds();
-      setSavedFeeds(feeds);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleAddRss = async () => {
-    if (!rssUrl.trim()) return;
-
-    if (!rssUrl.startsWith('http')) {
-      Alert.alert('Hata', 'Geçerli bir URL giriniz.');
+  const loadFeeds = useCallback(async () => {
+    if (!isAdmin) {
+      setSavedFeeds([]);
       return;
     }
 
-    const success = await addRssFeed(rssUrl.trim());
-    if (success) {
-      Alert.alert('Başarılı', 'RSS kaynağı eklendi.');
-      setRssUrl('');
+    setIsLoadingFeeds(true);
+    try {
+      const feeds = await listPodcastFeeds();
+      setSavedFeeds(feeds);
+    } catch (error) {
+      console.error('Failed to load podcast feeds:', error);
+      Alert.alert('Error', 'Podcast feeds could not be loaded.');
+    } finally {
+      setIsLoadingFeeds(false);
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (isAdmin && showAdminTab) {
       loadFeeds();
-    } else {
-      Alert.alert('Hata', 'Bu kaynak zaten ekli veya bir hata oluştu.');
+    }
+  }, [isAdmin, showAdminTab, loadFeeds]);
+
+  const handleAddFeed = async () => {
+    const title = feedTitle.trim();
+    const url = feedUrl.trim();
+
+    if (!title || !url) {
+      Alert.alert('Error', 'Enter both a title and a feed URL.');
+      return;
+    }
+
+    if (!/^https?:\/\//i.test(url)) {
+      Alert.alert('Error', 'Enter a valid feed URL.');
+      return;
+    }
+
+    if (isLoadingFeeds) {
+      Alert.alert('Error', 'Wait for the podcast feed list to finish loading.');
+      return;
+    }
+
+    if (hasDuplicatePodcastFeedUrl(savedFeeds, url)) {
+      Alert.alert('Error', 'This feed URL is already in the list.');
+      return;
+    }
+
+    setIsSavingFeed(true);
+    try {
+      if (await hasDuplicatePodcastFeedUrlOnServer(url)) {
+        Alert.alert('Error', 'This feed URL is already in the list.');
+        await loadFeeds();
+        return;
+      }
+
+      const created = await createPodcastFeed({
+        title,
+        feedUrl: url,
+      });
+      setFeedTitle('');
+      setFeedUrl('');
+      await loadFeeds();
+      if (created.sync && 'status' in created.sync && created.sync.status === 'failed') {
+        Alert.alert('Success', 'Feed created, but the initial sync failed.');
+      } else if (created.sync && 'upserted' in created.sync) {
+        Alert.alert('Success', `Feed created and synced (${created.sync.upserted} items updated).`);
+      } else {
+        Alert.alert('Success', 'Feed created.');
+      }
+    } catch (error) {
+      console.error('Failed to create podcast feed:', error);
+      Alert.alert('Error', 'Podcast feed could not be created.');
+    } finally {
+      setIsSavingFeed(false);
     }
   };
 
-  const handleRemoveFeed = async (url: string) => {
-    Alert.alert('Sil', 'Bu kaynağı silmek istediğinize emin misiniz?', [
-      { text: 'İptal', style: 'cancel' },
+  const handleDeleteFeed = async (feed: PodcastFeedRow) => {
+    Alert.alert('Delete feed', `Delete "${feed.title}"?`, [
+      { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Sil',
+        text: 'Delete',
         style: 'destructive',
         onPress: async () => {
-          await removeRssFeed(url);
-          loadFeeds();
+          try {
+            await deletePodcastFeed(feed.id);
+            await loadFeeds();
+          } catch (error) {
+            console.error('Failed to delete podcast feed:', error);
+            Alert.alert('Error', 'Podcast feed could not be deleted.');
+          }
         },
       },
     ]);
   };
 
+  const handleSyncFeeds = async () => {
+    setIsSyncingFeeds(true);
+    try {
+      const results = await syncPodcastFeeds();
+      await loadFeeds();
+      Alert.alert('Success', `Synced ${results.length} feed(s).`);
+    } catch (error) {
+      console.error('Failed to sync podcast feeds:', error);
+      Alert.alert('Error', 'Podcast feeds could not be synced.');
+    } finally {
+      setIsSyncingFeeds(false);
+    }
+  };
+
   const handleAvatarChange = async () => {
     if (!user || user.is_guest) {
-      Alert.alert('Üyelik Gerekli', 'Profil fotoğrafı değiştirmek için giriş yapmalısınız.');
+      Alert.alert('Membership required', 'Sign in to change your profile photo.');
       return;
     }
 
@@ -112,52 +188,44 @@ const ProfileScreen = () => {
         });
 
         if (response.data.data?.avatar_url) {
-          Alert.alert('Başarılı', 'Profil fotoğrafın güncellendi.');
+          Alert.alert('Success', 'Your profile photo has been updated.');
           setLocalAvatar(`${STORAGE_API_LOCAL}${response.data.data.avatar_url}`);
         }
       } catch (error) {
         console.error('Upload error:', error);
-        Alert.alert('Hata', 'Fotoğraf yüklenirken bir sorun oluştu.');
+        Alert.alert('Error', 'There was a problem while uploading the photo.');
       } finally {
         setIsUploading(false);
       }
     }
   };
 
-  const currentAvatar = localAvatar || (user?.avatar_url ? `${STORAGE_API_LOCAL}${user.avatar_url}` : 'https://ui-avatars.com/api/?name=User&background=E31E24&color=fff&size=200');
-
-  const isUserAdmin = user?.role === 'admin' || user?.role === 'moderator';
+  const currentAvatar =
+    localAvatar ||
+    (user?.avatar_url
+      ? `${STORAGE_API_LOCAL}${user.avatar_url}`
+      : 'https://ui-avatars.com/api/?name=User&background=E31E24&color=fff&size=200');
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Premium Navbar */}
       <View style={styles.navbar}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Icon name="chevron-left" size={32} color={COLORS.text} />
         </TouchableOpacity>
-        <Text style={styles.navbarTitle}>Profil</Text>
-        <View style={{ width: 44 }} />
+        <Text style={styles.navbarTitle}>Profile</Text>
+        <View style={styles.navbarSpacer} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Profile Header Card */}
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.headerCard}>
           <TouchableOpacity
             style={styles.avatarContainer}
             onPress={handleAvatarChange}
             disabled={isUploading}
           >
-            <Image
-              source={{ uri: currentAvatar }}
-              style={styles.avatar}
-            />
+            <Image source={{ uri: currentAvatar }} style={styles.avatar} />
             {isUploading ? (
-              <View style={[styles.badge, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+              <View style={[styles.badge, styles.badgeLoading]}>
                 <ActivityIndicator size="small" color="#fff" />
               </View>
             ) : (
@@ -167,38 +235,36 @@ const ProfileScreen = () => {
             )}
           </TouchableOpacity>
           <View style={styles.userInfo}>
-            <Text style={styles.name}>{user?.display_name || 'Misafir'}</Text>
-            <Text style={styles.role}>{user?.role === 'admin' ? 'YÖNETİCİ' : user?.is_guest ? 'MİSAFİR' : 'ÜYE'}</Text>
+            <Text style={styles.name}>{user?.display_name || 'Guest'}</Text>
+            <Text style={styles.role}>
+              {user?.role === 'admin' ? 'ADMIN' : user?.is_guest ? 'GUEST' : 'MEMBER'}
+            </Text>
           </View>
         </View>
 
-        {/* Stats Row */}
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
             <Text style={styles.statNumber}>{user?.total_songs_added || 0}</Text>
-            <Text style={styles.statLabel}>Katkı</Text>
+            <Text style={styles.statLabel}>Contributions</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statNumber}>{user?.rank_score || 0}</Text>
-            <Text style={styles.statLabel}>Puan</Text>
+            <Text style={styles.statLabel}>Score</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statNumber}>{user?.total_upvotes_received || 0}</Text>
-            <Text style={styles.statLabel}>Beğeni</Text>
+            <Text style={styles.statLabel}>Likes</Text>
           </View>
         </View>
 
-        {/* Menu Section */}
-        {isUserAdmin && (
+        {isAdmin && (
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Yönetim</Text>
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => setShowAdminTab(!showAdminTab)}>
-              <View style={[styles.menuIconContainer, { backgroundColor: 'rgba(227, 30, 36, 0.1)' }]}>
+            <Text style={styles.sectionLabel}>Admin</Text>
+            <TouchableOpacity style={styles.menuItem} onPress={() => setShowAdminTab(!showAdminTab)}>
+              <View style={[styles.menuIconContainer, styles.adminMenuIconContainer]}>
                 <Icon name="shield-account" size={24} color={COLORS.primary} />
               </View>
-              <Text style={styles.menuText}>Admin Paneli</Text>
+              <Text style={styles.menuText}>Admin Panel</Text>
               <Icon
                 name={showAdminTab ? 'chevron-up' : 'chevron-right'}
                 size={24}
@@ -208,30 +274,70 @@ const ProfileScreen = () => {
 
             {showAdminTab && (
               <View style={styles.adminPanel}>
-                <Text style={styles.adminTitle}>Podcast RSS Ekle</Text>
-                <View style={styles.inputWrapper}>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="https://example.com/feed.xml"
-                    placeholderTextColor={COLORS.textMuted}
-                    value={rssUrl}
-                    onChangeText={setRssUrl}
-                    autoCapitalize="none"
-                  />
-                  <TouchableOpacity style={styles.addBtn} onPress={handleAddRss}>
+                <Text style={styles.adminTitle}>Podcast Feeds</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Feed title"
+                  placeholderTextColor={COLORS.textMuted}
+                  value={feedTitle}
+                  onChangeText={setFeedTitle}
+                />
+                <TextInput
+                  style={[styles.input, styles.inputSpacing]}
+                  placeholder="https://example.com/feed.xml"
+                  placeholderTextColor={COLORS.textMuted}
+                  value={feedUrl}
+                  onChangeText={setFeedUrl}
+                  autoCapitalize="none"
+                />
+                <View style={styles.inputActions}>
+                  <TouchableOpacity
+                    style={[styles.addBtn, (isSavingFeed || isLoadingFeeds) && styles.actionBtnDisabled]}
+                    onPress={handleAddFeed}
+                    disabled={isSavingFeed || isLoadingFeeds}
+                  >
                     <Icon name="plus" size={24} color="#fff" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.syncBtn, isSyncingFeeds && styles.actionBtnDisabled]}
+                    onPress={handleSyncFeeds}
+                    disabled={isSyncingFeeds}
+                  >
+                    <Icon name="sync" size={18} color="#fff" />
+                    <Text style={styles.syncBtnText}>{isSyncingFeeds ? 'Syncing...' : 'Sync All'}</Text>
                   </TouchableOpacity>
                 </View>
 
-                <Text style={[styles.adminTitle, { marginTop: SPACING.lg }]}>Aktif Kaynaklar</Text>
-                {savedFeeds.length === 0 ? (
-                  <Text style={styles.emptyText}>Henüz bir RSS kaynağı eklenmemiş.</Text>
+                <Text style={[styles.adminTitle, { marginTop: SPACING.lg }]}>Active Feeds</Text>
+                {isLoadingFeeds ? (
+                  <View style={styles.loadingRow}>
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                  </View>
+                ) : savedFeeds.length === 0 ? (
+                  <Text style={styles.emptyText}>No podcast feeds yet.</Text>
                 ) : (
-                  savedFeeds.map((feed, index) => (
-                    <View key={index} style={styles.feedRow}>
+                  savedFeeds.map((feed) => (
+                    <View key={feed.id} style={styles.feedRow}>
                       <Icon name="rss" size={20} color={COLORS.primary} />
-                      <Text style={styles.feedText} numberOfLines={1}>{feed}</Text>
-                      <TouchableOpacity onPress={() => handleRemoveFeed(feed)}>
+                      <View style={styles.feedBody}>
+                        <Text style={styles.feedTitle} numberOfLines={1}>
+                          {feed.title}
+                        </Text>
+                        <Text style={styles.feedText} numberOfLines={1}>
+                          {feed.feedUrl}
+                        </Text>
+                        {feed.lastSyncedAt ? (
+                          <Text style={styles.feedMeta} numberOfLines={1}>
+                            Last synced: {formatFeedTimestamp(feed.lastSyncedAt)}
+                          </Text>
+                        ) : null}
+                        {feed.lastSyncError ? (
+                          <Text style={styles.feedError} numberOfLines={2}>
+                            Last sync error: {feed.lastSyncError}
+                          </Text>
+                        ) : null}
+                      </View>
+                      <TouchableOpacity onPress={() => handleDeleteFeed(feed)}>
                         <Icon name="trash-can-outline" size={20} color={COLORS.error} />
                       </TouchableOpacity>
                     </View>
@@ -243,9 +349,9 @@ const ProfileScreen = () => {
         )}
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Uygulama</Text>
+          <Text style={styles.sectionLabel}>App</Text>
 
-          {(!user || user.is_guest) ? (
+          {!user || user.is_guest ? (
             <TouchableOpacity
               style={[styles.menuItem, { backgroundColor: COLORS.primary }]}
               onPress={() => navigation.navigate('Auth', { screen: 'Login' })}
@@ -253,38 +359,32 @@ const ProfileScreen = () => {
               <View style={styles.menuIconContainer}>
                 <Icon name="login" size={24} color="#fff" />
               </View>
-              <Text style={[styles.menuText, { color: '#fff' }]}>Giriş Yap / Kayıt Ol</Text>
+              <Text style={[styles.menuText, styles.menuTextLight]}>Sign in / Sign up</Text>
               <Icon name="chevron-right" size={24} color="#fff" />
             </TouchableOpacity>
           ) : null}
 
-          <TouchableOpacity
-            style={styles.menuItem}
-            onPress={() => navigation.navigate('Leaderboard')}
-          >
-            <View style={[styles.menuIconContainer, { backgroundColor: 'rgba(255, 215, 0, 0.1)' }]}>
+          <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Leaderboard')}>
+            <View style={[styles.menuIconContainer, styles.trophyIconContainer]}>
               <Icon name="trophy-outline" size={24} color="#FFD700" />
             </View>
-            <Text style={styles.menuText}>Sıralama (Leaderboard)</Text>
+            <Text style={styles.menuText}>Leaderboard</Text>
             <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.menuItem}>
-            <View style={[styles.menuIconContainer, { backgroundColor: 'rgba(255, 255, 255, 0.05)' }]}>
+            <View style={[styles.menuIconContainer, styles.settingsIconContainer]}>
               <Icon name="cog-outline" size={24} color={COLORS.text} />
             </View>
-            <Text style={styles.menuText}>Ayarlar</Text>
+            <Text style={styles.menuText}>Settings</Text>
             <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.menuItem, { marginTop: SPACING.md }]}
-            onPress={logout}
-          >
-            <View style={[styles.menuIconContainer, { backgroundColor: 'rgba(255, 59, 48, 0.1)' }]}>
+          <TouchableOpacity style={[styles.menuItem, { marginTop: SPACING.md }]} onPress={logout}>
+            <View style={[styles.menuIconContainer, styles.logoutIconContainer]}>
               <Icon name="logout-variant" size={24} color={COLORS.error} />
             </View>
-            <Text style={[styles.menuText, { color: COLORS.error }]}>Çıkış Yap</Text>
+            <Text style={[styles.menuText, { color: COLORS.error }]}>Log out</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -317,6 +417,9 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: COLORS.text,
     letterSpacing: 0.5,
+  },
+  navbarSpacer: {
+    width: 44,
   },
   scrollContent: {
     paddingHorizontal: SPACING.lg,
@@ -363,6 +466,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 3,
     borderColor: COLORS.surface,
+  },
+  badgeLoading: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
   userInfo: {
     alignItems: 'center',
@@ -433,11 +539,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: SPACING.md,
   },
+  adminMenuIconContainer: {
+    backgroundColor: 'rgba(227, 30, 36, 0.1)',
+  },
+  trophyIconContainer: {
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+  },
+  settingsIconContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  logoutIconContainer: {
+    backgroundColor: 'rgba(255, 59, 48, 0.1)',
+  },
   menuText: {
     flex: 1,
     fontSize: 16,
     color: COLORS.text,
     fontWeight: '500',
+  },
+  menuTextLight: {
+    color: '#fff',
   },
   adminPanel: {
     backgroundColor: 'rgba(227, 30, 36, 0.05)',
@@ -454,12 +575,7 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     marginBottom: SPACING.sm,
   },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
   input: {
-    flex: 1,
     backgroundColor: COLORS.background,
     height: 48,
     borderRadius: 12,
@@ -468,6 +584,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
   },
+  inputSpacing: {
+    marginTop: SPACING.sm,
+  },
+  inputActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: SPACING.md,
+  },
   addBtn: {
     backgroundColor: COLORS.primary,
     width: 48,
@@ -475,7 +599,29 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: SPACING.sm,
+    marginRight: SPACING.sm,
+  },
+  syncBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+    height: 48,
+    borderRadius: 12,
+  },
+  syncBtnText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  actionBtnDisabled: {
+    opacity: 0.6,
+  },
+  loadingRow: {
+    paddingVertical: SPACING.md,
+    alignItems: 'center',
   },
   feedRow: {
     flexDirection: 'row',
@@ -485,11 +631,28 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginTop: SPACING.xs,
   },
-  feedText: {
+  feedBody: {
     flex: 1,
-    color: COLORS.textMuted,
     marginHorizontal: SPACING.sm,
+  },
+  feedTitle: {
+    color: COLORS.text,
     fontSize: 13,
+    fontWeight: '600',
+  },
+  feedText: {
+    color: COLORS.textMuted,
+    fontSize: 13,
+  },
+  feedMeta: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  feedError: {
+    color: COLORS.error,
+    fontSize: 12,
+    marginTop: 2,
   },
   emptyText: {
     color: COLORS.textMuted,
@@ -499,5 +662,20 @@ const styles = StyleSheet.create({
     marginTop: SPACING.sm,
   },
 });
+
+function formatFeedTimestamp(value: string): string {
+  const parsedDate = new Date(value);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return value;
+  }
+
+  return parsedDate.toLocaleString('en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 export default ProfileScreen;
