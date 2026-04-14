@@ -302,6 +302,44 @@ CREATE TABLE IF NOT EXISTS device_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_device_sessions_lookup ON device_sessions(user_id, device_id);
 
+-- Podcast Feed Registry Tables
+CREATE TABLE IF NOT EXISTS podcast_feeds (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title VARCHAR(255),
+    feed_url TEXT UNIQUE NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    last_synced_at TIMESTAMP,
+    last_sync_error TEXT,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS podcast_episodes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    feed_id UUID NOT NULL REFERENCES podcast_feeds(id) ON DELETE CASCADE,
+    guid TEXT,
+    episode_url TEXT,
+    audio_url TEXT,
+    title VARCHAR(500) NOT NULL,
+    description TEXT,
+    image_url TEXT,
+    published_at TIMESTAMP,
+    author VARCHAR(255),
+    duration_seconds INTEGER,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_podcast_episodes_feed_guid_unique
+    ON podcast_episodes(feed_id, guid) WHERE guid IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_podcast_episodes_feed_audio_url_unique
+    ON podcast_episodes(feed_id, audio_url) WHERE audio_url IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_podcast_episodes_feed_episode_url_unique
+    ON podcast_episodes(feed_id, episode_url) WHERE episode_url IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_podcast_episodes_published_at
+    ON podcast_episodes(published_at DESC);
+
 -- Blocked Artists Table (Content Filtering)
 CREATE TABLE IF NOT EXISTS blocked_artists (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

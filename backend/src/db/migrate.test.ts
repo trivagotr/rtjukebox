@@ -45,6 +45,17 @@ describe('db migration helper', () => {
         expect(schemaSql).toContain('CREATE INDEX IF NOT EXISTS idx_guest_daily_song_limits_day_key');
     });
 
+    it('includes podcast feed registry tables in the schema', () => {
+        const schemaSql = loadSchemaSql();
+
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS podcast_feeds');
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS podcast_episodes');
+        expect(schemaSql).toContain('CREATE UNIQUE INDEX IF NOT EXISTS idx_podcast_episodes_feed_guid_unique');
+        expect(schemaSql).toContain('CREATE UNIQUE INDEX IF NOT EXISTS idx_podcast_episodes_feed_audio_url_unique');
+        expect(schemaSql).toContain('CREATE UNIQUE INDEX IF NOT EXISTS idx_podcast_episodes_feed_episode_url_unique');
+        expect(schemaSql).toContain('CREATE INDEX IF NOT EXISTS idx_podcast_episodes_published_at');
+    });
+
     it('applies schema sql inside a single transaction and forces UTF-8 client encoding', async () => {
         const query = vi.fn().mockResolvedValue({ rows: [] });
 

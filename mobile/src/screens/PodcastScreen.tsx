@@ -14,7 +14,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { COLORS, SPACING } from '../theme/theme';
 import {
   fetchPodcasts,
-  fetchSpotifyUrl,
+  resolvePodcastLaunchUrl,
   Podcast,
 } from '../services/podcastService';
 import GlobalHeader from '../components/GlobalHeader';
@@ -37,18 +37,13 @@ const PodcastScreen = () => {
     else setLoadingMore(true);
 
     try {
-      const data = await fetchPodcasts(pageToLoad);
-
-      if (data.length < 8) { // Assuming 8 is our limit per page
-        setHasMore(false);
-      } else {
-        setHasMore(true);
-      }
+      const { items, totalPages } = await fetchPodcasts(pageToLoad);
+      setHasMore(totalPages > 0 && pageToLoad < totalPages);
 
       if (append) {
-        setPodcasts(prev => [...prev, ...data]);
+        setPodcasts(prev => [...prev, ...items]);
       } else {
-        setPodcasts(data);
+        setPodcasts(items);
       }
       setPage(pageToLoad);
     } catch (e) {
@@ -83,29 +78,7 @@ const PodcastScreen = () => {
     setPlayingId(podcast.id);
 
     try {
-      // Direct Audio Playback for RSS sources
-      if (podcast.source === 'rss' && podcast.audioUrl) {
-        const urlToOpen = podcast.spotifyUrl || podcast.audioUrl || podcast.url;
-        if (urlToOpen) {
-          await Linking.openURL(urlToOpen);
-        }
-        return;
-      }
-
-      // Existing Scraper Logic
-      let url = podcast.spotifyUrl;
-
-      if (!url) {
-        const fetchedUrl = await fetchSpotifyUrl(podcast.url);
-        if (fetchedUrl) {
-          url = fetchedUrl;
-          setPodcasts(prev =>
-            prev.map(p => (p.id === podcast.id ? { ...p, spotifyUrl: url } : p)),
-          );
-        } else {
-          url = podcast.url;
-        }
-      }
+      const url = resolvePodcastLaunchUrl(podcast);
 
       if (url) {
         const supported = await Linking.canOpenURL(url);
@@ -147,11 +120,7 @@ const PodcastScreen = () => {
       activeOpacity={0.7}
       disabled={playingId === item.id}>
       <View style={styles.podcastIcon}>
-        <Icon
-          name={item.source === 'rss' ? 'rss' : 'microphone-variant'}
-          size={24}
-          color={COLORS.primary}
-        />
+        <Icon name="microphone-variant" size={24} color={COLORS.primary} />
       </View>
       <View style={styles.podcastInfo}>
         <Text style={styles.podcastTitle} numberOfLines={2}>
