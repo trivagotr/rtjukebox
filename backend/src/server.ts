@@ -14,6 +14,8 @@ import jukeboxRoutes from './routes/jukebox';
 import radioProfilesRoutes from './routes/radioProfiles';
 import usersRoutes from './routes/users';
 import spotifyRoutes from './routes/spotify';
+import gamificationRoutes from './routes/gamification';
+import profileRoutes from './routes/profile';
 import { authMiddleware } from './middleware/auth';
 import { setupSocketHandlers } from './sockets';
 import { registerUtilityRoutes } from './utilityRoutes';
@@ -94,6 +96,8 @@ app.use('/jukebox', jukeboxRoutes);
 mountWithOptionalPublicBase('/api/v1/jukebox', jukeboxRoutes);
 mountWithOptionalPublicBase('/api/v1/users', usersRoutes);
 mountWithOptionalPublicBase('/api/v1/spotify', spotifyRoutes);
+mountWithOptionalPublicBase('/api/v1/gamification', gamificationRoutes);
+mountWithOptionalPublicBase('/api/v1/profile', profileRoutes);
 
 // Health check
 registerGetWithOptionalPublicBase('/health', (req, res) => res.json({ status: 'ok' }));

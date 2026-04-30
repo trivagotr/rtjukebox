@@ -105,6 +105,65 @@ describe('users leaderboard routes', () => {
         );
     });
 
+    it('returns category leaderboard views from user point balances', async () => {
+        const res = createMockRes();
+        mockDbQuery.mockResolvedValueOnce({
+            rows: [
+                {
+                    id: 'user-3',
+                    display_name: 'Defne',
+                    avatar_url: null,
+                    score: 44,
+                    total_rank_score: 100,
+                    monthly_rank_score: 15,
+                    total_songs_added: 6,
+                },
+            ],
+        });
+
+        await usersRoutes.handleLeaderboardRequest({ query: { category: 'games' } } as any, res);
+
+        expect(mockDbQuery).toHaveBeenCalledWith(
+            expect.stringContaining('COALESCE(up.games_points, 0) AS score'),
+            ['2026-04']
+        );
+        expect(mockDbQuery.mock.calls[0][0]).toContain('LEFT JOIN user_points up');
+        expect(res.json).toHaveBeenCalledWith(
+            expect.objectContaining({
+                success: true,
+                data: expect.objectContaining({
+                    category: 'games',
+                }),
+            })
+        );
+    });
+
+    it('returns monthly category leaderboard views from the points ledger', async () => {
+        const res = createMockRes();
+        mockDbQuery.mockResolvedValueOnce({
+            rows: [
+                {
+                    id: 'user-4',
+                    display_name: 'Ece',
+                    avatar_url: null,
+                    score: 12,
+                    total_rank_score: 30,
+                    monthly_rank_score: 12,
+                    total_songs_added: 1,
+                },
+            ],
+        });
+
+        await usersRoutes.handleLeaderboardRequest({ query: { period: 'monthly', category: 'games' } } as any, res);
+
+        expect(mockDbQuery).toHaveBeenCalledWith(
+            expect.stringContaining('LEFT JOIN points_ledger pl'),
+            ['2026-04', 'games']
+        );
+        expect(mockDbQuery.mock.calls[0][0]).toContain("TO_CHAR(pl.created_at AT TIME ZONE 'Europe/Istanbul', 'YYYY-MM') = $1");
+        expect(mockDbQuery.mock.calls[0][0]).toContain('COALESCE(SUM(pl.amount), 0) AS score');
+    });
+
     it('maps auth/me responses with monthly rank score', async () => {
         const res = createMockRes();
         mockDbQuery.mockResolvedValueOnce({
@@ -145,5 +204,15 @@ describe('users leaderboard routes', () => {
 
     it('normalizes invalid leaderboard periods back to total', () => {
         expect(usersRoutes.normalizeLeaderboardPeriod('unexpected')).toBe('total');
+    });
+
+    it('normalizes invalid leaderboard categories back to total', () => {
+        expect(usersRoutes.normalizeLeaderboardCategory('unexpected')).toBe('total');
+    });
+
+    it('allows common mail providers and school domains for registration', () => {
+        expect(authRoutes.isAllowedRegistrationEmail('student@gmail.com')).toBe(true);
+        expect(authRoutes.isAllowedRegistrationEmail('student@tedu.edu.tr')).toBe(true);
+        expect(authRoutes.isAllowedRegistrationEmail('student@mailinator.com')).toBe(false);
     });
 });
