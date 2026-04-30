@@ -28,6 +28,12 @@ import {
   syncPodcastFeeds,
   type PodcastFeedRow,
 } from '../services/podcastFeedsAdmin';
+import {
+  fetchProfileCustomization,
+  updateProfileFavorites,
+  type ProfileCustomization,
+  type UserBadge,
+} from '../services/profileService';
 
 const ProfileScreen = () => {
   const navigation = useNavigation<any>();
@@ -43,6 +49,10 @@ const ProfileScreen = () => {
   const [isSyncingFeeds, setIsSyncingFeeds] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [localAvatar, setLocalAvatar] = useState<string | null>(null);
+  const [profileCustomization, setProfileCustomization] = useState<ProfileCustomization>({});
+  const [badges, setBadges] = useState<UserBadge[]>([]);
+  const [favoritesForm, setFavoritesForm] = useState<ProfileCustomization>({});
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   const BASE_API_LOCAL = BASE_API;
   const STORAGE_API_LOCAL = STORAGE_API;
@@ -70,6 +80,56 @@ const ProfileScreen = () => {
       loadFeeds();
     }
   }, [isAdmin, showAdminTab, loadFeeds]);
+
+  const loadProfileCustomization = useCallback(async () => {
+    if (!user || user.is_guest) {
+      setProfileCustomization({});
+      setFavoritesForm({});
+      setBadges([]);
+      return;
+    }
+
+    try {
+      const result = await fetchProfileCustomization();
+      setProfileCustomization(result.profile || {});
+      setFavoritesForm(result.profile || {});
+      setBadges(result.badges || []);
+    } catch (error) {
+      console.error('Failed to load profile customization:', error);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    loadProfileCustomization();
+  }, [loadProfileCustomization]);
+
+  const updateFavoriteField = (key: keyof ProfileCustomization, value: string) => {
+    setFavoritesForm((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  };
+
+  const handleSaveFavorites = async () => {
+    if (!user || user.is_guest) {
+      Alert.alert('Membership required', 'Sign in to customize your profile.');
+      return;
+    }
+
+    setIsSavingProfile(true);
+    try {
+      const result: any = await updateProfileFavorites(favoritesForm);
+      const nextProfile = result?.profile || favoritesForm;
+      setProfileCustomization(nextProfile);
+      setFavoritesForm(nextProfile);
+      Alert.alert('Saved', 'Your profile favorites have been updated.');
+    } catch (error) {
+      console.error('Failed to update profile favorites:', error);
+      Alert.alert('Error', 'Profile favorites could not be saved.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   const handleAddFeed = async () => {
     const title = feedTitle.trim();
@@ -257,6 +317,97 @@ const ProfileScreen = () => {
           </View>
         </View>
 
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Profile Showcase</Text>
+          <View style={styles.showcaseCard}>
+            <Text style={styles.showcaseTitle}>
+              {profileCustomization.profile_headline || 'Add a headline for your RadioTEDU profile.'}
+            </Text>
+            <View style={styles.favoriteGrid}>
+              <FavoriteDisplay
+                icon="music-note"
+                label="Favorite song"
+                value={[
+                  profileCustomization.favorite_song_title,
+                  profileCustomization.favorite_song_artist,
+                ].filter(Boolean).join(' · ') || 'Not selected'}
+              />
+              <FavoriteDisplay
+                icon="account-music"
+                label="Favorite artist"
+                value={profileCustomization.favorite_artist_name || 'Not selected'}
+              />
+              <FavoriteDisplay
+                icon="podcast"
+                label="Favorite podcast"
+                value={profileCustomization.favorite_podcast_title || 'Not selected'}
+              />
+            </View>
+
+            <Text style={styles.badgesTitle}>Badges</Text>
+            {badges.length === 0 ? (
+              <Text style={styles.emptyText}>No badges yet.</Text>
+            ) : (
+              <View style={styles.badgeWrap}>
+                {badges.slice(0, 8).map((item) => (
+                  <View key={item.id} style={styles.profileBadge}>
+                    <Icon name={item.icon || 'shield-star-outline'} size={16} color={COLORS.primary} />
+                    <Text style={styles.profileBadgeText} numberOfLines={1}>{item.title}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+
+          <View style={styles.editCard}>
+            <Text style={styles.adminTitle}>Customize favorites</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Profile headline"
+              placeholderTextColor={COLORS.textMuted}
+              value={favoritesForm.profile_headline || ''}
+              onChangeText={(value) => updateFavoriteField('profile_headline', value)}
+            />
+            <TextInput
+              style={[styles.input, styles.inputSpacing]}
+              placeholder="Favorite song"
+              placeholderTextColor={COLORS.textMuted}
+              value={favoritesForm.favorite_song_title || ''}
+              onChangeText={(value) => updateFavoriteField('favorite_song_title', value)}
+            />
+            <TextInput
+              style={[styles.input, styles.inputSpacing]}
+              placeholder="Favorite song artist"
+              placeholderTextColor={COLORS.textMuted}
+              value={favoritesForm.favorite_song_artist || ''}
+              onChangeText={(value) => updateFavoriteField('favorite_song_artist', value)}
+            />
+            <TextInput
+              style={[styles.input, styles.inputSpacing]}
+              placeholder="Favorite artist"
+              placeholderTextColor={COLORS.textMuted}
+              value={favoritesForm.favorite_artist_name || ''}
+              onChangeText={(value) => updateFavoriteField('favorite_artist_name', value)}
+            />
+            <TextInput
+              style={[styles.input, styles.inputSpacing]}
+              placeholder="Favorite podcast"
+              placeholderTextColor={COLORS.textMuted}
+              value={favoritesForm.favorite_podcast_title || ''}
+              onChangeText={(value) => updateFavoriteField('favorite_podcast_title', value)}
+            />
+            <TouchableOpacity
+              style={[styles.saveProfileButton, isSavingProfile && styles.actionBtnDisabled]}
+              onPress={handleSaveFavorites}
+              disabled={isSavingProfile}
+            >
+              <Text style={styles.saveProfileButtonText}>
+                {isSavingProfile ? 'Saving...' : 'Save profile'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {isAdmin && (
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Admin</Text>
@@ -391,6 +542,16 @@ const ProfileScreen = () => {
     </SafeAreaView>
   );
 };
+
+function FavoriteDisplay({icon, label, value}: {icon: string; label: string; value: string}) {
+  return (
+    <View style={styles.favoriteTile}>
+      <Icon name={icon} size={20} color={COLORS.primary} />
+      <Text style={styles.favoriteLabel}>{label}</Text>
+      <Text style={styles.favoriteValue} numberOfLines={2}>{value}</Text>
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
   container: {
@@ -660,6 +821,95 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: 'center',
     marginTop: SPACING.sm,
+  },
+  showcaseCard: {
+    padding: SPACING.md,
+    borderRadius: 20,
+    backgroundColor: COLORS.card,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  showcaseTitle: {
+    color: COLORS.text,
+    fontSize: 17,
+    fontWeight: '800',
+    lineHeight: 24,
+  },
+  favoriteGrid: {
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
+  },
+  favoriteTile: {
+    padding: SPACING.md,
+    borderRadius: 16,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  favoriteLabel: {
+    color: COLORS.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginTop: SPACING.sm,
+  },
+  favoriteValue: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  badgesTitle: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: SPACING.md,
+    marginBottom: SPACING.sm,
+  },
+  badgeWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+  },
+  profileBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: '48%',
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(227, 30, 36, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(227, 30, 36, 0.25)',
+  },
+  profileBadgeText: {
+    flex: 1,
+    color: COLORS.text,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  editCard: {
+    marginTop: SPACING.md,
+    padding: SPACING.md,
+    borderRadius: 20,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  saveProfileButton: {
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+    marginTop: SPACING.md,
+  },
+  saveProfileButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '800',
   },
 });
 
