@@ -56,6 +56,13 @@ export interface ListeningHeartbeatPayload {
   listened_seconds: number;
 }
 
+export interface GameScoreSubmissionPayload {
+  score: number;
+  client_round_id: string;
+  play_duration_ms: number;
+  submission_source: 'mobile_game';
+}
+
 function unwrapData<T>(response: {data?: {data?: T}}): T {
   return response.data?.data as T;
 }
@@ -95,8 +102,8 @@ export async function fetchGames(): Promise<ArcadeGame[]> {
   return unwrapData<{games?: ArcadeGame[]}>(response).games ?? [];
 }
 
-export async function submitGameScore(gameId: string, score: number) {
-  const response = await api.post(`/gamification/games/${gameId}/score`, {score});
+export async function submitGameScore(gameId: string, payload: GameScoreSubmissionPayload) {
+  const response = await api.post(`/gamification/games/${gameId}/score`, payload);
   return unwrapData(response);
 }
 
