@@ -64,12 +64,22 @@ describe('gamificationService', () => {
     await expect(fetchGames()).resolves.toEqual([{id: 'game-1'}]);
     await expect(fetchMarketItems()).resolves.toEqual([{id: 'item-1'}]);
     await redeemMarketItem('item-1');
-    await submitGameScore('game-1', 250);
+    await submitGameScore('game-1', {
+      score: 250,
+      client_round_id: 'round-1',
+      play_duration_ms: 42000,
+      submission_source: 'mobile_game',
+    });
     await claimQrReward('QR-1');
     await sendListeningHeartbeat({content_type: 'radio', listened_seconds: 300});
 
     expect(postMock).toHaveBeenNthCalledWith(1, '/gamification/market/item-1/redeem');
-    expect(postMock).toHaveBeenNthCalledWith(2, '/gamification/games/game-1/score', {score: 250});
+    expect(postMock).toHaveBeenNthCalledWith(2, '/gamification/games/game-1/score', {
+      score: 250,
+      client_round_id: 'round-1',
+      play_duration_ms: 42000,
+      submission_source: 'mobile_game',
+    });
     expect(postMock).toHaveBeenNthCalledWith(3, '/gamification/events/qr/claim', {code: 'QR-1'});
     expect(postMock).toHaveBeenNthCalledWith(4, '/gamification/listening/heartbeat', {
       content_type: 'radio',

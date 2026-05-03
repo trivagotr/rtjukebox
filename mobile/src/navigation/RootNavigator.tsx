@@ -14,6 +14,11 @@ import LeaderboardScreen from '../screens/LeaderboardScreen';
 import EventsScreen from '../screens/EventsScreen';
 import GamesScreen from '../screens/GamesScreen';
 import MarketScreen from '../screens/MarketScreen';
+import SnakeScreen from '../screens/games/SnakeScreen';
+import MemoryGameScreen from '../screens/games/MemoryGameScreen';
+import TetrisScreen from '../screens/games/TetrisScreen';
+import RhythmTapScreen from '../screens/games/RhythmTapScreen';
+import WordGuessScreen from '../screens/games/WordGuessScreen';
 import LoginScreen from '../screens/auth/LoginScreen';
 import RegisterScreen from '../screens/auth/RegisterScreen';
 import {COLORS} from '../theme/theme';
@@ -128,6 +133,11 @@ export function RootNavigator() {
       <Stack.Screen name="Events" component={EventsScreen} />
       <Stack.Screen name="Games" component={GamesScreen} />
       <Stack.Screen name="Market" component={MarketScreen} />
+      <Stack.Screen name="SnakeGame" component={SnakeScreen} />
+      <Stack.Screen name="MemoryGame" component={MemoryGameScreen} />
+      <Stack.Screen name="TetrisGame" component={TetrisScreen} />
+      <Stack.Screen name="RhythmTapGame" component={RhythmTapScreen} />
+      <Stack.Screen name="WordGuessGame" component={WordGuessScreen} />
       {(!user || user.is_guest) && <Stack.Screen name="Auth" component={AuthStack} />}
     </Stack.Navigator>
   );

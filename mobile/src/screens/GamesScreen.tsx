@@ -19,8 +19,8 @@ import {
   MarketItem,
   fetchGames,
   fetchMarketItems,
-  submitGameScore,
 } from '../services/gamificationService';
+import {getGameRouteForSlug} from './games/gameRoutes';
 
 const GamesScreen = () => {
   const navigation = useNavigation<any>();
@@ -29,7 +29,6 @@ const GamesScreen = () => {
   const [market, setMarket] = useState<MarketItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [submittingGameId, setSubmittingGameId] = useState<string | null>(null);
   const isAccountRequired = !user || user.is_guest;
 
   const load = useCallback(async () => {
@@ -54,23 +53,19 @@ const GamesScreen = () => {
     load();
   }, [load]);
 
-  const playQuickRound = async (game: ArcadeGame) => {
+  const handlePlay = (game: ArcadeGame) => {
     if (isAccountRequired) {
       Alert.alert('Hesap gerekli', 'Oyun puanı kazanmak için giriş yapmalısın.');
       return;
     }
 
-    const score = Math.floor(120 + Math.random() * 880);
-    setSubmittingGameId(game.id);
-    try {
-      const result: any = await submitGameScore(game.id, score);
-      Alert.alert('Skor gönderildi', `${score} skor · +${result?.points_awarded ?? 0} puan`);
-    } catch (error) {
-      console.error('Failed to submit game score:', error);
-      Alert.alert('Hata', 'Skor gönderilemedi.');
-    } finally {
-      setSubmittingGameId(null);
+    const routeName = getGameRouteForSlug(game.slug);
+    if (!routeName) {
+      Alert.alert('Yakında', 'Bu oyun mobil uygulamada henüz aktif değil.');
+      return;
     }
+
+    navigation.navigate(routeName, {game});
   };
 
   return (
@@ -89,8 +84,10 @@ const GamesScreen = () => {
         showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
           <Icon name="gamepad-variant" size={34} color="#111" />
-          <Text style={styles.title}>Arcade puanı günlük limitli çalışır.</Text>
-          <Text style={styles.subtitle}>Oyunlar admin tarafından sunucudan açılır. Eşit puan durumunda sıralama rastgele değil, puan geçmişine göre ayrılır.</Text>
+          <Text style={styles.title}>Skor sadece gerçek oyun bitince gönderilir.</Text>
+          <Text style={styles.subtitle}>
+            Snake, hafıza, bloklar, ritim ve tahmin oyunlarını uygulama içinde oyna. Demo skor ve hızlı tur kaldırıldı.
+          </Text>
         </View>
 
         {isAccountRequired ? (
@@ -104,26 +101,26 @@ const GamesScreen = () => {
         {loading && !refreshing ? (
           <ActivityIndicator color={COLORS.primary} style={styles.loader} />
         ) : games.length === 0 ? (
-          <Empty text="Sunucuda aktif oyun yok. İlk arcade oyunları admin katalog kaydıyla görünecek." />
+          <Empty text="Sunucuda aktif oyun yok. snake, memory, tetris, rhythm-tap ve word-guess slug kayıtları eklenince burada görünecek." />
         ) : (
           games.map((game) => (
             <View key={game.id} style={styles.gameCard}>
               <View style={styles.gameIcon}>
-                <Icon name="controller-classic" size={28} color={COLORS.primary} />
+                <Icon name={getGameIcon(game.slug)} size={28} color={COLORS.primary} />
               </View>
               <View style={styles.gameBody}>
                 <Text style={styles.gameTitle}>{game.title}</Text>
                 {game.description ? <Text style={styles.gameDescription} numberOfLines={2}>{game.description}</Text> : null}
                 <View style={styles.gameMetaRow}>
                   <Text style={styles.gameMeta}>Günlük limit {game.daily_point_limit || 0} XP</Text>
-                  <Text style={styles.gameMeta}>Oran {Number(game.point_rate || 0)}</Text>
+                  <Text style={styles.gameMeta}>Slug {game.slug || 'yok'}</Text>
                 </View>
                 <TouchableOpacity
-                  style={[styles.playButton, submittingGameId === game.id && styles.disabledButton]}
-                  disabled={submittingGameId === game.id}
-                  onPress={() => playQuickRound(game)}>
+                  style={[styles.playButton, !getGameRouteForSlug(game.slug) && styles.disabledButton]}
+                  onPress={() => handlePlay(game)}
+                  activeOpacity={0.82}>
                   <Text style={styles.playButtonText}>
-                    {submittingGameId === game.id ? 'Gönderiliyor...' : 'Hızlı Tur Oyna'}
+                    {getGameRouteForSlug(game.slug) ? 'Oyna' : 'Yakında'}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -149,6 +146,25 @@ const GamesScreen = () => {
     </SafeAreaView>
   );
 };
+
+function getGameIcon(slug?: string) {
+  if (slug === 'snake') {
+    return 'snake';
+  }
+  if (slug === 'memory') {
+    return 'cards-outline';
+  }
+  if (slug === 'tetris') {
+    return 'view-grid-plus-outline';
+  }
+  if (slug === 'rhythm-tap') {
+    return 'music-note-eighth';
+  }
+  if (slug === 'word-guess') {
+    return 'head-question-outline';
+  }
+  return 'controller-classic';
+}
 
 function Empty({text}: {text: string}) {
   return (
@@ -177,7 +193,7 @@ const styles = StyleSheet.create({
   gameBody: {flex: 1},
   gameTitle: {color: COLORS.text, fontSize: 17, fontWeight: '900'},
   gameDescription: {color: COLORS.textMuted, fontSize: 13, lineHeight: 19, marginTop: 4},
-  gameMetaRow: {flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.sm},
+  gameMetaRow: {flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginTop: SPACING.sm},
   gameMeta: {color: COLORS.textMuted, fontSize: 11, fontWeight: '700'},
   playButton: {height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.primary, marginTop: SPACING.md},
   playButtonText: {color: '#fff', fontSize: 13, fontWeight: '900'},
