@@ -18,6 +18,33 @@ const registerSchema = z.object({
     display_name: z.string().min(2).max(100)
 });
 
+const ALLOWED_REGISTRATION_EMAIL_DOMAINS = new Set([
+    'gmail.com',
+    'googlemail.com',
+    'outlook.com',
+    'hotmail.com',
+    'live.com',
+    'msn.com',
+    'icloud.com',
+    'me.com',
+    'mac.com',
+    'yahoo.com',
+    'yandex.com',
+    'proton.me',
+    'protonmail.com',
+    'tedu.edu.tr',
+    'radiotedu.com',
+]);
+
+export function getEmailDomain(email: string): string {
+    return String(email).trim().toLowerCase().split('@').pop() ?? '';
+}
+
+export function isAllowedRegistrationEmail(email: string): boolean {
+    const domain = getEmailDomain(email);
+    return ALLOWED_REGISTRATION_EMAIL_DOMAINS.has(domain) || domain.endsWith('.edu.tr');
+}
+
 export function normalizeDisplayNameInput(displayName: string): string {
     return normalizeText(displayName);
 }
@@ -69,14 +96,19 @@ async function createAuthSession(userId: string, email: string, role: string) {
 router.post('/register', async (req: Request, res: Response) => {
     try {
         const { email, password, display_name } = registerSchema.parse(req.body);
+        const normalizedEmail = email.trim().toLowerCase();
         const normalizedDisplayName = normalizeDisplayNameInput(display_name);
+
+        if (!isAllowedRegistrationEmail(normalizedEmail)) {
+            return sendError(res, 'Unsupported email provider', 400);
+        }
 
         if (normalizedDisplayName.length < 2) {
             return sendError(res, 'Display name required', 400);
         }
 
         // Check if user exists
-        const existing = await db.query('SELECT id FROM users WHERE email = $1', [email]);
+        const existing = await db.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
         if (existing.rows[0]) {
             return sendError(res, 'Email already registered', 400);
         }
@@ -86,7 +118,7 @@ router.post('/register', async (req: Request, res: Response) => {
         const result = await db.query(
             `INSERT INTO users (email, password_hash, display_name, role, last_ip, user_agent)
              VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-            [email, hashedPassword, normalizedDisplayName, ROLES.USER, req.ip, req.headers['user-agent']]
+            [normalizedEmail, hashedPassword, normalizedDisplayName, ROLES.USER, req.ip, req.headers['user-agent']]
         );
 
         const user = result.rows[0];

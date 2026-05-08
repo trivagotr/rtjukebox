@@ -45,6 +45,32 @@ describe('db migration helper', () => {
         expect(schemaSql).toContain('CREATE INDEX IF NOT EXISTS idx_guest_daily_song_limits_day_key');
     });
 
+    it('includes podcast feed registry tables in the schema', () => {
+        const schemaSql = loadSchemaSql();
+
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS podcast_feeds');
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS podcast_episodes');
+        expect(schemaSql).toContain('CREATE UNIQUE INDEX IF NOT EXISTS idx_podcast_episodes_feed_guid_unique');
+        expect(schemaSql).toContain('CREATE UNIQUE INDEX IF NOT EXISTS idx_podcast_episodes_feed_audio_url_unique');
+        expect(schemaSql).toContain('CREATE UNIQUE INDEX IF NOT EXISTS idx_podcast_episodes_feed_episode_url_unique');
+        expect(schemaSql).toContain('CREATE INDEX IF NOT EXISTS idx_podcast_episodes_published_at');
+    });
+
+    it('includes gamification tables in the schema', () => {
+        const schemaSql = loadSchemaSql();
+
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS user_points');
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS points_ledger');
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS market_items');
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS market_redemptions');
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS app_events');
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS event_registrations');
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS arcade_games');
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS game_score_submissions');
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS user_profile_customization');
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS qr_reward_claims');
+    });
+
     it('applies schema sql inside a single transaction and forces UTF-8 client encoding', async () => {
         const query = vi.fn().mockResolvedValue({ rows: [] });
 

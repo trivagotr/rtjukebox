@@ -302,6 +302,256 @@ CREATE TABLE IF NOT EXISTS device_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_device_sessions_lookup ON device_sessions(user_id, device_id);
 
+-- Podcast Feed Registry Tables
+CREATE TABLE IF NOT EXISTS podcast_feeds (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title VARCHAR(255),
+    feed_url TEXT UNIQUE NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    last_synced_at TIMESTAMP,
+    last_sync_error TEXT,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS podcast_episodes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    feed_id UUID NOT NULL REFERENCES podcast_feeds(id) ON DELETE CASCADE,
+    guid TEXT,
+    episode_url TEXT,
+    audio_url TEXT,
+    title VARCHAR(500) NOT NULL,
+    description TEXT,
+    image_url TEXT,
+    published_at TIMESTAMP,
+    author VARCHAR(255),
+    duration_seconds INTEGER,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_podcast_episodes_feed_guid_unique
+    ON podcast_episodes(feed_id, guid) WHERE guid IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_podcast_episodes_feed_audio_url_unique
+    ON podcast_episodes(feed_id, audio_url) WHERE audio_url IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_podcast_episodes_feed_episode_url_unique
+    ON podcast_episodes(feed_id, episode_url) WHERE episode_url IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_podcast_episodes_published_at
+    ON podcast_episodes(published_at DESC);
+
+-- Gamification Tables
+CREATE TABLE IF NOT EXISTS user_points (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    lifetime_points INTEGER NOT NULL DEFAULT 0,
+    spendable_points INTEGER NOT NULL DEFAULT 0,
+    monthly_points INTEGER NOT NULL DEFAULT 0,
+    listening_points INTEGER NOT NULL DEFAULT 0,
+    events_points INTEGER NOT NULL DEFAULT 0,
+    games_points INTEGER NOT NULL DEFAULT 0,
+    social_points INTEGER NOT NULL DEFAULT 0,
+    jukebox_points INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_user_points_lifetime ON user_points(lifetime_points DESC);
+CREATE INDEX IF NOT EXISTS idx_user_points_spendable ON user_points(spendable_points DESC);
+CREATE INDEX IF NOT EXISTS idx_user_points_monthly ON user_points(monthly_points DESC);
+CREATE INDEX IF NOT EXISTS idx_user_points_listening ON user_points(listening_points DESC);
+CREATE INDEX IF NOT EXISTS idx_user_points_events ON user_points(events_points DESC);
+CREATE INDEX IF NOT EXISTS idx_user_points_games ON user_points(games_points DESC);
+CREATE INDEX IF NOT EXISTS idx_user_points_social ON user_points(social_points DESC);
+CREATE INDEX IF NOT EXISTS idx_user_points_jukebox ON user_points(jukebox_points DESC);
+
+CREATE TABLE IF NOT EXISTS points_ledger (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    amount INTEGER NOT NULL,
+    category VARCHAR(30) NOT NULL,
+    source_type VARCHAR(50) NOT NULL,
+    source_id VARCHAR(100),
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_points_ledger_user_created ON points_ledger(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_points_ledger_category_created ON points_ledger(category, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS badges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug VARCHAR(80) UNIQUE NOT NULL,
+    title VARCHAR(120) NOT NULL,
+    description TEXT,
+    icon VARCHAR(120),
+    category VARCHAR(30) NOT NULL DEFAULT 'general',
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS user_badges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    badge_id UUID NOT NULL REFERENCES badges(id) ON DELETE CASCADE,
+    awarded_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(user_id, badge_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_badges_user ON user_badges(user_id, awarded_at DESC);
+
+CREATE TABLE IF NOT EXISTS market_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title VARCHAR(160) NOT NULL,
+    description TEXT,
+    item_kind VARCHAR(30) NOT NULL DEFAULT 'digital',
+    cost_points INTEGER NOT NULL DEFAULT 0,
+    image_url TEXT,
+    stock_quantity INTEGER,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_market_items_active_cost ON market_items(is_active, cost_points);
+
+CREATE TABLE IF NOT EXISTS market_redemptions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    market_item_id UUID NOT NULL REFERENCES market_items(id) ON DELETE CASCADE,
+    cost_points INTEGER NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'pending',
+    redemption_code VARCHAR(120),
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_market_redemptions_user ON market_redemptions(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS app_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title VARCHAR(180) NOT NULL,
+    description TEXT,
+    starts_at TIMESTAMP,
+    ends_at TIMESTAMP,
+    location VARCHAR(255),
+    image_url TEXT,
+    external_event_id VARCHAR(120),
+    check_in_points INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_app_events_active_starts ON app_events(is_active, starts_at);
+
+CREATE TABLE IF NOT EXISTS event_registrations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    event_id UUID NOT NULL REFERENCES app_events(id) ON DELETE CASCADE,
+    status VARCHAR(30) NOT NULL DEFAULT 'registered',
+    ticket_code VARCHAR(120),
+    checked_in_at TIMESTAMP,
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(user_id, event_id)
+);
+CREATE INDEX IF NOT EXISTS idx_event_registrations_user ON event_registrations(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_event_registrations_event ON event_registrations(event_id, status);
+
+CREATE TABLE IF NOT EXISTS qr_rewards (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code VARCHAR(120) UNIQUE NOT NULL,
+    title VARCHAR(160) NOT NULL,
+    description TEXT,
+    points INTEGER NOT NULL DEFAULT 0,
+    event_id UUID REFERENCES app_events(id) ON DELETE SET NULL,
+    starts_at TIMESTAMP,
+    ends_at TIMESTAMP,
+    max_claims_per_user INTEGER NOT NULL DEFAULT 1,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS qr_reward_claims (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    qr_reward_id UUID NOT NULL REFERENCES qr_rewards(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    points_awarded INTEGER NOT NULL DEFAULT 0,
+    claimed_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(qr_reward_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_qr_reward_claims_user ON qr_reward_claims(user_id, claimed_at DESC);
+
+CREATE TABLE IF NOT EXISTS arcade_games (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug VARCHAR(80) UNIQUE NOT NULL,
+    title VARCHAR(160) NOT NULL,
+    description TEXT,
+    point_rate DECIMAL(10,4) NOT NULL DEFAULT 0,
+    daily_point_limit INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_arcade_games_active ON arcade_games(is_active, title);
+
+CREATE TABLE IF NOT EXISTS game_score_submissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    game_id UUID NOT NULL REFERENCES arcade_games(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    score INTEGER NOT NULL DEFAULT 0,
+    points_awarded INTEGER NOT NULL DEFAULT 0,
+    submitted_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_game_score_submissions_user_day ON game_score_submissions(user_id, submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_game_score_submissions_game_score ON game_score_submissions(game_id, score DESC);
+
+CREATE TABLE IF NOT EXISTS listening_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content_type VARCHAR(30) NOT NULL,
+    content_id VARCHAR(120),
+    content_title VARCHAR(500),
+    started_at TIMESTAMP DEFAULT NOW(),
+    last_heartbeat_at TIMESTAMP DEFAULT NOW(),
+    listened_seconds INTEGER NOT NULL DEFAULT 0,
+    points_awarded INTEGER NOT NULL DEFAULT 0,
+    metadata JSONB DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_listening_sessions_user_started ON listening_sessions(user_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS user_profile_customization (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    favorite_song_title VARCHAR(255),
+    favorite_song_artist VARCHAR(255),
+    favorite_song_spotify_uri VARCHAR(120),
+    favorite_artist_name VARCHAR(255),
+    favorite_artist_spotify_id VARCHAR(120),
+    favorite_podcast_id UUID REFERENCES podcast_episodes(id) ON DELETE SET NULL,
+    favorite_podcast_title VARCHAR(500),
+    profile_headline VARCHAR(180),
+    featured_badge_id UUID REFERENCES badges(id) ON DELETE SET NULL,
+    theme_key VARCHAR(80),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS comments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    target_type VARCHAR(30) NOT NULL,
+    target_id VARCHAR(120) NOT NULL,
+    body TEXT NOT NULL,
+    is_hidden BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_comments_target ON comments(target_type, target_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS comment_reports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    comment_id UUID NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+    reporter_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reason VARCHAR(120),
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(comment_id, reporter_user_id)
+);
+
 -- Blocked Artists Table (Content Filtering)
 CREATE TABLE IF NOT EXISTS blocked_artists (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
