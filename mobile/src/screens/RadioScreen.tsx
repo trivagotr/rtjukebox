@@ -1,119 +1,103 @@
-import React, { useState, useEffect } from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
   ActivityIndicator,
   FlatList,
   Image,
-  ImageBackground,
   LayoutAnimation,
-  Platform,
-  useWindowDimensions,
-  ScrollView,
   Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {SafeAreaView} from 'react-native-safe-area-context';
 import TrackPlayer, {
   State,
-  usePlaybackState,
   useActiveTrack,
+  usePlaybackState,
 } from 'react-native-track-player';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { useNavigation } from '@react-navigation/native';
-import { COLORS, SPACING } from '../theme/theme';
+import {COLORS, SPACING} from '../theme/theme';
 import api from '../services/api';
-import { RADIO_CHANNELS, RadioChannel } from '../data/radioChannels';
-import { useMetadata } from '../context/MetadataContext';
-import { useChannels } from '../context/ChannelContext';
-import { useAuth } from '../context/AuthContext';
+import {RADIO_CHANNELS, RadioChannel} from '../data/radioChannels';
+import {useMetadata} from '../context/MetadataContext';
+import {useChannels} from '../context/ChannelContext';
 import GlobalHeader from '../components/GlobalHeader';
 import PageTransition from '../components/PageTransition';
+import {
+  buildFavoriteChannelOrder,
+  loadFavoriteChannelIds,
+  saveFavoriteChannelIds,
+  toggleFavoriteChannelId,
+} from '../services/radioFavorites';
 
 const RadioScreen = () => {
-  const navigation = useNavigation<any>();
-  const { width } = useWindowDimensions();
-  const { user } = useAuth();
   const playbackState = usePlaybackState();
   const activeTrack = useActiveTrack();
-  const { metadata, clearMetadata } = useMetadata();
-  const { activeChannels, isChecking } = useChannels();
-  const [selectedChannel, setSelectedChannel] = useState<RadioChannel>(
-    RADIO_CHANNELS[0],
-  );
+  const {metadata, clearMetadata} = useMetadata();
+  const {activeChannels, isChecking} = useChannels();
+  const [selectedChannel, setSelectedChannel] = useState<RadioChannel>(RADIO_CHANNELS[0]);
   const [currentPlayingId, setCurrentPlayingId] = useState<string | null>(null);
   const [history, setHistory] = useState<any[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
-
-  useEffect(() => {
-    if (!isChecking && activeChannels.length > 0) {
-      const isCurrentActive = activeChannels.find(
-        c => c.id === selectedChannel.id,
-      );
-      if (!isCurrentActive) {
-        setSelectedChannel(activeChannels[0]);
-      }
-    }
-  }, [activeChannels, isChecking]);
-
-  const [streamQuality, setStreamQuality] = useState<'low' | 'medium' | 'high'>(
-    'high',
-  );
-
+  const [streamQuality, setStreamQuality] = useState<'low' | 'medium' | 'high'>('high');
   const [currentVote, setCurrentVote] = useState<'up' | 'down' | null>(null);
 
   const state = playbackState?.state;
-  const isPlaying =
-    state === State.Playing && currentPlayingId === selectedChannel.id;
+  const isPlaying = state === State.Playing && currentPlayingId === selectedChannel.id;
   const isBuffering =
     (state === State.Buffering || state === State.Loading) &&
     currentPlayingId === selectedChannel.id;
 
+  const orderedChannels = useMemo(
+    () => buildFavoriteChannelOrder(activeChannels, favoriteIds),
+    [activeChannels, favoriteIds],
+  );
+
   useEffect(() => {
-    if (
-      activeTrack &&
-      activeTrack.id &&
-      activeTrack.id !== selectedChannel.id
-    ) {
-      const channel = activeChannels.find(c => c.id === activeTrack.id);
+    loadFavoriteChannelIds()
+      .then(setFavoriteIds)
+      .catch((error) => console.log('Failed to load radio favorites:', error));
+  }, []);
+
+  useEffect(() => {
+    if (!isChecking && activeChannels.length > 0) {
+      const isCurrentActive = activeChannels.find((channel) => channel.id === selectedChannel.id);
+      if (!isCurrentActive) {
+        setSelectedChannel(activeChannels[0]);
+      }
+    }
+  }, [activeChannels, isChecking, selectedChannel.id]);
+
+  useEffect(() => {
+    if (activeTrack?.id && activeTrack.id !== selectedChannel.id) {
+      const channel = activeChannels.find((item) => item.id === activeTrack.id);
       if (channel) {
         setSelectedChannel(channel);
       }
     }
-  }, [activeTrack?.id, activeChannels]);
+  }, [activeTrack?.id, activeChannels, selectedChannel.id]);
 
-  // Fetch History Logic
+  useEffect(() => {
+    fetchHistory(selectedChannel.id);
+    const interval = setInterval(() => fetchHistory(selectedChannel.id), 60000);
+    return () => clearInterval(interval);
+  }, [selectedChannel.id]);
+
   const fetchHistory = async (channelId: string) => {
     try {
       setIsLoadingHistory(true);
-      // Backend endpoint: /api/v1/radio/history/:channel_id
       const response = await api.get(`/radio/history/${channelId}`);
       setHistory(response.data.data || []);
     } catch (error) {
       console.log('Failed to fetch history:', error);
-      // Fallback/Mock for now if backend is not ready
       setHistory([]);
     } finally {
       setIsLoadingHistory(false);
     }
-  };
-
-  useEffect(() => {
-    fetchHistory(selectedChannel.id);
-
-    // Auto refresh history every 60 seconds
-    const interval = setInterval(() => {
-      fetchHistory(selectedChannel.id);
-    }, 60000);
-
-    return () => clearInterval(interval);
-  }, [selectedChannel.id]);
-
-  const openHistory = () => {
-    fetchHistory(selectedChannel.id);
-    setShowHistoryModal(true);
   };
 
   const playChannel = async (
@@ -131,49 +115,31 @@ const RadioScreen = () => {
     }
 
     const queue = await TrackPlayer.getQueue();
-    const channelIndex = RADIO_CHANNELS.findIndex(c => c.id === channel.id);
+    const channelIndex = RADIO_CHANNELS.findIndex((item) => item.id === channel.id);
 
-    // If queue is empty or significantly different, repopulate
     if (queue.length !== RADIO_CHANNELS.length) {
       await TrackPlayer.reset();
-      const tracks = RADIO_CHANNELS.map(c => {
-        let url = c.streamUrl;
+      const tracks = RADIO_CHANNELS.map((item) => {
         const quality = qualityOverride || streamQuality;
-        if (c.streams) {
-          if (quality === 'low' && c.streams.low) url = c.streams.low;
-          else if (quality === 'medium' && c.streams.medium) url = c.streams.medium;
-          else if (quality === 'high' && c.streams.high) url = c.streams.high;
-        }
         return {
-          id: c.id,
-          url: url,
-          title: c.name,
-          artist: c.description,
-          artwork: 'https://radiotedu.com/logo.png',
+          id: item.id,
+          url: resolveChannelUrl(item, quality),
+          title: item.name,
+          artist: item.description,
+          artwork: item.logo || 'https://radiotedu.com/logo.png',
           isLiveStream: true,
         };
       });
       await TrackPlayer.add(tracks);
     } else if (isQualitySwitch) {
-      // Update the Specific track in queue if quality changed
-      let url = channel.streamUrl;
       const quality = qualityOverride || streamQuality;
-      if (channel.streams) {
-        if (quality === 'low' && channel.streams.low) url = channel.streams.low;
-        else if (quality === 'medium' && channel.streams.medium) url = channel.streams.medium;
-        else if (quality === 'high' && channel.streams.high) url = channel.streams.high;
-      }
-
-      // Since it's a live stream, we actually need to replace or re-add to refresh the buffer with new URL
-      // But for simplicity in AA, we'll just skip to it. 
-      // Actually, to change URL we must update the track.
       await TrackPlayer.remove(channelIndex);
       await TrackPlayer.add({
         id: channel.id,
-        url: url,
+        url: resolveChannelUrl(channel, quality),
         title: channel.name,
         artist: channel.description,
-        artwork: 'https://radiotedu.com/logo.png',
+        artwork: channel.logo || 'https://radiotedu.com/logo.png',
         isLiveStream: true,
       }, channelIndex);
     }
@@ -192,124 +158,56 @@ const RadioScreen = () => {
     }
   };
 
-  const selectChannel = (channel: RadioChannel) => {
-    playChannel(channel);
-  };
-
   const skipToNextChannel = () => {
-    const currentIndex = activeChannels.findIndex(
-      c => c.id === selectedChannel.id,
-    );
-    const nextIndex = (currentIndex + 1) % activeChannels.length;
-    const nextChannel = activeChannels[nextIndex];
-    playChannel(nextChannel);
+    const currentIndex = activeChannels.findIndex((channel) => channel.id === selectedChannel.id);
+    const nextChannel = activeChannels[(currentIndex + 1) % activeChannels.length];
+    if (nextChannel) {
+      playChannel(nextChannel);
+    }
   };
 
   const skipToPreviousChannel = () => {
-    const currentIndex = activeChannels.findIndex(
-      c => c.id === selectedChannel.id,
-    );
-    const prevIndex =
-      currentIndex === 0 ? activeChannels.length - 1 : currentIndex - 1;
-    const prevChannel = activeChannels[prevIndex];
-    playChannel(prevChannel);
+    const currentIndex = activeChannels.findIndex((channel) => channel.id === selectedChannel.id);
+    const previousIndex = currentIndex <= 0 ? activeChannels.length - 1 : currentIndex - 1;
+    const previousChannel = activeChannels[previousIndex];
+    if (previousChannel) {
+      playChannel(previousChannel);
+    }
   };
 
   const cycleQuality = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    let nextQuality: 'low' | 'medium' | 'high';
-    if (streamQuality === 'high') {
-      nextQuality = 'low';
-    } else if (streamQuality === 'low') {
-      nextQuality = 'medium';
-    } else {
-      nextQuality = 'high';
-    }
+    const nextQuality = streamQuality === 'high' ? 'low' : streamQuality === 'low' ? 'medium' : 'high';
     setStreamQuality(nextQuality);
     if (isPlaying || state === State.Buffering) {
       playChannel(selectedChannel, nextQuality);
     }
   };
 
-  const displayTitle =
-    metadata?.title || activeTrack?.title || selectedChannel.name;
-  const displayArtist =
-    metadata?.artist || activeTrack?.artist || selectedChannel.description;
-  const displayArtwork = metadata?.artwork || activeTrack?.artwork;
-  const hasArtwork =
-    displayArtwork && displayArtwork !== 'https://radiotedu.com/logo.png';
-
-  const getQualityProps = () => {
-    switch (streamQuality) {
-      case 'high':
-        return {
-          text: 'HQ • 320kbps',
-          color: '#FFD700',
-          borderColor: 'rgba(255, 215, 0, 0.5)',
-          bg: 'rgba(255, 215, 0, 0.1)',
-          icon: 'signal-cellular-3',
-        };
-      case 'medium':
-        return {
-          text: 'MQ • 128kbps',
-          color: '#00BCD4',
-          borderColor: 'rgba(0, 188, 212, 0.5)',
-          bg: 'rgba(0, 188, 212, 0.1)',
-          icon: 'signal-cellular-2',
-        };
-      default:
-        return {
-          text: 'LQ • 64kbps',
-          color: '#B0BEC5',
-          borderColor: 'rgba(176, 190, 197, 0.5)',
-          bg: 'rgba(176, 190, 197, 0.1)',
-          icon: 'signal-cellular-1',
-        };
+  const toggleFavorite = async (channelId: string) => {
+    const nextFavorites = toggleFavoriteChannelId(favoriteIds, channelId);
+    setFavoriteIds(nextFavorites);
+    try {
+      await saveFavoriteChannelIds(nextFavorites);
+    } catch (error) {
+      console.log('Failed to save radio favorites:', error);
     }
   };
 
-  const qProps = getQualityProps();
-
-  const renderChannelItem = ({ item }: { item: RadioChannel }) => {
-    const isActive = selectedChannel.id === item.id;
-    const isChannelPlaying =
-      currentPlayingId === item.id && state === State.Playing;
-
-    return (
-      <TouchableOpacity
-        style={[styles.channelChip, isActive && { backgroundColor: item.color }]}
-        onPress={() => selectChannel(item)}
-        activeOpacity={0.7}>
-        <View
-          style={[
-            styles.channelDot,
-            { backgroundColor: isActive ? '#fff' : item.color },
-          ]}
-        />
-        <Text
-          style={[
-            styles.channelChipText,
-            isActive && styles.channelChipTextActive,
-          ]}
-          maxFontSizeMultiplier={1.1}>
-          {item.name}
-        </Text>
-        {isChannelPlaying && (
-          <Icon
-            name="volume-high"
-            size={14}
-            color={isActive ? '#fff' : item.color}
-            style={{ marginLeft: 4 }}
-          />
-        )}
-      </TouchableOpacity>
-    );
+  const openHistory = () => {
+    fetchHistory(selectedChannel.id);
+    setShowHistoryModal(true);
   };
 
-  const renderHistoryItem = ({ item }: { item: any }) => (
+  const displayTitle = metadata?.title || activeTrack?.title || selectedChannel.name;
+  const displayArtist = metadata?.artist || activeTrack?.artist || selectedChannel.description;
+  const displayArtwork = metadata?.artwork || activeTrack?.artwork || selectedChannel.logo || 'https://radiotedu.com/logo.png';
+  const qProps = getQualityProps(streamQuality);
+
+  const renderHistoryItem = ({item}: {item: any}) => (
     <View style={styles.historyItem}>
       <Image
-        source={{ uri: item.cover_url || 'https://radiotedu.com/logo.png' }}
+        source={{uri: item.cover_url || 'https://radiotedu.com/logo.png'}}
         style={styles.historyCover}
       />
       <View style={styles.historyInfo}>
@@ -317,7 +215,7 @@ const RadioScreen = () => {
         <Text style={styles.historyArtist} numberOfLines={1}>{item.artist}</Text>
       </View>
       <Text style={styles.historyTime}>
-        {new Date(item.played_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+        {new Date(item.played_at).toLocaleTimeString('tr-TR', {hour: '2-digit', minute: '2-digit'})}
       </Text>
     </View>
   );
@@ -325,438 +223,541 @@ const RadioScreen = () => {
   return (
     <PageTransition>
       <View style={styles.container}>
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: COLORS.background }]}>
-          {hasArtwork && (
-            <ImageBackground
-              source={{ uri: displayArtwork }}
-              style={styles.backgroundImage}
-              blurRadius={50}>
-              <View style={styles.backgroundOverlay} />
-            </ImageBackground>
-          )}
-        </View>
-
         <SafeAreaView style={styles.safeArea}>
           <GlobalHeader />
 
-          {/* Logo Banner - Removed for a cleaner look as per premium preference */}
-
-          <View style={styles.channelSection}>
-            <FlatList
-              data={activeChannels}
-              renderItem={renderChannelItem}
-              keyExtractor={item => item.id}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.channelList}
-            />
-          </View>
-
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}>
-            <View style={styles.playerArea}>
-              <View style={styles.artworkSection}>
-                <View style={styles.artworkContainer}>
-                  {hasArtwork ? (
-                    <Image source={{ uri: displayArtwork }} style={styles.artwork} />
-                  ) : (
-                    <Image
-                      source={{ uri: 'https://radiotedu.com/logo.png' }}
-                      style={styles.artwork}
-                    />
-                  )}
+          <View style={styles.nowPlayingCard}>
+            <Image source={{uri: displayArtwork}} style={styles.nowArtwork} />
+            <View style={styles.nowBody}>
+              <View style={styles.liveRow}>
+                <View style={styles.liveBadge}>
+                  <View style={styles.liveDot} />
+                  <Text style={styles.liveText}>LIVE</Text>
                 </View>
-              </View>
-
-              <View style={styles.controlsSection}>
-                <View style={styles.trackInfo}>
-                  <Text
-                    style={styles.trackTitle}
-                    numberOfLines={1}
-                    maxFontSizeMultiplier={1.2}>
-                    {displayTitle}
-                  </Text>
-                  <Text
-                    style={styles.trackArtist}
-                    numberOfLines={1}
-                    maxFontSizeMultiplier={1.2}>
-                    {displayArtist}
-                  </Text>
-                </View>
-
-                <View style={styles.badgesRow}>
-                  <View style={styles.liveBadge}>
-                    <View style={styles.liveDot} />
-                    <Text style={styles.liveText} maxFontSizeMultiplier={1.1}>
-                      LIVE
-                    </Text>
-                  </View>
-
-                  <TouchableOpacity
-                    onPress={cycleQuality}
-                    style={[
-                      styles.techBadge,
-                      {
-                        borderColor: qProps.borderColor,
-                        backgroundColor: qProps.bg,
-                      },
-                    ]}
-                    activeOpacity={0.7}>
-                    <Icon
-                      name={qProps.icon}
-                      size={14}
-                      color={qProps.color}
-                      style={{ marginRight: 6 }}
-                    />
-                    <Text
-                      style={[styles.techBadgeText, { color: qProps.color }]}
-                      maxFontSizeMultiplier={1.1}>
-                      {qProps.text}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.votingRow}>
-                  <TouchableOpacity
-                    style={[
-                      styles.voteButton,
-                      currentVote === 'down' && styles.voteButtonActive,
-                    ]}
-                    onPress={() => {
-                      setCurrentVote(currentVote === 'down' ? null : 'down');
-                    }}>
-                    <Icon
-                      name={
-                        currentVote === 'down' ? 'thumb-down' : 'thumb-down-outline'
-                      }
-                      size={24}
-                      color={currentVote === 'down' ? COLORS.primary : '#888'}
-                    />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.voteButton,
-                      currentVote === 'up' && styles.voteButtonActive,
-                    ]}
-                    onPress={() => {
-                      setCurrentVote(currentVote === 'up' ? null : 'up');
-                    }}>
-                    <Icon
-                      name={currentVote === 'up' ? 'thumb-up' : 'thumb-up-outline'}
-                      size={24}
-                      color={currentVote === 'up' ? '#4CAF50' : '#888'}
-                    />
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.controls}>
-                  <TouchableOpacity
-                    style={styles.controlButton}
-                    onPress={skipToPreviousChannel}>
-                    <Icon name="skip-previous" size={36} color="#b3b3b3" />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.playButton}
-                    onPress={togglePlayback}>
-                    {isBuffering ? (
-                      <ActivityIndicator color="#fff" size="large" />
-                    ) : (
-                      <Icon
-                        name={isPlaying ? 'pause' : 'play'}
-                        size={36}
-                        color="#fff"
-                      />
-                    )}
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.controlButton}
-                    onPress={skipToNextChannel}>
-                    <Icon name="skip-next" size={36} color="#b3b3b3" />
-                  </TouchableOpacity>
-                </View>
-
-                {/* History Trigger Button */}
-                <TouchableOpacity
-                  style={styles.historyTrigger}
-                  onPress={openHistory}
-                  activeOpacity={0.7}
-                >
-                  <Icon name="history" size={20} color={COLORS.primary} />
-                  <Text style={styles.historyTriggerText}>Son Çalanları Gör</Text>
+                <TouchableOpacity style={[styles.qualityBadge, {borderColor: qProps.borderColor}]} onPress={cycleQuality}>
+                  <Icon name={qProps.icon} size={13} color={qProps.color} />
+                  <Text style={[styles.qualityText, {color: qProps.color}]}>{qProps.text}</Text>
                 </TouchableOpacity>
               </View>
+              <Text style={styles.trackTitle} numberOfLines={1}>{displayTitle}</Text>
+              <Text style={styles.trackArtist} numberOfLines={1}>{displayArtist}</Text>
+            </View>
+            <View style={styles.nowActions}>
+              <TouchableOpacity style={styles.iconButton} onPress={openHistory}>
+                <Icon name="history" size={20} color={COLORS.text} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.playButton} onPress={togglePlayback}>
+                {isBuffering ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Icon name={isPlaying ? 'pause' : 'play'} size={25} color="#fff" />
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.transportRow}>
+            <TouchableOpacity style={styles.transportButton} onPress={skipToPreviousChannel}>
+              <Icon name="skip-previous" size={22} color={COLORS.textMuted} />
+              <Text style={styles.transportText}>Önceki</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.votePill, currentVote === 'down' && styles.votePillActive]}
+              onPress={() => setCurrentVote(currentVote === 'down' ? null : 'down')}>
+              <Icon name={currentVote === 'down' ? 'thumb-down' : 'thumb-down-outline'} size={18} color={currentVote === 'down' ? COLORS.primary : COLORS.textMuted} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.votePill, currentVote === 'up' && styles.votePillActive]}
+              onPress={() => setCurrentVote(currentVote === 'up' ? null : 'up')}>
+              <Icon name={currentVote === 'up' ? 'thumb-up' : 'thumb-up-outline'} size={18} color={currentVote === 'up' ? COLORS.success : COLORS.textMuted} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.transportButton} onPress={skipToNextChannel}>
+              <Text style={styles.transportText}>Sonraki</Text>
+              <Icon name="skip-next" size={22} color={COLORS.textMuted} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Favoriler</Text>
+              <Text style={styles.sectionMeta}>{orderedChannels.favorites.length} yayın</Text>
             </View>
 
-            {/* History Modal */}
-            <Modal
-              visible={showHistoryModal}
-              animationType="slide"
-              transparent={true}
-              onRequestClose={() => setShowHistoryModal(false)}
-            >
-              <View style={styles.modalOverlay}>
-                <View style={styles.historyModalContent}>
-                  <View style={styles.modalHandle} />
-
-                  <View style={styles.modalHeader}>
-                    <View style={styles.headerInfo}>
-                      <Text style={styles.modalTitle}>Son Çalan Şarkılar</Text>
-                      <Text style={styles.modalSubtitle}>{selectedChannel.name} • Son 15 Dakika</Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={() => setShowHistoryModal(false)}
-                      style={styles.modalCloseButton}
-                    >
-                      <Icon name="close-circle" size={28} color={COLORS.textMuted} />
-                    </TouchableOpacity>
-                  </View>
-
-                  {isLoadingHistory && history.length === 0 ? (
-                    <View style={styles.modalLoading}>
-                      <ActivityIndicator color={COLORS.primary} size="large" />
-                    </View>
-                  ) : history.length > 0 ? (
-                    <FlatList
-                      data={history}
-                      renderItem={renderHistoryItem}
-                      keyExtractor={(item, index) => item.id || index.toString()}
-                      contentContainerStyle={styles.historyFlatList}
-                      showsVerticalScrollIndicator={false}
-                    />
-                  ) : (
-                    <View style={styles.emptyHistoryContainer}>
-                      <Icon name="clock-outline" size={48} color={COLORS.surface} />
-                      <Text style={styles.noHistoryText}>Henüz geçmiş kaydı bulunmuyor.</Text>
-                    </View>
-                  )}
-                </View>
+            {orderedChannels.favorites.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.favoriteList}>
+                {orderedChannels.favorites.map((channel) => (
+                  <FavoriteCard
+                    key={channel.id}
+                    channel={channel}
+                    isActive={selectedChannel.id === channel.id}
+                    isPlaying={currentPlayingId === channel.id && state === State.Playing}
+                    onPress={() => playChannel(channel)}
+                    onToggleFavorite={() => toggleFavorite(channel.id)}
+                  />
+                ))}
+              </ScrollView>
+            ) : (
+              <View style={styles.emptyFavoriteCard}>
+                <Icon name="heart-plus-outline" size={22} color={COLORS.primary} />
+                <Text style={styles.emptyFavoriteText}>Sık dinlediğin yayınları favoriye ekle; burada hızlı erişim olarak kalacak.</Text>
               </View>
-            </Modal>
+            )}
+
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Tüm Yayınlar</Text>
+              <Text style={styles.sectionMeta}>{activeChannels.length} aktif</Text>
+            </View>
+
+            <View style={styles.grid}>
+              {[...orderedChannels.favorites, ...orderedChannels.remaining].map((channel) => (
+                <ChannelGridCard
+                  key={channel.id}
+                  channel={channel}
+                  isFavorite={favoriteIds.includes(channel.id)}
+                  isActive={selectedChannel.id === channel.id}
+                  isPlaying={currentPlayingId === channel.id && state === State.Playing}
+                  onPress={() => playChannel(channel)}
+                  onToggleFavorite={() => toggleFavorite(channel.id)}
+                />
+              ))}
+            </View>
           </ScrollView>
+
+          <HistoryModal
+            visible={showHistoryModal}
+            channel={selectedChannel}
+            history={history}
+            isLoading={isLoadingHistory}
+            renderItem={renderHistoryItem}
+            onClose={() => setShowHistoryModal(false)}
+          />
         </SafeAreaView>
       </View>
     </PageTransition>
   );
 };
 
+function FavoriteCard({
+  channel,
+  isActive,
+  isPlaying,
+  onPress,
+  onToggleFavorite,
+}: {
+  channel: RadioChannel;
+  isActive: boolean;
+  isPlaying: boolean;
+  onPress: () => void;
+  onToggleFavorite: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.favoriteCard, isActive && {borderColor: channel.color}]}
+      onPress={onPress}
+      activeOpacity={0.82}>
+      <View style={[styles.favoriteIcon, {backgroundColor: `${channel.color}22`}]}>
+        <Icon name={channel.icon || 'radio-tower'} size={22} color={channel.color} />
+      </View>
+      <Text style={styles.favoriteName} numberOfLines={1}>{channel.name}</Text>
+      <Text style={styles.favoriteDesc} numberOfLines={1}>{channel.description}</Text>
+      {isPlaying ? <View style={[styles.equalizer, {backgroundColor: channel.color}]} /> : null}
+      <TouchableOpacity style={styles.favoriteHeart} onPress={onToggleFavorite}>
+        <Icon name="heart" size={18} color={COLORS.primary} />
+      </TouchableOpacity>
+    </TouchableOpacity>
+  );
+}
+
+function ChannelGridCard({
+  channel,
+  isFavorite,
+  isActive,
+  isPlaying,
+  onPress,
+  onToggleFavorite,
+}: {
+  channel: RadioChannel;
+  isFavorite: boolean;
+  isActive: boolean;
+  isPlaying: boolean;
+  onPress: () => void;
+  onToggleFavorite: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.channelCard, isActive && {borderColor: channel.color, backgroundColor: `${channel.color}18`}]}
+      onPress={onPress}
+      activeOpacity={0.84}>
+      <View style={styles.cardTopRow}>
+        <View style={[styles.channelIcon, {backgroundColor: `${channel.color}22`}]}>
+          <Icon name={channel.icon || 'radio-tower'} size={20} color={channel.color} />
+        </View>
+        <TouchableOpacity onPress={onToggleFavorite} hitSlop={{top: 8, right: 8, bottom: 8, left: 8}}>
+          <Icon name={isFavorite ? 'heart' : 'heart-outline'} size={19} color={isFavorite ? COLORS.primary : COLORS.textMuted} />
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.channelName} numberOfLines={1}>{channel.name}</Text>
+      <Text style={styles.channelDescription} numberOfLines={1}>{channel.description}</Text>
+      <View style={styles.cardBottomRow}>
+        <Text style={[styles.statusText, isPlaying && {color: channel.color}]}>
+          {isPlaying ? 'Çalıyor' : 'Dinle'}
+        </Text>
+        <Icon name={isPlaying ? 'volume-high' : 'play-circle-outline'} size={18} color={isPlaying ? channel.color : COLORS.textMuted} />
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function HistoryModal({
+  visible,
+  channel,
+  history,
+  isLoading,
+  renderItem,
+  onClose,
+}: {
+  visible: boolean;
+  channel: RadioChannel;
+  history: any[];
+  isLoading: boolean;
+  renderItem: ({item}: {item: any}) => React.ReactElement;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.historyModalContent}>
+          <View style={styles.modalHandle} />
+          <View style={styles.modalHeader}>
+            <View style={styles.headerInfo}>
+              <Text style={styles.modalTitle}>Son Çalan Şarkılar</Text>
+              <Text style={styles.modalSubtitle}>{channel.name} · Son 15 Dakika</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} style={styles.modalCloseButton}>
+              <Icon name="close-circle" size={28} color={COLORS.textMuted} />
+            </TouchableOpacity>
+          </View>
+
+          {isLoading && history.length === 0 ? (
+            <View style={styles.modalLoading}>
+              <ActivityIndicator color={COLORS.primary} size="large" />
+            </View>
+          ) : history.length > 0 ? (
+            <FlatList
+              data={history}
+              renderItem={renderItem}
+              keyExtractor={(item, index) => item.id || index.toString()}
+              contentContainerStyle={styles.historyFlatList}
+              showsVerticalScrollIndicator={false}
+            />
+          ) : (
+            <View style={styles.emptyHistoryContainer}>
+              <Icon name="clock-outline" size={48} color={COLORS.textMuted} />
+              <Text style={styles.noHistoryText}>Henüz geçmiş kaydı bulunmuyor.</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function resolveChannelUrl(channel: RadioChannel, quality: 'low' | 'medium' | 'high') {
+  if (quality === 'low' && channel.streams?.low) {
+    return channel.streams.low;
+  }
+  if (quality === 'medium' && channel.streams?.medium) {
+    return channel.streams.medium;
+  }
+  if (quality === 'high' && channel.streams?.high) {
+    return channel.streams.high;
+  }
+  return channel.streamUrl;
+}
+
+function getQualityProps(streamQuality: 'low' | 'medium' | 'high') {
+  if (streamQuality === 'high') {
+    return {text: 'HQ', color: '#FFD700', borderColor: 'rgba(255, 215, 0, 0.5)', icon: 'signal-cellular-3'};
+  }
+  if (streamQuality === 'medium') {
+    return {text: 'MQ', color: '#00BCD4', borderColor: 'rgba(0, 188, 212, 0.5)', icon: 'signal-cellular-2'};
+  }
+  return {text: 'LQ', color: '#B0BEC5', borderColor: 'rgba(176, 190, 197, 0.5)', icon: 'signal-cellular-1'};
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  backgroundImage: {
-    flex: 1,
-    opacity: 0.4,
-  },
-  backgroundOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: COLORS.background,
   },
   safeArea: {
     flex: 1,
   },
-  channelSection: {
-    marginBottom: 8,
-    marginTop: 8,
-  },
-  channelList: {
-    paddingHorizontal: 16,
-    gap: 8,
-  },
-  channelChip: {
+  nowPlayingCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#282828',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 8,
-  },
-  channelDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 8,
-  },
-  channelChipText: {
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  channelChipTextActive: {
-    color: '#000',
-    fontWeight: '600',
-  },
-  playerArea: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingBottom: 120,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-  },
-  artworkSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  controlsSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 32,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  artworkContainer: {
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.4,
-    shadowRadius: 24,
-    elevation: 20,
-    marginBottom: 20,
-  },
-  artwork: {
-    width: 280,
-    height: 280,
-    maxWidth: '85%',
-    aspectRatio: 1,
+    marginHorizontal: SPACING.md,
+    marginTop: SPACING.sm,
+    padding: SPACING.md,
     borderRadius: 24,
-    borderWidth: 4,
-    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#211113',
+    borderWidth: 1,
+    borderColor: 'rgba(227,30,36,0.28)',
   },
-  trackInfo: {
-    alignItems: 'center',
-    marginBottom: 8,
-    width: '100%',
+  nowArtwork: {
+    width: 58,
+    height: 58,
+    borderRadius: 16,
+    backgroundColor: COLORS.surface,
   },
-  trackTitle: {
-    color: '#fff',
-    fontSize: 28,
-    fontWeight: '800',
-    textAlign: 'center',
-    letterSpacing: -0.5,
+  nowBody: {
+    flex: 1,
+    marginHorizontal: SPACING.md,
   },
-  trackArtist: {
-    color: COLORS.primary,
-    fontSize: 18,
-    fontWeight: '600',
-    marginTop: 2,
-    textAlign: 'center',
-    opacity: 0.9,
-  },
-  badgesRow: {
+  liveRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-    gap: 8,
+    gap: SPACING.sm,
+    marginBottom: 4,
   },
   liveBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.primary,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
   },
   liveDot: {
-    width: 6,
-    height: 6,
+    width: 5,
+    height: 5,
     borderRadius: 3,
     backgroundColor: '#fff',
-    marginRight: 6,
+    marginRight: 5,
   },
   liveText: {
     color: '#fff',
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '900',
-    letterSpacing: 1,
+    letterSpacing: 0.8,
   },
-  techBadge: {
+  qualityBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
     borderWidth: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
   },
-  techBadgeText: {
-    fontSize: 10,
+  qualityText: {
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  trackTitle: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  trackArtist: {
+    color: COLORS.textMuted,
+    fontSize: 12,
     fontWeight: '700',
-    fontFamily: Platform.OS === 'ios' ? 'Avenir-Medium' : 'sans-serif-medium',
+    marginTop: 2,
   },
-  votingRow: {
+  nowActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 24,
-    marginBottom: 16,
+    gap: SPACING.sm,
   },
-  voteButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  iconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: COLORS.surface,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  voteButtonActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  controls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 24,
+    borderColor: COLORS.border,
   },
   playButton: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: 48,
+    height: 48,
+    borderRadius: 18,
     backgroundColor: COLORS.primary,
-    justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.5,
-    shadowRadius: 15,
-    elevation: 10,
+    justifyContent: 'center',
   },
-  controlButton: {
-    padding: 12,
-    borderRadius: 30,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-  },
-  // History UI Improvements
-  historyTrigger: {
+  transportRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    marginTop: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'space-between',
+    marginHorizontal: SPACING.md,
+    marginTop: SPACING.sm,
   },
-  historyTriggerText: {
+  transportButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: SPACING.md,
+    height: 38,
+    borderRadius: 999,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  transportText: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  votePill: {
+    width: 42,
+    height: 38,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  votePillActive: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  scrollContent: {
+    padding: SPACING.md,
+    paddingBottom: SPACING.xl,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: SPACING.lg,
+    marginBottom: SPACING.sm,
+  },
+  sectionTitle: {
     color: COLORS.text,
-    fontSize: 13,
-    fontWeight: 'bold',
-    marginLeft: 8,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  sectionMeta: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  favoriteList: {
+    gap: SPACING.sm,
+  },
+  favoriteCard: {
+    width: 148,
+    minHeight: 118,
+    padding: SPACING.md,
+    borderRadius: 20,
+    backgroundColor: COLORS.card,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginRight: SPACING.sm,
+  },
+  favoriteIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  favoriteName: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: '900',
+    marginTop: SPACING.sm,
+  },
+  favoriteDesc: {
+    color: COLORS.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  favoriteHeart: {
+    position: 'absolute',
+    right: 10,
+    top: 10,
+  },
+  equalizer: {
+    position: 'absolute',
+    left: SPACING.md,
+    bottom: 10,
+    width: 34,
+    height: 4,
+    borderRadius: 999,
+  },
+  emptyFavoriteCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    padding: SPACING.md,
+    borderRadius: 18,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  emptyFavoriteText: {
+    flex: 1,
+    color: COLORS.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+  },
+  channelCard: {
+    width: '48%',
+    minHeight: 124,
+    padding: SPACING.md,
+    borderRadius: 20,
+    backgroundColor: COLORS.card,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  cardTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  channelIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  channelName: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: '900',
+    marginTop: SPACING.sm,
+  },
+  channelDescription: {
+    color: COLORS.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  cardBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: SPACING.md,
+  },
+  statusText: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    fontWeight: '900',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.72)',
     justifyContent: 'flex-end',
   },
   historyModalContent: {
@@ -768,7 +769,7 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
     maxHeight: '70%',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: COLORS.border,
   },
   modalHandle: {
     width: 40,

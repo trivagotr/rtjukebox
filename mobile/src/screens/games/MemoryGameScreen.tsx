@@ -1,11 +1,11 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
-import {Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {ScrollView, StyleSheet, Text, TouchableOpacity, Vibration, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import {COLORS, SPACING} from '../../theme/theme';
 import {ArcadeGame} from '../../services/gamificationService';
 import {createClientRoundId, submitMobileGameScore} from './gameSession';
+import {ComboMeter, FeedbackToast, GameResultModal, GameShell} from './GameChrome';
 
 type MemoryCard = {
   id: string;
@@ -13,7 +13,7 @@ type MemoryCard = {
   matched: boolean;
 };
 
-const SYMBOLS = ['🎙️', '🎧', '🎵', '📻', '⭐', '🎸', '🎚️', '💿'];
+const SYMBOLS = ['MIC', 'DJ', 'FM', 'XP', 'POP', 'ROCK', 'LIVE', 'TEDU'];
 
 const MemoryGameScreen = () => {
   const navigation = useNavigation<any>();
@@ -22,30 +22,46 @@ const MemoryGameScreen = () => {
   const [cards, setCards] = useState<MemoryCard[]>(() => createDeck());
   const [flippedIds, setFlippedIds] = useState<string[]>([]);
   const [moves, setMoves] = useState(0);
+  const [combo, setCombo] = useState(1);
   const [locked, setLocked] = useState(false);
   const [finished, setFinished] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [awardedXp, setAwardedXp] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitFailed, setSubmitFailed] = useState(false);
   const submittedRef = useRef(false);
   const roundIdRef = useRef(createClientRoundId(game));
   const startedAtRef = useRef(Date.now());
 
   const matchedCount = useMemo(() => cards.filter((card) => card.matched).length, [cards]);
-  const score = Math.max(0, matchedCount * 80 - moves * 3);
+  const score = Math.max(0, matchedCount * 80 - moves * 3 + combo * 12);
+
+  const submitFinalScore = useCallback(async (finalScore = score) => {
+    setIsSubmitting(true);
+    setSubmitFailed(false);
+    try {
+      const result: any = await submitMobileGameScore({
+        game,
+        score: finalScore,
+        clientRoundId: roundIdRef.current,
+        startedAt: startedAtRef.current,
+      });
+      setAwardedXp(Number(result?.points_awarded ?? 0));
+    } catch (error) {
+      console.error('Memory score submit failed:', error);
+      setSubmitFailed(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [game, score]);
 
   useEffect(() => {
     if (matchedCount === cards.length && cards.length > 0 && !submittedRef.current) {
       submittedRef.current = true;
       setFinished(true);
-      submitMobileGameScore({
-        game,
-        score,
-        clientRoundId: roundIdRef.current,
-        startedAt: startedAtRef.current,
-      }).catch((error) => {
-        console.error('Memory score submit failed:', error);
-        Alert.alert('Hata', 'Skor gönderilemedi.');
-      });
+      submitFinalScore(score);
     }
-  }, [cards.length, game, matchedCount, score]);
+  }, [cards.length, matchedCount, score, submitFinalScore]);
 
   const handleFlip = (card: MemoryCard) => {
     if (locked || finished || card.matched || flippedIds.includes(card.id)) {
@@ -63,13 +79,20 @@ const MemoryGameScreen = () => {
 
       setTimeout(() => {
         if (isMatch) {
+          const nextCombo = combo + 1;
+          setCombo(nextCombo);
+          setFeedback(`Eşleşme! Combo x${nextCombo}`);
+          Vibration.vibrate(18);
           setCards((current) =>
             current.map((item) => nextFlipped.includes(item.id) ? {...item, matched: true} : item),
           );
+        } else {
+          setCombo(1);
+          setFeedback('Kaçtı');
         }
         setFlippedIds([]);
         setLocked(false);
-      }, 650);
+      }, 620);
     }
   };
 
@@ -80,55 +103,56 @@ const MemoryGameScreen = () => {
     setCards(createDeck());
     setFlippedIds([]);
     setMoves(0);
+    setCombo(1);
     setLocked(false);
     setFinished(false);
+    setAwardedXp(0);
+    setSubmitFailed(false);
+    setIsSubmitting(false);
+    setFeedback(null);
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.navbar}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Icon name="chevron-left" size={30} color={COLORS.text} />
-        </TouchableOpacity>
-        <Text style={styles.navbarTitle}>Hafıza Kartları</Text>
-        <View style={styles.navbarSpacer} />
-      </View>
+      <GameShell
+        title="Hafıza Kartları"
+        subtitle="Kart eşleştirme"
+        score={score}
+        progressLabel={`${matchedCount / 2}/${cards.length / 2} eşleşme`}
+        rightLabel={`${moves} hamle`}
+        onBack={() => navigation.goBack()}>
+        <FeedbackToast text={feedback} />
+        <ComboMeter label="Hafıza serisi" value={combo} />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.scoreCard}>
-          <View>
-            <Text style={styles.scoreLabel}>Skor</Text>
-            <Text style={styles.scoreValue}>{score}</Text>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <View style={styles.grid}>
+            {cards.map((card) => {
+              const isVisible = card.matched || flippedIds.includes(card.id);
+              return (
+                <TouchableOpacity
+                  key={card.id}
+                  style={[styles.card, isVisible && styles.cardVisible, card.matched && styles.cardMatched]}
+                  onPress={() => handleFlip(card)}
+                  activeOpacity={0.82}>
+                  <Text style={styles.cardText}>{isVisible ? card.symbol : '?'}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-          <View style={styles.movesBox}>
-            <Text style={styles.movesValue}>{moves}</Text>
-            <Text style={styles.movesLabel}>Hamle</Text>
-          </View>
-        </View>
+          <Text style={styles.helpText}>Daha az hamle ve üst üste eşleşme daha fazla skor getirir.</Text>
+        </ScrollView>
+      </GameShell>
 
-        <View style={styles.grid}>
-          {cards.map((card) => {
-            const isVisible = card.matched || flippedIds.includes(card.id);
-            return (
-              <TouchableOpacity
-                key={card.id}
-                style={[styles.card, isVisible && styles.cardVisible, card.matched && styles.cardMatched]}
-                onPress={() => handleFlip(card)}
-                activeOpacity={0.82}>
-                <Text style={styles.cardText}>{isVisible ? card.symbol : '?'}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {finished ? (
-          <TouchableOpacity style={styles.restartButton} onPress={resetGame}>
-            <Text style={styles.restartText}>Tekrar Oyna</Text>
-          </TouchableOpacity>
-        ) : (
-          <Text style={styles.helpText}>Aynı ikonları eşleştir. Daha az hamle daha yüksek skor getirir.</Text>
-        )}
-      </ScrollView>
+      <GameResultModal
+        visible={finished}
+        score={score}
+        awardedXp={awardedXp}
+        isSubmitting={isSubmitting}
+        submitFailed={submitFailed}
+        onRetrySubmit={() => submitFinalScore(score)}
+        onRestart={resetGame}
+        onExit={() => navigation.goBack()}
+      />
     </SafeAreaView>
   );
 };
@@ -153,24 +177,12 @@ function shuffle<T>(items: T[]): T[] {
 
 const styles = StyleSheet.create({
   container: {flex: 1, backgroundColor: COLORS.background},
-  navbar: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm},
-  backButton: {width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.05)'},
-  navbarTitle: {color: COLORS.text, fontSize: 18, fontWeight: '900'},
-  navbarSpacer: {width: 44},
-  content: {padding: SPACING.lg, paddingBottom: SPACING.xl},
-  scoreCard: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: SPACING.md, borderRadius: 22, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border},
-  scoreLabel: {color: COLORS.textMuted, fontSize: 12, fontWeight: '800', textTransform: 'uppercase'},
-  scoreValue: {color: COLORS.primary, fontSize: 40, fontWeight: '900'},
-  movesBox: {alignItems: 'center', justifyContent: 'center', minWidth: 78, minHeight: 66, borderRadius: 18, backgroundColor: 'rgba(227,30,36,0.12)'},
-  movesValue: {color: COLORS.text, fontSize: 22, fontWeight: '900'},
-  movesLabel: {color: COLORS.textMuted, fontSize: 11},
+  content: {paddingBottom: SPACING.xl},
   grid: {flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, marginTop: SPACING.lg, justifyContent: 'center'},
   card: {width: '22%', aspectRatio: 0.82, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border},
   cardVisible: {backgroundColor: '#2A0709', borderColor: COLORS.primary},
   cardMatched: {backgroundColor: 'rgba(52,199,89,0.16)', borderColor: COLORS.success},
-  cardText: {fontSize: 28, color: COLORS.text, fontWeight: '900'},
-  restartButton: {height: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.primary, marginTop: SPACING.lg},
-  restartText: {color: '#fff', fontSize: 15, fontWeight: '900'},
+  cardText: {fontSize: 18, color: COLORS.text, fontWeight: '900'},
   helpText: {color: COLORS.textMuted, fontSize: 13, textAlign: 'center', lineHeight: 19, marginTop: SPACING.lg},
 });
 

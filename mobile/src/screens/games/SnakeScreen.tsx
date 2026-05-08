@@ -1,11 +1,12 @@
-import React, {useEffect, useRef, useState} from 'react';
-import {Alert, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {StyleSheet, Text, TouchableOpacity, Vibration, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import {COLORS, SPACING} from '../../theme/theme';
 import {ArcadeGame} from '../../services/gamificationService';
 import {createClientRoundId, submitMobileGameScore} from './gameSession';
+import {ComboMeter, FeedbackToast, GameResultModal, GameShell} from './GameChrome';
 
 type Point = {x: number; y: number};
 type Direction = 'up' | 'down' | 'left' | 'right';
@@ -23,8 +24,14 @@ const SnakeScreen = () => {
   const [running, setRunning] = useState(true);
   const [gameOver, setGameOver] = useState(false);
   const [score, setScore] = useState(0);
+  const [combo, setCombo] = useState(1);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [awardedXp, setAwardedXp] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitFailed, setSubmitFailed] = useState(false);
   const directionRef = useRef<Direction>('right');
   const scoreRef = useRef(0);
+  const comboRef = useRef(1);
   const submittedRef = useRef(false);
   const roundIdRef = useRef(createClientRoundId(game));
   const startedAtRef = useRef(Date.now());
@@ -32,6 +39,38 @@ const SnakeScreen = () => {
   useEffect(() => {
     directionRef.current = direction;
   }, [direction]);
+
+  const submitFinalScore = useCallback(async () => {
+    setIsSubmitting(true);
+    setSubmitFailed(false);
+    try {
+      const result: any = await submitMobileGameScore({
+        game,
+        score: scoreRef.current,
+        clientRoundId: roundIdRef.current,
+        startedAt: startedAtRef.current,
+      });
+      setAwardedXp(Number(result?.points_awarded ?? 0));
+    } catch (error) {
+      console.error('Snake score submit failed:', error);
+      setSubmitFailed(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [game]);
+
+  const finishGame = useCallback(() => {
+    if (submittedRef.current) {
+      return;
+    }
+
+    submittedRef.current = true;
+    setRunning(false);
+    setGameOver(true);
+    setFeedback('Tur bitti');
+    Vibration.vibrate([0, 50, 70, 50]);
+    submitFinalScore();
+  }, [submitFinalScore]);
 
   useEffect(() => {
     if (!running || gameOver) {
@@ -58,39 +97,24 @@ const SnakeScreen = () => {
         const ateFood = samePoint(nextHead, food);
         const nextSnake = ateFood ? [nextHead, ...current] : [nextHead, ...current.slice(0, -1)];
         if (ateFood) {
-          const nextScore = scoreRef.current + 10;
+          const nextCombo = Math.min(comboRef.current + 1, 9);
+          const gained = 8 + nextCombo * 3;
+          const nextScore = scoreRef.current + gained;
+          comboRef.current = nextCombo;
           scoreRef.current = nextScore;
+          setCombo(nextCombo);
           setScore(nextScore);
+          setFeedback(`+${gained}  Combo x${nextCombo}`);
+          Vibration.vibrate(18);
           setFood(createFood(nextSnake));
         }
 
         return nextSnake;
       });
-    }, 230);
+    }, Math.max(120, 245 - scoreRef.current / 10));
 
     return () => clearInterval(timer);
-  }, [food, gameOver, running]);
-
-  const finishGame = async () => {
-    if (submittedRef.current) {
-      return;
-    }
-
-    submittedRef.current = true;
-    setRunning(false);
-    setGameOver(true);
-    try {
-      await submitMobileGameScore({
-        game,
-        score: scoreRef.current,
-        clientRoundId: roundIdRef.current,
-        startedAt: startedAtRef.current,
-      });
-    } catch (error) {
-      console.error('Snake score submit failed:', error);
-      Alert.alert('Hata', 'Skor gönderilemedi.');
-    }
-  };
+  }, [finishGame, food, gameOver, running]);
 
   const resetGame = () => {
     const nextSnake = START_SNAKE;
@@ -98,7 +122,12 @@ const SnakeScreen = () => {
     startedAtRef.current = Date.now();
     submittedRef.current = false;
     scoreRef.current = 0;
+    comboRef.current = 1;
+    setAwardedXp(0);
+    setIsSubmitting(false);
+    setSubmitFailed(false);
     setScore(0);
+    setCombo(1);
     setDirection('right');
     setSnake(nextSnake);
     setFood(createFood(nextSnake));
@@ -122,68 +151,67 @@ const SnakeScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Header title="Snake" onBack={() => navigation.goBack()} />
-      <View style={styles.scoreCard}>
-        <Text style={styles.scoreLabel}>Skor</Text>
-        <Text style={styles.scoreValue}>{score}</Text>
-        <Text style={styles.helpText}>Yemeği topla, duvara veya kendine çarpma.</Text>
-      </View>
+      <GameShell
+        title="Snake"
+        subtitle="Premium Arcade"
+        score={score}
+        progressLabel={`${snake.length} blok`}
+        rightLabel={running ? 'Canlı tur' : 'Durdu'}
+        onBack={() => navigation.goBack()}>
+        <FeedbackToast text={feedback} />
+        <ComboMeter label="Yem serisi" value={combo} />
 
-      <View style={styles.board}>
-        {Array.from({length: BOARD_SIZE}).map((_, y) => (
-          <View key={y} style={styles.row}>
-            {Array.from({length: BOARD_SIZE}).map((__, x) => {
-              const isSnake = snake.some((part) => part.x === x && part.y === y);
-              const isHead = snake[0]?.x === x && snake[0]?.y === y;
-              const isFood = food.x === x && food.y === y;
-              return (
-                <View
-                  key={`${x}-${y}`}
-                  style={[
-                    styles.cell,
-                    isSnake && styles.snakeCell,
-                    isHead && styles.snakeHead,
-                    isFood && styles.foodCell,
-                  ]}
-                />
-              );
-            })}
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.controls}>
-        <ControlButton icon="arrow-up-bold" onPress={() => setSafeDirection('up')} />
-        <View style={styles.controlRow}>
-          <ControlButton icon="arrow-left-bold" onPress={() => setSafeDirection('left')} />
-          <TouchableOpacity style={styles.pauseButton} onPress={() => setRunning((value) => !value)} disabled={gameOver}>
-            <Icon name={running ? 'pause' : 'play'} size={26} color="#fff" />
-          </TouchableOpacity>
-          <ControlButton icon="arrow-right-bold" onPress={() => setSafeDirection('right')} />
+        <View style={styles.board}>
+          {Array.from({length: BOARD_SIZE}).map((_, y) => (
+            <View key={y} style={styles.row}>
+              {Array.from({length: BOARD_SIZE}).map((__, x) => {
+                const isSnake = snake.some((part) => part.x === x && part.y === y);
+                const isHead = snake[0]?.x === x && snake[0]?.y === y;
+                const isFood = food.x === x && food.y === y;
+                return (
+                  <View
+                    key={`${x}-${y}`}
+                    style={[
+                      styles.cell,
+                      isSnake && styles.snakeCell,
+                      isHead && styles.snakeHead,
+                      isFood && styles.foodCell,
+                    ]}
+                  />
+                );
+              })}
+            </View>
+          ))}
         </View>
-        <ControlButton icon="arrow-down-bold" onPress={() => setSafeDirection('down')} />
-      </View>
 
-      {gameOver ? (
-        <TouchableOpacity style={styles.restartButton} onPress={resetGame}>
-          <Text style={styles.restartText}>Tekrar Oyna</Text>
-        </TouchableOpacity>
-      ) : null}
+        <View style={styles.controls}>
+          <ControlButton icon="arrow-up-bold" onPress={() => setSafeDirection('up')} />
+          <View style={styles.controlRow}>
+            <ControlButton icon="arrow-left-bold" onPress={() => setSafeDirection('left')} />
+            <TouchableOpacity style={styles.pauseButton} onPress={() => setRunning((value) => !value)} disabled={gameOver}>
+              <Icon name={running ? 'pause' : 'play'} size={26} color="#fff" />
+            </TouchableOpacity>
+            <ControlButton icon="arrow-right-bold" onPress={() => setSafeDirection('right')} />
+          </View>
+          <ControlButton icon="arrow-down-bold" onPress={() => setSafeDirection('down')} />
+        </View>
+
+        <Text style={styles.helpText}>Yemi yakaladıkça combo artar; hız kademeli yükselir.</Text>
+      </GameShell>
+
+      <GameResultModal
+        visible={gameOver}
+        score={score}
+        awardedXp={awardedXp}
+        isSubmitting={isSubmitting}
+        submitFailed={submitFailed}
+        onRetrySubmit={submitFinalScore}
+        onRestart={resetGame}
+        onExit={() => navigation.goBack()}
+      />
     </SafeAreaView>
   );
 };
-
-function Header({title, onBack}: {title: string; onBack: () => void}) {
-  return (
-    <View style={styles.navbar}>
-      <TouchableOpacity onPress={onBack} style={styles.backButton}>
-        <Icon name="chevron-left" size={30} color={COLORS.text} />
-      </TouchableOpacity>
-      <Text style={styles.navbarTitle}>{title}</Text>
-      <View style={styles.navbarSpacer} />
-    </View>
-  );
-}
 
 function ControlButton({icon, onPress}: {icon: string; onPress: () => void}) {
   return (
@@ -224,27 +252,18 @@ function createFood(snake: Point[]): Point {
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1, backgroundColor: COLORS.background, paddingHorizontal: SPACING.lg},
-  navbar: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: SPACING.sm},
-  backButton: {width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.05)'},
-  navbarTitle: {color: COLORS.text, fontSize: 18, fontWeight: '900'},
-  navbarSpacer: {width: 44},
-  scoreCard: {padding: SPACING.md, borderRadius: 20, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border},
-  scoreLabel: {color: COLORS.textMuted, fontSize: 12, fontWeight: '800', textTransform: 'uppercase'},
-  scoreValue: {color: COLORS.primary, fontSize: 42, fontWeight: '900'},
-  helpText: {color: COLORS.textMuted, fontSize: 13},
+  container: {flex: 1, backgroundColor: COLORS.background},
   board: {alignSelf: 'center', marginTop: SPACING.lg, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: COLORS.border},
   row: {flexDirection: 'row'},
   cell: {width: 22, height: 22, backgroundColor: '#171717', borderWidth: 0.5, borderColor: '#242424'},
   snakeCell: {backgroundColor: COLORS.primary},
   snakeHead: {backgroundColor: '#FFB020'},
   foodCell: {backgroundColor: '#34C759'},
-  controls: {alignItems: 'center', marginTop: SPACING.xl, gap: SPACING.sm},
+  controls: {alignItems: 'center', marginTop: SPACING.lg, gap: SPACING.sm},
   controlRow: {flexDirection: 'row', alignItems: 'center', gap: SPACING.sm},
-  controlButton: {width: 62, height: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border},
-  pauseButton: {width: 62, height: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.primary},
-  restartButton: {height: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.primary, marginTop: SPACING.lg},
-  restartText: {color: '#fff', fontSize: 15, fontWeight: '900'},
+  controlButton: {width: 62, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border},
+  pauseButton: {width: 62, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.primary},
+  helpText: {color: COLORS.textMuted, fontSize: 12, textAlign: 'center', marginTop: SPACING.md},
 });
 
 export default SnakeScreen;
