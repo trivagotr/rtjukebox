@@ -14,7 +14,7 @@ build/
 *.apk
 
 # Large local exports
-docker_export/*.tar
+docker_export/
 
 # Environment
 .env
