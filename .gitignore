@@ -11,6 +11,10 @@ dist/
 build/
 *.exe
 *.zip
+*.apk
+
+# Large local exports
+docker_export/*.tar
 
 # Environment
 .env
