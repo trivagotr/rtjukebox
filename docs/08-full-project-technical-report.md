@@ -1,8 +1,8 @@
 # RadioTEDU / RT Jukebox Tam Teknik Proje Raporu
 
-Rapor tarihi: 2026-05-13  
-İncelenen branch: `main`  
-İncelenen commit: `16b070c4`  
+Rapor tarihi: 2026-05-13
+İncelenen branch: `main`
+İncelenen commit: `16b070c4`
 Ana repository: `https://github.com/trivagotr/rtjukebox.git`
 
 Bu doküman projeyi yazılım bilen birinin uçtan uca anlayabilmesi için hazırlanmıştır. Amaç sadece dosya listesi vermek değil, programın hangi girdiyi aldığı, hangi veriyi nereye yazdığı, hangi servisi çağırdığı ve hangi çıktıyı ürettiğini net şekilde açıklamaktır.
