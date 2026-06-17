@@ -4,72 +4,68 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RadioTEDU Jukebox</title>
-    <link rel="stylesheet" href="style.css">
+    <title>RadioTEDU Arcade Jukebox</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@300;400;500;600;700;800;900&display=swap"
+    <link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@400;600;700;800;900&display=swap"
         rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0"
-        rel="stylesheet">
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,600,0,0" />
+    <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
-    <div class="animated-bg">
-        <div class="gradient-orb orb-1"></div>
-        <div class="gradient-orb orb-2"></div>
-        <div class="gradient-orb orb-3"></div>
-    </div>
-
     <div class="kiosk-app">
-        <header class="header">
-            <div class="header-left">
+        <header class="kiosk-header">
+            <div class="brand-stack">
                 <div class="logo" id="brandLogo" data-logo-state="loaded">
                     <span class="logo-icon">music_note</span>
                     <img src="assets/logo-03byz-scaled.png" alt="RadioTEDU BYZ Logo" class="brand-logo"
                         id="brandLogoImage">
                     <span class="logo-text is-hidden" id="brandLogoText">RadioTEDU</span>
                 </div>
+                <div>
+                    <p class="eyebrow">RadioTEDU</p>
+                    <h1>Arcade Jukebox</h1>
+                </div>
+            </div>
+
+            <div class="status-strip">
                 <div class="device-badge" id="deviceBadge">
                     <span class="material-symbols-rounded">location_on</span>
                     <span id="deviceLocation">Yemekhane</span>
                 </div>
-            </div>
-            <div class="header-right">
                 <div class="live-indicator" id="liveIndicator">
                     <span class="live-dot"></span>
-                    <span>CANLI</span>
+                    <span>Canlı</span>
                 </div>
                 <div class="connection-badge" id="connectionBadge">
-                    <span class="material-symbols-rounded" id="connectionIcon">wifi</span>
+                    <span class="material-symbols-rounded" id="connectionIcon">wifi_find</span>
                     <span id="connectionText">Bağlanıyor</span>
                 </div>
-                <button class="logout-btn" id="logoutBtn" title="Çıkış Yap">
+                <button class="logout-btn" id="logoutBtn" title="Çıkış Yap" aria-label="Çıkış Yap">
                     <span class="material-symbols-rounded">logout</span>
                 </button>
             </div>
         </header>
 
-        <main class="main-content">
-            <section class="now-playing-hero">
+        <main class="kiosk-main">
+            <section class="stage-panel">
                 <div class="idle-state" id="idleState">
-                    <div class="idle-spectrum" aria-hidden="true">
-                        <span></span><span></span><span></span><span></span><span></span>
-                        <span></span><span></span><span></span><span></span><span></span>
-                        <span></span><span></span><span></span><span></span><span></span>
+                    <div class="idle-meter" aria-hidden="true">
                         <span></span><span></span><span></span><span></span><span></span>
                     </div>
                     <div class="idle-logo-wrap">
-                        <div class="idle-logo-ring"></div>
                         <div class="idle-logo-inner">
                             <span class="material-symbols-rounded">music_note</span>
                         </div>
                     </div>
-                    <h1 class="idle-title">Müzik <span class="idle-title-accent">Bekliyor</span></h1>
-                    <p class="idle-subtitle">QR kodu okutarak şarkı ekleyin.</p>
+                    <p class="eyebrow">Queue hazır</p>
+                    <h2 class="idle-title">Müzik Bekliyor</h2>
+                    <p class="idle-subtitle">QR kodu okutup ilk şarkıyı sıraya gönderin.</p>
                     <div class="idle-tag">
                         <span class="material-symbols-rounded">qr_code_scanner</span>
-                        <span>Telefonunu çıkar, kodu tara</span>
+                        <span>Telefonla katıl</span>
                     </div>
                 </div>
 
@@ -80,55 +76,57 @@
                             <img id="albumArt" src="" alt="Album" class="album-art">
                             <div class="vinyl-edge"></div>
                         </div>
-                        <div class="sound-waves">
-                            <span></span><span></span><span></span><span></span><span></span>
-                        </div>
                     </div>
 
                     <div class="song-details">
                         <div class="now-playing-badge">
                             <span class="material-symbols-rounded">play_circle</span>
-                            ŞU AN ÇALIYOR
+                            <span>Şu An Çalıyor</span>
                         </div>
-                        <h1 class="song-title" id="songTitle">Şarkı Adı</h1>
+                        <h2 class="song-title" id="songTitle">Şarkı Adı</h2>
                         <p class="song-artist" id="songArtist">Sanatçı</p>
                         <div class="requester-info" id="requesterInfo">
                             <span class="material-symbols-rounded">person</span>
                             <span id="songRequester">Kullanıcı</span>
                         </div>
-                    </div>
 
-                    <div class="progress-section">
-                        <div class="waveform-progress">
-                            <canvas id="waveformCanvas"></canvas>
-                            <div class="progress-overlay" id="progressOverlay"></div>
-                        </div>
-                        <div class="time-display">
-                            <span id="currentTime">0:00</span>
-                            <span id="totalTime">0:00</span>
+                        <div class="progress-section">
+                            <div class="waveform-progress">
+                                <canvas id="waveformCanvas"></canvas>
+                                <div class="progress-overlay" id="progressOverlay"></div>
+                            </div>
+                            <div class="time-display">
+                                <span id="currentTime">0:00</span>
+                                <span id="totalTime">0:00</span>
+                            </div>
                         </div>
                     </div>
                 </div>
             </section>
 
             <aside class="side-panel">
-                <div class="qr-card">
+                <section class="qr-card">
                     <div class="qr-header">
                         <span class="material-symbols-rounded">qr_code_scanner</span>
-                        <span>Şarkı Ekle</span>
+                        <div>
+                            <p class="eyebrow">Katılım</p>
+                            <h2>Şarkı Ekle</h2>
+                        </div>
                     </div>
                     <div class="qr-container">
                         <div class="qr-code" id="qrCode"></div>
-                        <div class="qr-pulse"></div>
                     </div>
                     <p class="qr-hint">Telefonunuzla tarayın</p>
-                </div>
+                </section>
 
-                <div class="queue-card">
+                <section class="queue-card">
                     <div class="queue-header">
                         <div class="queue-title">
                             <span class="material-symbols-rounded">queue_music</span>
-                            <span>Sıradakiler</span>
+                            <div>
+                                <p class="eyebrow">Sıradakiler</p>
+                                <h2>Queue</h2>
+                            </div>
                         </div>
                         <span class="queue-badge" id="queueCount">0</span>
                     </div>
@@ -139,7 +137,7 @@
                             <span class="empty-hint">İlk şarkıyı siz ekleyin.</span>
                         </div>
                     </div>
-                </div>
+                </section>
             </aside>
         </main>
     </div>

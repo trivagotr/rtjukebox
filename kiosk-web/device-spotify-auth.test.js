@@ -137,6 +137,7 @@ describe('kiosk device spotify auth helper', () => {
       fetch,
       window: {
         open,
+        location: { href: 'http://127.0.0.1:4180/' },
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
         localStorage: {
@@ -151,7 +152,7 @@ describe('kiosk device spotify auth helper', () => {
 
     expect(open).toHaveBeenCalledWith('', '_blank');
     expect(fetch).not.toHaveBeenCalled();
-    expect(popup.location.href).toBe('http://127.0.0.1:3000/api/v1/jukebox/kiosk/spotify-device-auth/start?device_id=device-1&device_pwd=secret');
+    expect(popup.location.href).toBe('http://127.0.0.1:3000/api/v1/jukebox/kiosk/spotify-device-auth/start?device_id=device-1&device_pwd=secret&return_origin=http%3A%2F%2F127.0.0.1%3A4180');
     expect(popup.focus).toHaveBeenCalledTimes(1);
   });
 
@@ -174,6 +175,7 @@ describe('kiosk device spotify auth helper', () => {
       fetch,
       window: {
         open,
+        location: { href: 'http://127.0.0.1:4180/' },
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
         localStorage: {
@@ -188,7 +190,7 @@ describe('kiosk device spotify auth helper', () => {
 
     expect(open).toHaveBeenCalledWith('', '_blank');
     expect(fetch).not.toHaveBeenCalled();
-    expect(popup.location.href).toBe('http://127.0.0.1:3000/api/v1/jukebox/kiosk/spotify-device-auth/start?device_id=device-1&device_pwd=secret');
+    expect(popup.location.href).toBe('http://127.0.0.1:3000/api/v1/jukebox/kiosk/spotify-device-auth/start?device_id=device-1&device_pwd=secret&return_origin=http%3A%2F%2F127.0.0.1%3A4180');
   });
 
   it('refreshes and exits setup after a successful auth success message', async () => {

@@ -4,7 +4,7 @@ import { getGuestFingerprint, GUEST_FINGERPRINT_STORAGE_KEY } from './guestFinge
 function createStorage() {
   const state = new Map<string, string>();
 
-  return {
+  const storage: Pick<Storage, 'getItem' | 'setItem'> & Pick<Storage, 'removeItem'> = {
     getItem(key: string) {
       return state.get(key) ?? null;
     },
@@ -15,6 +15,8 @@ function createStorage() {
       state.delete(key);
     },
   };
+
+  return storage;
 }
 
 describe('guest fingerprint helper', () => {
@@ -22,7 +24,7 @@ describe('guest fingerprint helper', () => {
     const storage = createStorage();
     storage.removeItem(GUEST_FINGERPRINT_STORAGE_KEY);
 
-    const fingerprint = getGuestFingerprint(storage as any);
+    const fingerprint = getGuestFingerprint(storage);
 
     expect(fingerprint).toBeTruthy();
     expect(storage.getItem(GUEST_FINGERPRINT_STORAGE_KEY)).toBe(fingerprint);
@@ -32,8 +34,8 @@ describe('guest fingerprint helper', () => {
     const storage = createStorage();
     storage.removeItem(GUEST_FINGERPRINT_STORAGE_KEY);
 
-    const first = getGuestFingerprint(storage as any);
-    const second = getGuestFingerprint(storage as any);
+    const first = getGuestFingerprint(storage);
+    const second = getGuestFingerprint(storage);
 
     expect(second).toBe(first);
   });

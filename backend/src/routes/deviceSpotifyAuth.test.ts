@@ -67,7 +67,7 @@ describe('device spotify auth routes', () => {
       res,
     );
 
-    expect(spotifyServiceModule.spotifyService.getDeviceAuthStartUrl).toHaveBeenCalledWith('device-1');
+    expect(spotifyServiceModule.spotifyService.getDeviceAuthStartUrl).toHaveBeenCalledWith('device-1', null);
     expect(res.redirect).toHaveBeenCalledWith('https://accounts.spotify.com/authorize?state=device-state');
   });
 
@@ -83,7 +83,7 @@ describe('device spotify auth routes', () => {
       res,
     );
 
-    expect(spotifyServiceModule.spotifyService.getDeviceAuthStartUrl).toHaveBeenCalledWith('device-1');
+    expect(spotifyServiceModule.spotifyService.getDeviceAuthStartUrl).toHaveBeenCalledWith('device-1', null);
     expect(res.redirect).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
@@ -92,6 +92,30 @@ describe('device spotify auth routes', () => {
         authUrl: 'https://accounts.spotify.com/authorize?state=device-state',
       }),
     }));
+  });
+
+  it('passes the frontend return origin into the signed device auth start url', async () => {
+    const res = createMockRes();
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1' }] });
+    vi.spyOn(spotifyServiceModule.spotifyService, 'getDeviceAuthStartUrl').mockResolvedValue(
+      'https://accounts.spotify.com/authorize?state=device-state'
+    );
+
+    await spotifyRoutes.handleSpotifyDeviceAuthStart(
+      {
+        query: {
+          device_id: 'device-1',
+          format: 'json',
+          return_origin: 'http://127.0.0.1:5173',
+        },
+      } as any,
+      res,
+    );
+
+    expect(spotifyServiceModule.spotifyService.getDeviceAuthStartUrl).toHaveBeenCalledWith(
+      'device-1',
+      'http://127.0.0.1:5173',
+    );
   });
 
   it('binds the callback through the device auth handler using the oauth state', async () => {
@@ -117,6 +141,32 @@ describe('device spotify auth routes', () => {
       expect.stringContaining('/api/v1/spotify/device-auth/callback'),
     );
     expect(res.send).toHaveBeenCalled();
+  });
+
+  it('posts device auth success messages only to the signed return origin', async () => {
+    const res = createMockRes();
+    vi.spyOn(spotifyServiceModule.spotifyService, 'handleDeviceAuthCallback').mockResolvedValue({
+      deviceId: 'device-1',
+      connected: true,
+      spotifyAccountId: 'spotify-user-1',
+      spotifyDisplayName: 'Kiosk Device',
+      spotifyEmail: 'kiosk@example.com',
+      spotifyProduct: 'premium',
+      spotifyCountry: 'TR',
+      tokenExpiresAt: new Date('2026-04-03T12:00:00.000Z'),
+      scopes: 'streaming user-modify-playback-state',
+      hasRefreshToken: true,
+      returnOrigin: 'http://127.0.0.1:5173',
+    });
+
+    await spotifyRoutes.handleSpotifyDeviceAuthCallback(
+      { query: { code: 'auth-code', state: 'signed-device-state' } } as any,
+      res,
+    );
+
+    const [html] = res.send.mock.calls[0];
+    expect(html).toContain("window.opener.postMessage({ type: 'SPOTIFY_DEVICE_AUTH_SUCCESS', deviceId: \"device-1\" }, \"http://127.0.0.1:5173\")");
+    expect(html).not.toContain("}, '*')");
   });
 
   it('escapes malicious display names in the device auth success response', async () => {

@@ -131,9 +131,13 @@
 
         const player = new SpotifyPlayer({
             name: options.playerName || 'RadioTEDU Kiosk',
-            getOAuthToken: async (callback) => {
-                const token = await options.getOAuthToken();
-                callback(token);
+            getOAuthToken: (callback) => {
+                return Promise.resolve()
+                    .then(() => options.getOAuthToken())
+                    .then((token) => callback(token))
+                    .catch((error) => {
+                        options.onError?.(error);
+                    });
             },
             volume: typeof options.volume === 'number' ? options.volume : 1,
         });

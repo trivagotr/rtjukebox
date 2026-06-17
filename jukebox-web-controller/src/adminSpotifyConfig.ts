@@ -25,6 +25,7 @@ export interface SpotifyDeviceAuthStatusApiResponse {
   tokenExpiresAt: string | Date | null;
   scopes: string | null;
   hasRefreshToken: boolean;
+  reason?: string | null;
 }
 
 export interface SpotifyDeviceAuthStatusView {
@@ -93,11 +94,16 @@ export function formatSpotifyDeviceAuthStatus(
   status: SpotifyDeviceAuthStatusApiResponse | null | undefined
 ): SpotifyDeviceAuthStatusView {
   if (!status?.connected) {
+    const detail =
+      status?.spotifyDisplayName ||
+      status?.spotifyEmail ||
+      'Bu cihazın Spotify bağlantısı yok';
+
     return {
       isConnected: false,
-      label: 'Bağlantı yok',
-      detail: 'Bu cihazın Spotify bağlantısı yok',
-      actionLabel: 'Bağla',
+      label: status?.reason || 'Bağlantı yok',
+      detail,
+      actionLabel: status?.reason ? 'Yeniden bağla' : 'Bağla',
       tone: 'danger',
     };
   }
@@ -135,13 +141,20 @@ export function buildSpotifyDeviceAuthEndpoints(
 export function buildSpotifyDeviceAuthStartRequest(
   baseUrl: string,
   token: string,
-  deviceId: string
+  deviceId: string,
+  returnOrigin?: string
 ): SpotifyDeviceAuthStartRequest {
-  const encodedDeviceId = encodeURIComponent(deviceId);
+  const params = new URLSearchParams({
+    device_id: deviceId,
+    format: 'json',
+  });
+  if (returnOrigin) {
+    params.set('return_origin', returnOrigin);
+  }
 
   return {
     method: 'GET',
-    url: `${baseUrl}/api/v1/spotify/device-auth/start?device_id=${encodedDeviceId}&format=json`,
+    url: `${baseUrl}/api/v1/spotify/device-auth/start?${params.toString()}`,
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -165,9 +178,11 @@ export function buildSpotifyDeviceAuthDisconnectRequest(
 }
 
 export function isSpotifyDeviceAuthSuccessMessage(data: unknown): data is SpotifyDeviceAuthSuccessMessage {
-  return Boolean(
-    data &&
-    typeof data === 'object' &&
-    (data as Record<string, unknown>).type === 'SPOTIFY_DEVICE_AUTH_SUCCESS'
-  );
+  if (!data || typeof data !== 'object') {
+    return false;
+  }
+
+  const message = data as Record<string, unknown>;
+  return message.type === 'SPOTIFY_DEVICE_AUTH_SUCCESS' &&
+    (message.deviceId === undefined || typeof message.deviceId === 'string');
 }

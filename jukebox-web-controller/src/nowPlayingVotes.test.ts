@@ -30,9 +30,11 @@ describe('now playing vote helpers', () => {
   });
 
   it('keeps the daily supervote availability rule aligned with Istanbul day boundaries', () => {
-    expect(hasSupervoteAvailableToday()).toBe(true);
-    expect(hasSupervoteAvailableToday('2026-04-05T02:00:00.000Z')).toBe(false);
-    expect(hasSupervoteAvailableToday('2026-04-04T20:00:00.000Z')).toBe(true);
+    const now = '2026-04-05T12:00:00.000Z';
+
+    expect(hasSupervoteAvailableToday(undefined, now)).toBe(true);
+    expect(hasSupervoteAvailableToday('2026-04-05T02:00:00.000Z', now)).toBe(false);
+    expect(hasSupervoteAvailableToday('2026-04-04T20:00:00.000Z', now)).toBe(true);
   });
 
   it('treats stored supervote values as active in the UI', () => {

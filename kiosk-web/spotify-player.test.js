@@ -256,4 +256,42 @@ describe('kiosk spotify helpers', () => {
     expect(wrapper.activateElement).toBeTypeOf('function');
     expect(wrapper.disconnect).toBeTypeOf('function');
   });
+
+  it('reports oauth token fetch failures through onError without calling the sdk token callback', async () => {
+    class FakePlayer {
+      constructor(config) {
+        this.config = config;
+      }
+
+      addListener = vi.fn();
+      connect = vi.fn();
+      activateElement = vi.fn();
+      disconnect = vi.fn();
+    }
+
+    const root = createMockRoot();
+    const playerInstances = [];
+    root.Spotify = {
+      Player: vi.fn().mockImplementation((config) => {
+        const instance = new FakePlayer(config);
+        playerInstances.push(instance);
+        return instance;
+      }),
+    };
+    const authError = new Error('Spotify authorization expired for device. Please reconnect Spotify for this kiosk.');
+    const errorHandler = vi.fn();
+
+    createSpotifyPlayer({
+      root,
+      playerName: 'Kiosk Browser',
+      getOAuthToken: vi.fn().mockRejectedValue(authError),
+      onError: errorHandler,
+    });
+
+    const tokenCallback = vi.fn();
+    await expect(playerInstances[0].config.getOAuthToken(tokenCallback)).resolves.toBeUndefined();
+
+    expect(tokenCallback).not.toHaveBeenCalled();
+    expect(errorHandler).toHaveBeenCalledWith(authError);
+  });
 });

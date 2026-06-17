@@ -447,7 +447,34 @@ async function loadSpotifyKioskPlaybackTarget(deviceId: string) {
     return result.rows[0] ?? null;
 }
 
-type SpotifyPlaybackDispatchService = Pick<typeof spotifyService, 'transferPlayback' | 'playTrack'>;
+function isSpotifyMissingPlaybackDeviceError(error: unknown): boolean {
+    const response = (error as { response?: { status?: number; data?: { error?: { reason?: string; message?: string } } } } | null)?.response;
+    const reason = response?.data?.error?.reason;
+    const message = response?.data?.error?.message;
+    return response?.status === 404 && (
+        reason === 'NO_ACTIVE_DEVICE' ||
+        reason === 'DEVICE_NOT_FOUND' ||
+        message?.toLowerCase().includes('device not found') === true
+    );
+}
+
+function isSpotifyUnauthorizedAccessTokenError(error: unknown): boolean {
+    const response = (error as { response?: { status?: number; data?: { error?: { status?: number; message?: string } | string } } } | null)?.response;
+    return response?.status === 401;
+}
+
+async function markSpotifyKioskPlaybackDeviceInactive(deviceId: string) {
+    await db.query(
+        `UPDATE devices
+         SET spotify_playback_device_id = NULL,
+             spotify_player_is_active = false,
+             spotify_player_connected_at = NULL
+         WHERE id = $1`,
+        [deviceId]
+    );
+}
+
+type SpotifyPlaybackDispatchService = Pick<typeof spotifyService, 'getKioskPlaybackToken' | 'refreshDeviceAccessToken' | 'transferPlayback' | 'playTrack'>;
 
 type SpotifyPlaybackDispatchSong = {
     source_type?: 'spotify' | 'local' | null;
@@ -463,6 +490,7 @@ export async function dispatchSpotifyPlaybackForSong(params: {
         return false;
     }
 
+    const spotifyUri = params.song.spotify_uri;
     const playbackTarget = await loadSpotifyKioskPlaybackTarget(params.deviceId);
     const playbackDeviceId = resolveSpotifyKioskPlaybackDeviceId(playbackTarget ?? {});
     if (!playbackDeviceId) {
@@ -470,8 +498,32 @@ export async function dispatchSpotifyPlaybackForSong(params: {
     }
 
     const service = params.spotifyService ?? spotifyService;
-    await service.transferPlayback(playbackDeviceId, true);
-    await service.playTrack(playbackDeviceId, params.song.spotify_uri);
+    const token = await service.getKioskPlaybackToken(params.deviceId);
+    const runDispatch = async (accessToken: string) => {
+        await service.transferPlayback(playbackDeviceId, true, accessToken);
+        await service.playTrack(playbackDeviceId, spotifyUri, accessToken);
+    };
+
+    try {
+        await runDispatch(token.accessToken);
+    } catch (error) {
+        if (isSpotifyMissingPlaybackDeviceError(error)) {
+            await markSpotifyKioskPlaybackDeviceInactive(params.deviceId);
+        }
+        if (isSpotifyUnauthorizedAccessTokenError(error)) {
+            const refreshedAccessToken = await service.refreshDeviceAccessToken(params.deviceId);
+            try {
+                await runDispatch(refreshedAccessToken);
+            } catch (retryError) {
+                if (isSpotifyMissingPlaybackDeviceError(retryError)) {
+                    await markSpotifyKioskPlaybackDeviceInactive(params.deviceId);
+                }
+                throw retryError;
+            }
+            return true;
+        }
+        throw error;
+    }
     return true;
 }
 
@@ -505,7 +557,7 @@ type ReconcileStoppedSpotifyPlaybackDeps = {
     finalizeCurrentPlayingItem: (deviceId: string) => Promise<void>;
     loadNextPendingQueueItem: (deviceId: string) => Promise<RecoverableQueueItem | null>;
     enqueueAutoplay: (deviceId: string) => Promise<void>;
-    startQueueItem: (deviceId: string, queueItem: RecoverableQueueItem) => Promise<void>;
+    startQueueItem: (deviceId: string, queueItem: RecoverableQueueItem) => Promise<boolean | void>;
     emitQueueUpdated: (deviceId: string) => Promise<void>;
 };
 
@@ -615,6 +667,21 @@ async function loadNextRecoverableQueueItem(deviceId: string): Promise<Recoverab
 }
 
 async function startRecoverableQueueItem(deviceId: string, queueItem: RecoverableQueueItem) {
+    if (queueItem.source_type === 'spotify' && queueItem.spotify_uri) {
+        try {
+            await dispatchSpotifyPlaybackForSong({
+                deviceId,
+                song: {
+                    source_type: 'spotify',
+                    spotify_uri: queueItem.spotify_uri,
+                },
+            });
+        } catch (error) {
+            console.warn('[Spotify Recovery] Failed to start recoverable queue item:', error);
+            return false;
+        }
+    }
+
     await db.query("UPDATE queue_items SET status = 'playing' WHERE id = $1", [queueItem.id]);
     await db.query(
         'UPDATE devices SET current_song_id = $2, last_heartbeat = NOW() WHERE id = $1',
@@ -622,19 +689,27 @@ async function startRecoverableQueueItem(deviceId: string, queueItem: Recoverabl
     );
 
     if (queueItem.source_type === 'spotify' && queueItem.spotify_uri) {
-        await dispatchSpotifyPlaybackForSong({
-            deviceId,
-            song: {
-                source_type: 'spotify',
-                spotify_uri: queueItem.spotify_uri,
-            },
-        });
         await recordAutoplayPlaybackStart({ queueItemId: queueItem.id });
     }
+
+    return true;
 }
 
 async function emitQueueUpdatedForDevice(deviceId: string) {
     getIO()?.to(`device:${deviceId}`).emit('queue_updated', await getQueueForDevice(deviceId, undefined, { skipRecovery: true }));
+}
+
+async function getSpotifyKioskPlaybackSnapshotForDevice(deviceId: string) {
+    const token = await spotifyService.getKioskPlaybackToken(deviceId);
+    try {
+        return await spotifyService.getCurrentPlaybackSnapshot(token.accessToken);
+    } catch (error) {
+        if (isSpotifyUnauthorizedAccessTokenError(error)) {
+            const refreshedAccessToken = await spotifyService.refreshDeviceAccessToken(deviceId);
+            return spotifyService.getCurrentPlaybackSnapshot(refreshedAccessToken);
+        }
+        throw error;
+    }
 }
 
 export async function reconcileStoppedSpotifyPlaybackForDevice(params: {
@@ -643,7 +718,7 @@ export async function reconcileStoppedSpotifyPlaybackForDevice(params: {
 }) {
     const deps: ReconcileStoppedSpotifyPlaybackDeps = {
         loadContext: loadStoppedSpotifyPlaybackContext,
-        getPlaybackSnapshot: () => spotifyService.getCurrentPlaybackSnapshot(),
+        getPlaybackSnapshot: async () => getSpotifyKioskPlaybackSnapshotForDevice(params.deviceId),
         finalizeCurrentPlayingItem: finalizeCurrentPlayingQueueItem,
         loadNextPendingQueueItem: loadNextRecoverableQueueItem,
         enqueueAutoplay: async (deviceId: string) => {
@@ -669,7 +744,13 @@ export async function reconcileStoppedSpotifyPlaybackForDevice(params: {
     }
 
     if (nextQueueItem) {
-        await deps.startQueueItem(params.deviceId, nextQueueItem);
+        const started = await deps.startQueueItem(params.deviceId, nextQueueItem);
+        if (started === false) {
+            return {
+                recovered: false as const,
+                reason: 'spotify_dispatch_failed',
+            };
+        }
     }
 
     await deps.emitQueueUpdated(params.deviceId);
@@ -730,6 +811,65 @@ function buildSpotifyKioskTokenResponse(params: {
     };
 }
 
+function readSpotifyErrorDetails(error: unknown) {
+    const response = (error as {
+        response?: {
+            status?: number;
+            data?: {
+                error?: string | {
+                    status?: number;
+                    reason?: string;
+                    message?: string;
+                };
+                error_description?: string;
+            };
+        };
+    } | null)?.response;
+    const spotifyError = response?.data?.error;
+
+    return {
+        status: response?.status,
+        reason: typeof spotifyError === 'object' ? spotifyError.reason : null,
+        message: typeof spotifyError === 'object'
+            ? spotifyError.message
+            : typeof spotifyError === 'string' ? spotifyError : null,
+        description: response?.data?.error_description ?? null,
+    };
+}
+
+function getSpotifyKioskAuthSetupRequiredMessage(error: unknown): string | null {
+    const fallbackMessage = error instanceof Error ? error.message : String(error || '');
+    const details = readSpotifyErrorDetails(error);
+    const combinedMessage = [
+        fallbackMessage,
+        details.reason,
+        details.message,
+        details.description,
+    ].filter(Boolean).join(' ');
+    const normalized = combinedMessage.toLowerCase();
+
+    if (fallbackMessage.includes('No Spotify authorization found') ||
+        fallbackMessage.includes('Spotify authorization expired for device') ||
+        fallbackMessage.includes('Spotify bağlantısı gerekli') ||
+        fallbackMessage.includes('Please reconnect Spotify for this kiosk')) {
+        return fallbackMessage;
+    }
+
+    if (fallbackMessage.includes('Spotify Premium hesabı gerekli') ||
+        (details.status === 403 && normalized.includes('premium'))) {
+        return 'Spotify Premium hesabı gerekli';
+    }
+
+    if (fallbackMessage.includes('Spotify yetkileri eksik') ||
+        (details.status === 403 && (normalized.includes('scope') || normalized.includes('insufficient')))) {
+        return fallbackMessage.includes('Spotify yetkileri eksik')
+            ? fallbackMessage
+            : 'Spotify yetkileri eksik';
+    }
+
+    return null;
+}
+
 export async function handleSpotifyKioskTokenRequest(req: Request, res: Response) {
     try {
         const deviceId = readSpotifyKioskDeviceId(req);
@@ -737,12 +877,10 @@ export async function handleSpotifyKioskTokenRequest(req: Request, res: Response
             return sendError(res, 'Missing device_id', 400);
         }
 
-        const deviceResult = await db.query(
-            'SELECT id FROM devices WHERE id = $1',
-            [deviceId]
-        );
-        if (deviceResult.rows.length === 0) {
-            return sendError(res, 'Device not found', 404);
+        const devicePassword = readSpotifyKioskDevicePassword(req);
+        const validation = await loadValidatedSpotifyKioskDevice(deviceId, devicePassword);
+        if (!validation.ok) {
+            return sendError(res, validation.error, validation.statusCode);
         }
 
         const token = await spotifyService.getKioskPlaybackToken(deviceId);
@@ -759,11 +897,11 @@ export async function handleSpotifyKioskTokenRequest(req: Request, res: Response
     } catch (error) {
         console.error('Spotify kiosk token error:', error);
         const errorMessage = error instanceof Error ? error.message : 'Failed to fetch Spotify kiosk token';
-        const isMissingDeviceAuth = errorMessage.includes('No Spotify authorization found');
+        const authSetupMessage = getSpotifyKioskAuthSetupRequiredMessage(error);
         return sendError(
             res,
-            errorMessage,
-            isMissingDeviceAuth ? 503 : 500
+            authSetupMessage ?? errorMessage,
+            authSetupMessage ? 503 : 500
         );
     }
 }
@@ -804,7 +942,8 @@ export async function handleSpotifyKioskDeviceAuthStartRequest(req: Request, res
             return sendError(res, validation.error, validation.statusCode);
         }
 
-        const authUrl = await spotifyService.getDeviceAuthStartUrl(deviceId);
+        const returnOrigin = typeof req.query?.return_origin === 'string' ? req.query.return_origin : null;
+        const authUrl = await spotifyService.getDeviceAuthStartUrl(deviceId, returnOrigin);
         if (req.method === 'GET') {
             return res.redirect(authUrl);
         }
@@ -824,12 +963,10 @@ export async function handleSpotifyKioskDeviceRegistration(req: Request, res: Re
             is_active: req.body?.is_active !== false,
         });
 
-        const deviceResult = await db.query(
-            'SELECT id FROM devices WHERE id = $1',
-            [normalized.deviceId]
-        );
-        if (deviceResult.rows.length === 0) {
-            return sendError(res, 'Device not found', 404);
+        const devicePassword = readSpotifyKioskDevicePassword(req);
+        const validation = await loadValidatedSpotifyKioskDevice(normalized.deviceId, devicePassword);
+        if (!validation.ok) {
+            return sendError(res, validation.error, validation.statusCode);
         }
 
         const update = buildSpotifyKioskDeviceUpdate({
@@ -2873,6 +3010,7 @@ router.post('/kiosk/register', async (req: Request, res: Response) => {
 });
 
 router.get('/kiosk/spotify-token', handleSpotifyKioskTokenRequest);
+router.post('/kiosk/spotify-token', handleSpotifyKioskTokenRequest);
 
 router.post('/kiosk/spotify-device-auth/status', handleSpotifyKioskDeviceAuthStatusRequest);
 
@@ -2886,6 +3024,11 @@ router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
     const { device_id, song_id } = req.body;
 
     try {
+        const validation = await loadValidatedSpotifyKioskDevice(device_id, readSpotifyKioskDevicePassword(req));
+        if (!validation.ok) {
+            return sendError(res, validation.error, validation.statusCode);
+        }
+
         // Check if song_id is null (stopped)
         if (!song_id) {
             await db.query('UPDATE devices SET current_song_id = NULL WHERE id = $1', [device_id]);
@@ -2929,8 +3072,11 @@ router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
                 const message = dispatchError instanceof Error
                     ? dispatchError.message
                     : 'Failed to start Spotify playback';
-                const statusCode = message === 'No active Spotify kiosk playback device registered' ? 409 : 502;
-                return sendError(res, message, statusCode);
+                const authSetupMessage = getSpotifyKioskAuthSetupRequiredMessage(dispatchError);
+                const statusCode = authSetupMessage
+                    ? 503
+                    : message === 'No active Spotify kiosk playback device registered' ? 409 : 502;
+                return sendError(res, authSetupMessage ?? message, statusCode);
             }
         }
 
@@ -2988,6 +3134,11 @@ router.post('/autoplay/trigger', async (req: Request, res: Response) => {
     const { device_id } = req.body;
 
     try {
+        const validation = await loadValidatedSpotifyKioskDevice(device_id, readSpotifyKioskDevicePassword(req));
+        if (!validation.ok) {
+            return sendError(res, validation.error, validation.statusCode);
+        }
+
         // Double check if queue is empty
         const queueCheck = await db.query(
             "SELECT id FROM queue_items WHERE device_id = $1 AND status = 'pending'",
