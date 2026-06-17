@@ -136,7 +136,7 @@ class KioskApp {
 
     isSpotifyDeviceAuthConnected() {
         if (!this.spotifyDeviceAuthController) {
-            return true;
+            return this.spotifyDeviceAuthReady === true && !this.spotifyDeviceAuthSetupState?.required;
         }
 
         if (this.spotifyDeviceAuthStatus?.connected === false) {
@@ -152,8 +152,16 @@ class KioskApp {
 
     async setupSpotifyDeviceAuthFlow() {
         if (!window.KioskDeviceSpotifyAuth?.createSpotifyDeviceAuthController) {
-            this.spotifyDeviceAuthReady = true;
-            return { connected: true };
+            const status = {
+                deviceId: this.device?.id || null,
+                connected: false,
+                reason: 'Spotify bağlantısı gerekli',
+            };
+            this.spotifyDeviceAuthStatus = status;
+            this.spotifyDeviceAuthReady = false;
+            this.saveSpotifyDeviceAuthSetupState(status.reason);
+            this.showSpotifyDeviceAuthSetupOverlay(status.reason);
+            return status;
         }
 
         this.spotifyDeviceAuthController = window.KioskDeviceSpotifyAuth.createSpotifyDeviceAuthController({
@@ -228,8 +236,42 @@ class KioskApp {
     }
 
     isSpotifyDeviceAuthRequiredError(error) {
+        return this.getSpotifyDeviceAuthRequiredMessage(error) !== null;
+    }
+
+    getSpotifyDeviceAuthRequiredMessage(error) {
         const message = error?.message || String(error || '');
-        return message.includes('No Spotify authorization found');
+        const normalized = message.toLowerCase();
+
+        if (message.includes('No Spotify authorization found') ||
+            message.includes('Spotify authorization expired for device') ||
+            message.includes('Spotify bağlantısı gerekli') ||
+            message.includes('Please reconnect Spotify for this kiosk')) {
+            return message;
+        }
+
+        if (message.includes('Spotify Premium hesabı gerekli') ||
+            normalized.includes('premium required') ||
+            normalized.includes('premium is required')) {
+            return 'Spotify Premium hesabı gerekli';
+        }
+
+        if (message.includes('Spotify yetkileri eksik') ||
+            normalized.includes('insufficient client scope') ||
+            normalized.includes('insufficient scope')) {
+            return message.includes('Spotify yetkileri eksik') ? message : 'Spotify yetkileri eksik';
+        }
+
+        if (normalized.includes('authentication failed') ||
+            normalized.includes('authentication error')) {
+            return 'Spotify bağlantısı gerekli';
+        }
+
+        return null;
+    }
+
+    getDevicePasswordForApi() {
+        return localStorage.getItem('device_pwd') || CONFIG.DEVICE_PWD || '';
     }
 
     // ===== Initialization =====
@@ -567,7 +609,14 @@ class KioskApp {
                 deviceId: this.device.id,
                 playerName: this.device.name || `RadioTEDU ${this.device.device_code || ''}`.trim(),
                 getOAuthToken: async () => {
-                    const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/spotify-token?device_id=${this.device.id}`);
+                    const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/spotify-token`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            device_id: this.device.id,
+                            device_pwd: this.getDevicePasswordForApi(),
+                        }),
+                    });
                     if (!response.ok) {
                         const errData = await response.json().catch(() => ({}));
                         throw new Error(errData.error || `Spotify token request failed (${response.status})`);
@@ -604,17 +653,40 @@ class KioskApp {
                 },
                 onStateChange: (state) => this.handleSpotifyPlayerStateChange(state),
                 onAutoplayFailed: () => this.log('⚠️ Spotify autoplay başarısız oldu', 'error'),
-                onError: (error) => this.log(`❌ Spotify player hatası: ${error.message || error}`, 'error'),
+                onError: (error) => {
+                    const authRequiredMessage = this.getSpotifyDeviceAuthRequiredMessage(error);
+                    if (authRequiredMessage) {
+                        this.saveSpotifyDeviceAuthSetupState(authRequiredMessage);
+                        this.spotifyDeviceAuthReady = false;
+                        this.showSpotifyDeviceAuthSetupOverlay(authRequiredMessage);
+                        const controller = this.spotifyController;
+                        this.spotifyController = null;
+                        this.spotifyReadyPromise = null;
+                        this.spotifyReadyResolve = null;
+                        try {
+                            controller?.disconnect?.();
+                        } catch (disconnectError) {
+                            this.log(`⚠️ Spotify player kapatılamadı: ${disconnectError.message}`, 'error');
+                        }
+                        this.log(`⚠️ Spotify bağlantısı gerekli: ${authRequiredMessage}`, 'error');
+                        return;
+                    }
+                    this.log(`❌ Spotify player hatası: ${error.message || error}`, 'error');
+                },
             });
 
-            await this.spotifyController.connect();
+            const connected = await this.spotifyController.connect();
+            if (connected === false) {
+                throw new Error('Spotify player failed to connect');
+            }
             this.clearSpotifyDeviceAuthSetupState();
             return this.spotifyController;
         } catch (error) {
-            if (this.isSpotifyDeviceAuthRequiredError(error)) {
-                this.saveSpotifyDeviceAuthSetupState(error.message);
+            const authRequiredMessage = this.getSpotifyDeviceAuthRequiredMessage(error);
+            if (authRequiredMessage) {
+                this.saveSpotifyDeviceAuthSetupState(authRequiredMessage);
                 this.spotifyDeviceAuthReady = false;
-                this.showSpotifyDeviceAuthSetupOverlay(error.message);
+                this.showSpotifyDeviceAuthSetupOverlay(authRequiredMessage);
             }
             this.log(`⚠️ Spotify başlatılamadı: ${error.message}`, 'error');
             this.spotifyController = null;
@@ -630,10 +702,25 @@ class KioskApp {
         }
 
         if (this.spotifyReadyPromise) {
-            await Promise.race([
-                this.spotifyReadyPromise,
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Spotify player readiness timeout')), 10000)),
-            ]);
+            try {
+                await Promise.race([
+                    this.spotifyReadyPromise,
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Spotify player readiness timeout')), 10000)),
+                ]);
+            } catch (error) {
+                const controller = this.spotifyController;
+                this.spotifyController = null;
+                this.spotifyReadyPromise = null;
+                this.spotifyReadyResolve = null;
+                this.spotifyDeviceId = null;
+                this.spotifyPlayerState = null;
+                try {
+                    controller?.disconnect?.();
+                } catch (disconnectError) {
+                    this.log(`⚠️ Spotify player kapatılamadı: ${disconnectError.message}`, 'error');
+                }
+                throw error;
+            }
         }
 
         return this.spotifyController;
@@ -650,6 +737,7 @@ class KioskApp {
             keepalive: true,
             body: JSON.stringify({
                 device_id: this.device.id,
+                device_pwd: this.getDevicePasswordForApi(),
                 spotify_device_id: spotifyDeviceId || null,
                 player_name: this.device.name || null,
                 is_active: isActive,
@@ -664,12 +752,15 @@ class KioskApp {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(
-                window.KioskSpotifyPlayer.buildSpotifyRegistrationPayload({
-                    deviceId: this.device.id,
-                    spotifyDeviceId: payload.spotify_device_id,
-                    playerName: payload.player_name || this.device.name || null,
-                    state: payload.player_state || null,
-                })
+                {
+                    ...window.KioskSpotifyPlayer.buildSpotifyRegistrationPayload({
+                        deviceId: this.device.id,
+                        spotifyDeviceId: payload.spotify_device_id,
+                        playerName: payload.player_name || this.device.name || null,
+                        state: payload.player_state || null,
+                    }),
+                    device_pwd: this.getDevicePasswordForApi(),
+                }
             ),
         });
 
@@ -1043,7 +1134,10 @@ class KioskApp {
         fetch(`${CONFIG.API_URL}/api/v1/jukebox/autoplay/trigger`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ device_id: this.device.id })
+            body: JSON.stringify({
+                device_id: this.device.id,
+                device_pwd: this.getDevicePasswordForApi(),
+            })
         }).then(r => r.json())
             .then(d => {
                 this.log(`🤖 Otomatik eklendi: ${d.data?.song_title || 'Şarkı'}`);
@@ -1075,6 +1169,7 @@ class KioskApp {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     device_id: this.device.id,
+                    device_pwd: this.getDevicePasswordForApi(),
                     song_id: songId
                 })
             });
@@ -1084,6 +1179,7 @@ class KioskApp {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     device_id: this.device.id,
+                    device_pwd: this.getDevicePasswordForApi(),
                     song_id: null
                 })
             });
@@ -1145,6 +1241,7 @@ class KioskApp {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         device_id: this.device.id,
+                        device_pwd: this.getDevicePasswordForApi(),
                         song_id: song.song_id || (song.id.includes('autoplay') ? song.id.split('autoplay-')[1] : song.id)
                     })
                 }).catch(e => this.log(`⚠️ Sunucu bildirim hatası: ${e.message}`, 'error'));
@@ -1152,6 +1249,14 @@ class KioskApp {
 
         } catch (error) {
             this.isPlaying = false;
+            const authRequiredMessage = this.getSpotifyDeviceAuthRequiredMessage(error);
+            if (authRequiredMessage) {
+                this.saveSpotifyDeviceAuthSetupState(authRequiredMessage);
+                this.spotifyDeviceAuthReady = false;
+                this.showSpotifyDeviceAuthSetupOverlay(authRequiredMessage);
+                this.log(`⚠️ Spotify bağlantısı gerekli: ${authRequiredMessage}`, 'error');
+                return;
+            }
             this.log(`❌ Beklenmedik hata: ${error.message}`, 'error');
         }
     }
@@ -1178,6 +1283,7 @@ class KioskApp {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 device_id: this.device.id,
+                device_pwd: this.getDevicePasswordForApi(),
                 song_id: songId
             })
         });
@@ -1207,6 +1313,7 @@ class KioskApp {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     device_id: this.device.id,
+                    device_pwd: this.getDevicePasswordForApi(),
                     song_id: null
                 })
             });
@@ -1266,7 +1373,10 @@ class KioskApp {
                 fetch(`${CONFIG.API_URL}/api/v1/jukebox/autoplay/trigger`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ device_id: this.device.id })
+                    body: JSON.stringify({
+                        device_id: this.device.id,
+                        device_pwd: this.getDevicePasswordForApi(),
+                    })
                 }).then(r => r.json())
                     .then(d => this.log(`🤖 Otomatik eklendi: ${d.data?.song_title || 'Şarkı'}`))
                     .catch(e => console.error(e));
@@ -1468,6 +1578,7 @@ KioskApp.prototype.playSong = async function (song) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     device_id: this.device.id,
+                    device_pwd: this.getDevicePasswordForApi(),
                     song_id: song.song_id || (song.id.includes('autoplay') ? song.id.split('autoplay-')[1] : song.id)
                 })
             }).catch((error) => this.log(`âš ï¸ Sunucu bildirim hatasÄ±: ${error.message}`, 'error'));

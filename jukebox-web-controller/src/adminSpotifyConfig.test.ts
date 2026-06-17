@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import {
   buildSpotifyAppConfigPayload,
@@ -8,7 +8,7 @@ import {
   isSpotifyDeviceAuthSuccessMessage,
   maskSpotifyAppConfigForForm,
   SPOTIFY_APP_SECRET_MASK
-} from './adminSpotifyConfig.js';
+} from './adminSpotifyConfig';
 
 test('masks spotify app config secrets in read mode', () => {
   const view = maskSpotifyAppConfigForForm({
@@ -68,16 +68,38 @@ test('surfaces connected and disconnected spotify device status', () => {
   assert.equal(disconnected.label, 'Bağlantı yok');
 });
 
+test('surfaces disconnected spotify device status reasons', () => {
+  const status = formatSpotifyDeviceAuthStatus({
+    deviceId: 'device-1',
+    connected: false,
+    spotifyAccountId: 'spotify-1',
+    spotifyDisplayName: 'Campus Radio',
+    spotifyEmail: 'campus@example.com',
+    spotifyProduct: 'free',
+    spotifyCountry: 'TR',
+    tokenExpiresAt: null,
+    scopes: 'streaming user-modify-playback-state user-read-playback-state',
+    hasRefreshToken: true,
+    reason: 'Spotify Premium hesabı gerekli'
+  });
+
+  assert.equal(status.isConnected, false);
+  assert.equal(status.label, 'Spotify Premium hesabı gerekli');
+  assert.equal(status.detail, 'Campus Radio');
+  assert.equal(status.actionLabel, 'Yeniden bağla');
+});
+
 test('builds authenticated spotify device auth start requests', () => {
   const request = buildSpotifyDeviceAuthStartRequest(
     'http://127.0.0.1:3000',
     'admin-token-123',
-    'device-123'
+    'device-123',
+    'http://127.0.0.1:5173'
   );
 
   assert.deepEqual(request, {
     method: 'GET',
-    url: 'http://127.0.0.1:3000/api/v1/spotify/device-auth/start?device_id=device-123&format=json',
+    url: 'http://127.0.0.1:3000/api/v1/spotify/device-auth/start?device_id=device-123&format=json&return_origin=http%3A%2F%2F127.0.0.1%3A5173',
     headers: {
       Authorization: 'Bearer admin-token-123',
     },
@@ -112,6 +134,14 @@ test('detects spotify device auth success messages', () => {
   assert.equal(
     isSpotifyDeviceAuthSuccessMessage({
       type: 'OTHER_EVENT'
+    }),
+    false
+  );
+
+  assert.equal(
+    isSpotifyDeviceAuthSuccessMessage({
+      type: 'SPOTIFY_DEVICE_AUTH_SUCCESS',
+      deviceId: { unexpected: true }
     }),
     false
   );

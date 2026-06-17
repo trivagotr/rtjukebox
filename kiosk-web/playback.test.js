@@ -67,6 +67,98 @@ describe('kiosk playback helpers', () => {
     })).toBe(false);
   });
 
+  it('classifies expired kiosk spotify authorization as a reconnect-required player setup error', () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
+    const audioPlayer = {
+      pause: vi.fn(),
+      src: '',
+      addEventListener: vi.fn(),
+      play: vi.fn().mockResolvedValue(undefined),
+      currentTime: 0,
+      duration: 0,
+    };
+    const documentStub = {
+      body: { appendChild: vi.fn() },
+      documentElement: {},
+      fullscreenElement: null,
+      addEventListener: vi.fn(),
+      createElement: vi.fn(() => ({ style: {}, appendChild: vi.fn(), querySelector: vi.fn() })),
+      getElementById: vi.fn((id) => {
+        if (id === 'audioPlayer') return audioPlayer;
+        if (id === 'waveformCanvas') return null;
+        return { classList: { add: vi.fn(), remove: vi.fn() }, style: {}, textContent: '', innerHTML: '' };
+      }),
+      querySelector: vi.fn(() => null),
+    };
+    const localStorageStub = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    };
+    const context = vm.createContext({
+      window: {
+        location: { protocol: 'http:', hostname: '127.0.0.1', search: '' },
+        localStorage: localStorageStub,
+        addEventListener: vi.fn(),
+        Image: class { constructor() { this.style = {}; } },
+      },
+      document: documentStub,
+      console,
+      localStorage: localStorageStub,
+      Image: class { constructor() { this.style = {}; } },
+      fetch: vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: { device: { id: 'device-1' } } }) })),
+      CONFIG: {
+        DEVICE_CODE: 'KIOSK-1',
+        DEVICE_PWD: 'secret',
+        API_URL: 'http://127.0.0.1:3000',
+        WS_URL: 'http://127.0.0.1:3000',
+        QR_LINK_FORMAT: 'http://127.0.0.1:5173/?code={DEVICE_CODE}',
+      },
+      io: vi.fn(() => ({ connected: true, on: vi.fn(), emit: vi.fn(), disconnect: vi.fn() })),
+      QRCode: undefined,
+      module: { exports: {} },
+      exports: {},
+      require,
+    });
+
+    vm.runInContext(appSource, context);
+    const app = new context.KioskApp();
+
+    expect(app.isSpotifyDeviceAuthRequiredError(
+      new Error('Spotify authorization expired for device. Please reconnect Spotify for this kiosk.')
+    )).toBe(true);
+    expect(app.isSpotifyDeviceAuthRequiredError(
+      new Error('Spotify Premium hesabı gerekli')
+    )).toBe(true);
+    expect(app.isSpotifyDeviceAuthRequiredError(
+      new Error('Spotify bağlantısı gerekli')
+    )).toBe(true);
+    expect(app.isSpotifyDeviceAuthRequiredError(
+      new Error('Spotify yetkileri eksik: user-modify-playback-state, user-read-playback-state')
+    )).toBe(true);
+    expect(app.isSpotifyDeviceAuthRequiredError(
+      { message: 'Premium required' }
+    )).toBe(true);
+    expect(app.isSpotifyDeviceAuthRequiredError(
+      { message: 'Insufficient client scope' }
+    )).toBe(true);
+    expect(app.isSpotifyDeviceAuthRequiredError(
+      { message: 'Authentication failed' }
+    )).toBe(true);
+    expect(app.getSpotifyDeviceAuthRequiredMessage(
+      { message: 'Premium required' }
+    )).toBe('Spotify Premium hesabı gerekli');
+    expect(app.getSpotifyDeviceAuthRequiredMessage(
+      { message: 'Insufficient client scope' }
+    )).toBe('Spotify yetkileri eksik');
+    expect(app.getSpotifyDeviceAuthRequiredMessage(
+      { message: 'Authentication failed' }
+    )).toBe('Spotify bağlantısı gerekli');
+    expect(app.getSpotifyDeviceAuthRequiredMessage(
+      { message: 'Spotify bağlantısı gerekli' }
+    )).toBe('Spotify bağlantısı gerekli');
+  });
+
   it('keeps spotify queue items out of unsupported-song handling in the kiosk app', async () => {
     const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
     const fetchCalls = [];
@@ -128,12 +220,15 @@ describe('kiosk playback helpers', () => {
     windowStub.KioskPlayback = playbackHelpers;
     windowStub.KioskSpotifyPlayer = {
       loadSpotifySdk: vi.fn().mockResolvedValue({ Player: function Player() {} }),
-      createSpotifyPlayer: vi.fn(({ onReady }) => {
-        queueMicrotask(() => onReady({
-          spotify_device_id: 'browser-device-1',
-          player_name: 'Kiosk Browser',
-          player_state: null,
-        }));
+      createSpotifyPlayer: vi.fn(({ getOAuthToken, onReady }) => {
+        queueMicrotask(async () => {
+          await getOAuthToken();
+          await onReady({
+            spotify_device_id: 'browser-device-1',
+            player_name: 'Kiosk Browser',
+            player_state: null,
+          });
+        });
         return spotifyController;
       }),
       buildSpotifyRegistrationPayload: vi.fn(({ deviceId, spotifyDeviceId, playerName, state }) => ({
@@ -143,6 +238,21 @@ describe('kiosk playback helpers', () => {
         player_state: state,
       })),
       mapSpotifyPlayerState: vi.fn(),
+    };
+    windowStub.KioskDeviceSpotifyAuth = {
+      createSpotifyDeviceAuthController: vi.fn(() => ({
+        refreshStatus: vi.fn().mockResolvedValue({
+          deviceId: 'device-1',
+          connected: true,
+        }),
+        openConnectFlow: vi.fn(),
+        destroy: vi.fn(),
+        getStatus: vi.fn(() => ({
+          deviceId: 'device-1',
+          connected: true,
+        })),
+      })),
+      renderSpotifyDeviceAuthSetup: vi.fn(),
     };
 
     const context = vm.createContext({
@@ -250,6 +360,7 @@ describe('kiosk playback helpers', () => {
         })),
         mapSpotifyPlayerState: vi.fn(),
       },
+      KioskDeviceSpotifyAuth: windowStub.KioskDeviceSpotifyAuth,
       Image: imageStub,
       module: { exports: {} },
       exports: {},
@@ -283,6 +394,21 @@ describe('kiosk playback helpers', () => {
 
     expect(app.skipUnsupportedSong).not.toHaveBeenCalled();
     expect(fetchCalls.some(([url]) => String(url).includes('/api/v1/jukebox/kiosk/now-playing'))).toBe(true);
+    const nowPlayingCall = fetchCalls.find(([url]) => String(url).includes('/api/v1/jukebox/kiosk/now-playing'));
+    expect(JSON.parse(nowPlayingCall?.[1]?.body)).toEqual({
+      device_id: 'device-1',
+      device_pwd: 'secret',
+      song_id: 'song-spotify-1',
+    });
+    const spotifyTokenCall = fetchCalls.find(([url]) => String(url).includes('/api/v1/jukebox/kiosk/spotify-token'));
+    expect(spotifyTokenCall?.[1]).toMatchObject({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(JSON.parse(spotifyTokenCall?.[1]?.body)).toEqual({
+      device_id: 'device-1',
+      device_pwd: 'secret',
+    });
   });
 
   it('mirrors now_playing into the kiosk UI when queue updates arrive after spotify playback has already started', async () => {
@@ -711,8 +837,8 @@ describe('kiosk playback helpers', () => {
       setInterval,
       clearInterval,
       localStorage: windowStub.localStorage,
-      fetch: vi.fn((url) => {
-        fetchCalls.push(String(url));
+      fetch: vi.fn((url, options) => {
+        fetchCalls.push([String(url), options]);
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
       }),
       CONFIG: {
@@ -758,7 +884,11 @@ describe('kiosk playback helpers', () => {
     await app.updateProgress();
 
     expect(spotifyPlayer.getCurrentState).toHaveBeenCalledTimes(1);
-    expect(fetchCalls).toContain('http://127.0.0.1:3000/api/v1/jukebox/autoplay/trigger');
+    const autoplayCall = fetchCalls.find(([url]) => url === 'http://127.0.0.1:3000/api/v1/jukebox/autoplay/trigger');
+    expect(JSON.parse(autoplayCall?.[1]?.body)).toEqual({
+      device_id: 'device-1',
+      device_pwd: 'secret',
+    });
   });
 
   it('detects spotify track end from polled player state when the sdk does not push a final event', async () => {
@@ -957,6 +1087,137 @@ describe('kiosk playback helpers', () => {
     });
 
     expect(startProgressUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('stores a reconnect-required state when spotify handoff fails because device auth is missing', async () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
+    const audioPlayer = {
+      pause: vi.fn(),
+      src: '',
+      addEventListener: vi.fn(),
+      play: vi.fn().mockResolvedValue(undefined),
+      currentTime: 0,
+      duration: 0,
+    };
+    const localStorageStub = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    };
+    const documentStub = {
+      body: { appendChild: vi.fn() },
+      documentElement: {},
+      fullscreenElement: null,
+      addEventListener: vi.fn(),
+      createElement: vi.fn(() => ({ style: {}, appendChild: vi.fn(), querySelector: vi.fn() })),
+      getElementById: vi.fn((id) => {
+        if (id === 'audioPlayer') return audioPlayer;
+        if (id === 'waveformCanvas') return null;
+        if (id === 'startupOverlay') return null;
+        return { classList: { add: vi.fn(), remove: vi.fn() }, style: {}, textContent: '', innerHTML: '' };
+      }),
+      querySelector: vi.fn(() => null),
+    };
+    const renderSpotifyDeviceAuthSetup = vi.fn();
+    const imageStub = class { constructor() { this.style = {}; } };
+    const socketStub = { connected: true, on: vi.fn(), emit: vi.fn(), disconnect: vi.fn() };
+    const windowStub = {
+      location: { protocol: 'http:', hostname: '127.0.0.1', search: '' },
+      localStorage: localStorageStub,
+      addEventListener: vi.fn(),
+      Image: imageStub,
+      KioskPlayback: playbackHelpers,
+      KioskSpotifyPlayer: spotifyHelpers,
+      KioskDeviceSpotifyAuth: { renderSpotifyDeviceAuthSetup },
+    };
+
+    const context = vm.createContext({
+      window: windowStub,
+      document: documentStub,
+      console,
+      setTimeout,
+      clearTimeout,
+      setInterval,
+      clearInterval,
+      localStorage: localStorageStub,
+      fetch: vi.fn((url) => {
+        const urlString = String(url);
+        if (urlString.includes('/api/v1/jukebox/kiosk/now-playing')) {
+          return Promise.resolve({
+            ok: false,
+            status: 503,
+            json: () => Promise.resolve({ success: false, error: 'No Spotify authorization found for device' }),
+          });
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { device: { id: 'device-1' } } }),
+        });
+      }),
+      CONFIG: {
+        DEVICE_CODE: 'KIOSK-1',
+        DEVICE_PWD: 'secret',
+        API_URL: 'http://127.0.0.1:3000',
+        WS_URL: 'http://127.0.0.1:3000',
+        QR_LINK_FORMAT: 'http://127.0.0.1:5173/?code={DEVICE_CODE}',
+        RECONNECT_INTERVAL: 5000,
+        UI_UPDATE_INTERVAL: 100,
+        SOCKET_EMIT_INTERVAL: 5000,
+      },
+      io: vi.fn(() => socketStub),
+      QRCode: undefined,
+      KioskPlayback: playbackHelpers,
+      KioskSpotifyPlayer: spotifyHelpers,
+      KioskDeviceSpotifyAuth: windowStub.KioskDeviceSpotifyAuth,
+      Image: imageStub,
+      module: { exports: {} },
+      exports: {},
+      require,
+    });
+
+    vm.runInContext(appSource, context);
+    const app = new context.KioskApp();
+    app.device = { id: 'device-1' };
+    app.spotifyController = { player: { pause: vi.fn() } };
+    app.spotifyDeviceAuthReady = true;
+    app.spotifyDeviceAuthStatus = { connected: true };
+    app.spotifyDeviceAuthSetupState = null;
+    app.ensureSpotifyPlaybackReady = vi.fn().mockResolvedValue(app.spotifyController);
+    vi.spyOn(app, 'showPlayingState').mockImplementation(() => {});
+    vi.spyOn(app, 'startProgressUpdate').mockImplementation(() => {});
+    const logSpy = vi.spyOn(app, 'log').mockImplementation(() => {});
+
+    await app.playSong({
+      id: 'queue-item-spotify',
+      song_id: 'song-spotify-1',
+      title: 'Spotify Song',
+      artist: 'Spotify Artist',
+      source_type: 'spotify',
+      playback_type: 'spotify',
+      spotify_uri: 'spotify:track:123',
+      file_url: null,
+      cover_url: null,
+      added_by_name: 'Anonim',
+    });
+
+    expect(app.spotifyDeviceAuthSetupState).toEqual(expect.objectContaining({
+      deviceId: 'device-1',
+      reason: 'No Spotify authorization found for device',
+      required: true,
+    }));
+    expect(localStorageStub.setItem).toHaveBeenCalledWith(
+      'spotify_device_auth_setup_state',
+      expect.stringContaining('No Spotify authorization found for device')
+    );
+    expect(renderSpotifyDeviceAuthSetup).toHaveBeenCalledWith(documentStub, expect.objectContaining({
+      reason: 'No Spotify authorization found for device',
+    }));
+    expect(logSpy).toHaveBeenCalledWith(
+      '⚠️ Spotify bağlantısı gerekli: No Spotify authorization found for device',
+      'error'
+    );
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('Beklenmedik hata'), 'error');
   });
 
   it('keeps spotify progress polling alive when the sdk reports a paused state for the active spotify song', () => {
@@ -1227,6 +1488,188 @@ describe('kiosk playback helpers', () => {
 
     expect(audioPlay).toHaveBeenCalled();
     expect(playLocalSong).toHaveBeenCalled();
+  });
+
+  it('does not keep a spotify controller when the sdk connect call fails', async () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
+    const failedController = {
+      connect: vi.fn().mockResolvedValue(false),
+      disconnect: vi.fn(),
+    };
+    const localStorageStub = {
+      getItem: vi.fn(() => 'secret'),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    };
+    const documentStub = {
+      addEventListener: vi.fn(),
+      getElementById: vi.fn(() => null),
+    };
+    const windowStub = {
+      KioskSpotifyPlayer: {
+        loadSpotifySdk: vi.fn().mockResolvedValue({ Player: function Player() {} }),
+        createSpotifyPlayer: vi.fn(() => failedController),
+      },
+      localStorage: localStorageStub,
+    };
+    const context = vm.createContext({
+      window: windowStub,
+      document: documentStub,
+      console,
+      localStorage: localStorageStub,
+      fetch: vi.fn(),
+      CONFIG: {
+        DEVICE_PWD: 'secret',
+        API_URL: 'http://127.0.0.1:3000',
+      },
+      module: { exports: {} },
+      exports: {},
+      require,
+    });
+
+    vm.runInContext(appSource, context);
+    const app = Object.create(context.KioskApp.prototype);
+    app.device = { id: 'device-1', name: 'Kiosk Browser' };
+    app.spotifyController = null;
+    app.spotifyReadyPromise = null;
+    app.spotifyReadyResolve = null;
+    app.spotifyDeviceAuthController = null;
+    app.spotifyDeviceAuthStatus = { connected: true };
+    app.spotifyDeviceAuthSetupState = null;
+    app.spotifyDeviceAuthReady = true;
+    app.log = vi.fn();
+
+    const result = await app.initializeSpotifyPlayback();
+
+    expect(result).toBeNull();
+    expect(app.spotifyController).toBeNull();
+    expect(app.spotifyReadyPromise).toBeNull();
+    expect(app.spotifyReadyResolve).toBeNull();
+    expect(localStorageStub.removeItem).not.toHaveBeenCalledWith('spotify_device_auth_setup_state');
+    expect(app.log).toHaveBeenCalledWith(
+      expect.stringContaining('Spotify başlatılamadı'),
+      'error'
+    );
+  });
+
+  it('clears a stalled spotify controller when the sdk ready callback times out', async () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
+    let timeoutCallback;
+    const context = vm.createContext({
+      window: {},
+      document: { addEventListener: vi.fn() },
+      console,
+      setTimeout: vi.fn((callback) => {
+        timeoutCallback = callback;
+        return 1;
+      }),
+      clearTimeout: vi.fn(),
+      CONFIG: {},
+      module: { exports: {} },
+      exports: {},
+      require,
+    });
+
+    vm.runInContext(appSource, context);
+    const disconnect = vi.fn();
+    const app = Object.create(context.KioskApp.prototype);
+    app.spotifyController = { disconnect };
+    app.spotifyReadyPromise = new Promise(() => {});
+    app.spotifyReadyResolve = vi.fn();
+    app.spotifyDeviceId = 'spotify-browser-1';
+    app.spotifyPlayerState = { track_uri: 'spotify:track:old' };
+    app.log = vi.fn();
+
+    const readyPromise = app.ensureSpotifyPlaybackReady();
+    timeoutCallback();
+
+    await expect(readyPromise).rejects.toThrow('Spotify player readiness timeout');
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(app.spotifyController).toBeNull();
+    expect(app.spotifyReadyPromise).toBeNull();
+    expect(app.spotifyReadyResolve).toBeNull();
+    expect(app.spotifyDeviceId).toBeNull();
+    expect(app.spotifyPlayerState).toBeNull();
+  });
+
+  it('shows spotify reconnect setup when the sdk reports an auth error after startup', async () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
+    let playerOptions;
+    const connectedController = {
+      connect: vi.fn().mockResolvedValue(true),
+      disconnect: vi.fn(),
+    };
+    const localStorageStub = {
+      getItem: vi.fn(() => 'secret'),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    };
+    const renderSpotifyDeviceAuthSetup = vi.fn();
+    const documentStub = {
+      addEventListener: vi.fn(),
+      getElementById: vi.fn(() => null),
+    };
+    const windowStub = {
+      KioskSpotifyPlayer: {
+        loadSpotifySdk: vi.fn().mockResolvedValue({ Player: function Player() {} }),
+        createSpotifyPlayer: vi.fn((options) => {
+          playerOptions = options;
+          return connectedController;
+        }),
+      },
+      KioskDeviceSpotifyAuth: { renderSpotifyDeviceAuthSetup },
+      localStorage: localStorageStub,
+    };
+    const context = vm.createContext({
+      window: windowStub,
+      document: documentStub,
+      console,
+      localStorage: localStorageStub,
+      fetch: vi.fn(),
+      CONFIG: {
+        DEVICE_PWD: 'secret',
+        API_URL: 'http://127.0.0.1:3000',
+      },
+      module: { exports: {} },
+      exports: {},
+      require,
+    });
+
+    vm.runInContext(appSource, context);
+    const app = Object.create(context.KioskApp.prototype);
+    app.device = { id: 'device-1', name: 'Kiosk Browser' };
+    app.spotifyController = null;
+    app.spotifyReadyPromise = null;
+    app.spotifyReadyResolve = null;
+    app.spotifyDeviceAuthController = {};
+    app.spotifyDeviceAuthStatus = { connected: true };
+    app.spotifyDeviceAuthSetupState = null;
+    app.spotifyDeviceAuthReady = true;
+    app.log = vi.fn();
+    app.openSpotifyDeviceAuthSetup = vi.fn();
+
+    await app.initializeSpotifyPlayback();
+    playerOptions.onError(
+      new Error('Spotify authorization expired for device. Please reconnect Spotify for this kiosk.')
+    );
+
+    expect(app.spotifyDeviceAuthReady).toBe(false);
+    expect(app.spotifyDeviceAuthSetupState).toEqual(expect.objectContaining({
+      deviceId: 'device-1',
+      required: true,
+    }));
+    expect(localStorageStub.setItem).toHaveBeenCalledWith(
+      'spotify_device_auth_setup_state',
+      expect.stringContaining('Please reconnect Spotify for this kiosk')
+    );
+    expect(renderSpotifyDeviceAuthSetup).toHaveBeenCalledWith(documentStub, expect.objectContaining({
+      reason: expect.stringContaining('Please reconnect Spotify for this kiosk'),
+    }));
+    expect(app.log).toHaveBeenCalledWith(
+      expect.stringContaining('Spotify bağlantısı gerekli'),
+      'error'
+    );
+    expect(app.log).not.toHaveBeenCalledWith(expect.stringContaining('Spotify player hatası'), 'error');
   });
 
   it('boots local kiosk services even when spotify auth is missing', async () => {
@@ -1633,5 +2076,136 @@ describe('kiosk playback helpers', () => {
     expect(context.io).toHaveBeenCalledTimes(1);
     expect(showStartupOverlay).toHaveBeenCalled();
     expect(showDeviceSetupOverlay).not.toHaveBeenCalled();
+  });
+
+  it('boots local kiosk services without treating spotify as connected when the device auth helper is unavailable', async () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
+    const audioPlayer = {
+      pause: vi.fn(),
+      src: '',
+      addEventListener: vi.fn(),
+      play: vi.fn().mockResolvedValue(undefined),
+      currentTime: 0,
+      duration: 0,
+    };
+    const socketStub = {
+      connected: true,
+      on: vi.fn(),
+      emit: vi.fn(),
+      disconnect: vi.fn(),
+    };
+    const documentStub = {
+      body: { appendChild: vi.fn() },
+      documentElement: {},
+      fullscreenElement: null,
+      addEventListener: vi.fn(),
+      createElement: vi.fn((tagName) => ({
+        tagName,
+        style: {},
+        appendChild: vi.fn(),
+        querySelector: vi.fn(() => null),
+      })),
+      getElementById: vi.fn((id) => {
+        if (id === 'audioPlayer') return audioPlayer;
+        if (id === 'waveformCanvas') return null;
+        if (id === 'startupOverlay') return null;
+        return {
+          classList: { add: vi.fn(), remove: vi.fn() },
+          style: {},
+          textContent: '',
+          innerHTML: '',
+        };
+      }),
+      querySelector: vi.fn(() => null),
+    };
+    const imageStub = class {
+      constructor() {
+        this.style = {};
+      }
+    };
+    const fetch = vi.fn((url) => {
+      const urlString = String(url);
+      if (urlString.includes('/api/v1/jukebox/kiosk/register')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            data: {
+              device: {
+                id: 'device-1',
+                name: 'KIOSK-1',
+                location: 'Lobby',
+              },
+            },
+          }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: {} }),
+      });
+    });
+    const loadSpotifySdk = vi.fn();
+    const createSpotifyPlayer = vi.fn();
+    const windowStub = {
+      location: { protocol: 'http:', hostname: '127.0.0.1', search: '' },
+      localStorage: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      },
+      addEventListener: vi.fn(),
+      Image: imageStub,
+      KioskPlayback: playbackHelpers,
+      KioskSpotifyPlayer: {
+        loadSpotifySdk,
+        createSpotifyPlayer,
+      },
+    };
+
+    const context = vm.createContext({
+      window: windowStub,
+      document: documentStub,
+      console,
+      setTimeout,
+      clearTimeout,
+      setInterval,
+      clearInterval,
+      localStorage: windowStub.localStorage,
+      fetch,
+      io: vi.fn(() => socketStub),
+      CONFIG: {
+        DEVICE_CODE: 'KIOSK-1',
+        DEVICE_PWD: 'secret',
+        API_URL: 'http://127.0.0.1:3000',
+        WS_URL: 'http://127.0.0.1:3000',
+        QR_LINK_FORMAT: 'http://127.0.0.1:5173/?code={DEVICE_CODE}',
+        RECONNECT_INTERVAL: 5000,
+        UI_UPDATE_INTERVAL: 100,
+        SOCKET_EMIT_INTERVAL: 5000,
+      },
+      QRCode: undefined,
+      KioskPlayback: playbackHelpers,
+      KioskSpotifyPlayer: windowStub.KioskSpotifyPlayer,
+      Image: imageStub,
+      module: { exports: {} },
+      exports: {},
+      require,
+    });
+
+    vm.runInContext(appSource, context);
+    const showStartupOverlay = vi.spyOn(context.KioskApp.prototype, 'showStartupOverlay');
+
+    const app = new context.KioskApp();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(app.spotifyDeviceAuthReady).toBe(false);
+    expect(app.isSpotifyDeviceAuthConnected()).toBe(false);
+    expect(context.io).toHaveBeenCalledTimes(1);
+    expect(showStartupOverlay).toHaveBeenCalled();
+    expect(loadSpotifySdk).not.toHaveBeenCalled();
+    expect(createSpotifyPlayer).not.toHaveBeenCalled();
+    expect(fetch.mock.calls.some(([url]) => String(url).includes('/api/v1/jukebox/kiosk/spotify-token'))).toBe(false);
   });
 });

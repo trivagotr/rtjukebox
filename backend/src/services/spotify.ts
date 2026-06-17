@@ -18,6 +18,12 @@ export const SPOTIFY_REQUIRED_SCOPES = [
   'playlist-read-collaborative',
 ].join(' ');
 
+const SPOTIFY_PLAYBACK_REQUIRED_SCOPES = [
+  'streaming',
+  'user-modify-playback-state',
+  'user-read-playback-state',
+] as const;
+
 // In-memory cache for Client Credentials token (no user login needed)
 let clientToken: { token: string; expiresAt: number; credentialsKey: string } | null = null;
 
@@ -62,6 +68,8 @@ export interface SpotifyDeviceAuthStatus {
   tokenExpiresAt: Date | null;
   scopes: string | null;
   hasRefreshToken: boolean;
+  reason?: string | null;
+  returnOrigin?: string | null;
 }
 
 interface SpotifyTrack {
@@ -108,6 +116,28 @@ export function normalizeSpotifySearchLimit(limit: number): number {
   return Math.max(1, Math.min(Math.trunc(limit), 10));
 }
 
+function getMissingSpotifyScopes(scopeText: string | null | undefined, requiredScopes: readonly string[]): string[] {
+  const scopes = new Set((scopeText || '').split(/\s+/).filter(Boolean));
+  return requiredScopes.filter((scope) => !scopes.has(scope));
+}
+
+function getSpotifyPlaybackCapabilityIssue(row: SpotifyDeviceAuthRow): string | null {
+  if (!row.refresh_token) {
+    return 'Spotify bağlantısı gerekli';
+  }
+
+  if (row.spotify_product?.toLowerCase() !== 'premium') {
+    return 'Spotify Premium hesabı gerekli';
+  }
+
+  const missingScopes = getMissingSpotifyScopes(row.scopes, SPOTIFY_PLAYBACK_REQUIRED_SCOPES);
+  if (missingScopes.length > 0) {
+    return `Spotify yetkileri eksik: ${missingScopes.join(', ')}`;
+  }
+
+  return null;
+}
+
 export function deriveSpotifyDeviceAuthRedirectUri(redirectUri: string): string {
   const url = new URL(redirectUri);
   const mainCallbackPath = '/api/v1/spotify/callback';
@@ -119,6 +149,28 @@ export function deriveSpotifyDeviceAuthRedirectUri(redirectUri: string): string 
   url.search = '';
   url.hash = '';
   return url.toString();
+}
+
+export function normalizeSpotifyReturnOrigin(returnOrigin?: string | null): string | null {
+  const candidate = returnOrigin?.trim();
+  if (!candidate) {
+    return null;
+  }
+
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+function isSpotifyInvalidGrantError(error: unknown): boolean {
+  const response = (error as { response?: { data?: { error?: unknown }; status?: number } } | null)?.response;
+  return response?.status === 400 && response.data?.error === 'invalid_grant';
 }
 
 export class SpotifyService {
@@ -187,10 +239,15 @@ export class SpotifyService {
     clientToken = null;
   }
 
-  private async buildSignedDeviceAuthState(deviceId: string): Promise<string> {
+  private async buildSignedDeviceAuthState(deviceId: string, returnOrigin?: string | null): Promise<string> {
     const appConfig = await this.getSpotifyAppConfig();
     const nonce = crypto.randomBytes(12).toString('hex');
-    const payload = `device.${deviceId}.${nonce}`;
+    const normalizedReturnOrigin = normalizeSpotifyReturnOrigin(returnOrigin);
+    const payloadParts = ['device', deviceId, nonce];
+    if (normalizedReturnOrigin) {
+      payloadParts.push(Buffer.from(normalizedReturnOrigin, 'utf8').toString('base64url'));
+    }
+    const payload = payloadParts.join('.');
     const signature = crypto
       .createHmac('sha256', appConfig.clientSecret)
       .update(payload)
@@ -199,14 +256,67 @@ export class SpotifyService {
     return `${payload}.${signature}`;
   }
 
-  private parseSignedDeviceAuthState(state: string, clientSecret: string): { deviceId: string } {
-    const [prefix, deviceId, nonce, signature] = state.split('.');
+  private buildSignedAuthState(state: string, returnOrigin: string | null | undefined, clientSecret: string): string {
+    const normalizedReturnOrigin = normalizeSpotifyReturnOrigin(returnOrigin);
+    if (!normalizedReturnOrigin) {
+      return state;
+    }
 
-    if (prefix !== 'device' || !deviceId || !nonce || !signature) {
+    const encodedState = Buffer.from(state, 'utf8').toString('base64url');
+    const encodedReturnOrigin = Buffer.from(normalizedReturnOrigin, 'utf8').toString('base64url');
+    const payload = ['spotify', encodedState, encodedReturnOrigin].join('.');
+    const signature = crypto
+      .createHmac('sha256', clientSecret)
+      .update(payload)
+      .digest('base64url');
+
+    return `${payload}.${signature}`;
+  }
+
+  private parseSignedAuthState(state: string, clientSecret: string): { returnOrigin: string | null } {
+    const parts = state.split('.');
+    const [prefix, encodedState, encodedReturnOrigin, signature] = parts;
+
+    if (parts.length !== 4 || prefix !== 'spotify' || !encodedState || !encodedReturnOrigin || !signature) {
+      throw new Error('Invalid Spotify auth state');
+    }
+
+    const payload = parts.slice(0, -1).join('.');
+    const expectedSignature = crypto
+      .createHmac('sha256', clientSecret)
+      .update(payload)
+      .digest('base64url');
+
+    const signatureBuffer = Buffer.from(signature);
+    const expectedBuffer = Buffer.from(expectedSignature);
+    const signaturesMatch =
+      signatureBuffer.length === expectedBuffer.length &&
+      crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
+
+    if (!signaturesMatch) {
+      throw new Error('Invalid Spotify auth state');
+    }
+
+    const decodedReturnOrigin = Buffer.from(encodedReturnOrigin, 'base64url').toString('utf8');
+    const normalizedReturnOrigin = normalizeSpotifyReturnOrigin(decodedReturnOrigin);
+    if (!normalizedReturnOrigin) {
+      throw new Error('Invalid Spotify auth return origin');
+    }
+
+    return { returnOrigin: normalizedReturnOrigin };
+  }
+
+  private parseSignedDeviceAuthState(state: string, clientSecret: string): { deviceId: string; returnOrigin: string | null } {
+    const parts = state.split('.');
+    const [prefix, deviceId, nonce] = parts;
+    const signature = parts.at(-1);
+    const encodedReturnOrigin = parts.length === 5 ? parts[3] : null;
+
+    if ((parts.length !== 4 && parts.length !== 5) || prefix !== 'device' || !deviceId || !nonce || !signature) {
       throw new Error('Invalid Spotify device auth state');
     }
 
-    const payload = `${prefix}.${deviceId}.${nonce}`;
+    const payload = parts.slice(0, -1).join('.');
     const expectedSignature = crypto
       .createHmac('sha256', clientSecret)
       .update(payload)
@@ -222,16 +332,35 @@ export class SpotifyService {
       throw new Error('Invalid Spotify device auth state');
     }
 
-    return { deviceId };
+    const decodedReturnOrigin = encodedReturnOrigin
+      ? Buffer.from(encodedReturnOrigin, 'base64url').toString('utf8')
+      : null;
+
+    return {
+      deviceId,
+      returnOrigin: normalizeSpotifyReturnOrigin(decodedReturnOrigin),
+    };
   }
 
   isDeviceAuthState(state: string): boolean {
-    return typeof state === 'string' && state.startsWith('device.') && state.split('.').length === 4;
+    return typeof state === 'string' &&
+      state.startsWith('device.') &&
+      (state.split('.').length === 4 || state.split('.').length === 5);
   }
 
-  async getDeviceAuthStartUrl(deviceId: string): Promise<string> {
+  async getAuthReturnOriginFromState(state?: string | null): Promise<string | null> {
+    const candidate = state?.trim();
+    if (!candidate || !candidate.startsWith('spotify.')) {
+      return null;
+    }
+
     const appConfig = await this.getSpotifyAppConfig();
-    const state = await this.buildSignedDeviceAuthState(deviceId);
+    return this.parseSignedAuthState(candidate, appConfig.clientSecret).returnOrigin;
+  }
+
+  async getDeviceAuthStartUrl(deviceId: string, returnOrigin?: string | null): Promise<string> {
+    const appConfig = await this.getSpotifyAppConfig();
+    const state = await this.buildSignedDeviceAuthState(deviceId, returnOrigin);
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: appConfig.clientId,
@@ -302,7 +431,7 @@ export class SpotifyService {
     redirectUriOverride?: string
   ): Promise<SpotifyDeviceAuthStatus> {
     const appConfig = await this.getSpotifyAppConfig();
-    const { deviceId } = this.parseSignedDeviceAuthState(state, appConfig.clientSecret);
+    const { deviceId, returnOrigin } = this.parseSignedDeviceAuthState(state, appConfig.clientSecret);
     const redirectUri = redirectUriOverride?.trim() || appConfig.redirectUri;
 
     const deviceResult = await db.query('SELECT id FROM devices WHERE id = $1', [deviceId]);
@@ -364,6 +493,7 @@ export class SpotifyService {
       tokenExpiresAt,
       scopes,
       hasRefreshToken: Boolean(refreshToken),
+      returnOrigin,
     };
   }
 
@@ -400,8 +530,11 @@ export class SpotifyService {
 
   // ─── Authorization Code Flow (for playback control, requires admin auth) ───
 
-  async getAuthUrl(state?: string): Promise<string> {
+  async getAuthUrl(state?: string, returnOrigin?: string | null): Promise<string> {
     const appConfig = await this.getSpotifyAppConfig();
+    const oauthState = state
+      ? this.buildSignedAuthState(state, returnOrigin, appConfig.clientSecret)
+      : undefined;
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: appConfig.clientId,
@@ -410,8 +543,8 @@ export class SpotifyService {
       show_dialog: 'true',
     });
 
-    if (state) {
-      params.set('state', state);
+    if (oauthState) {
+      params.set('state', oauthState);
     }
 
     return `${SPOTIFY_ACCOUNTS_URL}/authorize?${params.toString()}`;
@@ -556,12 +689,21 @@ export class SpotifyService {
 
     const authHeader = Buffer.from(`${appConfig.clientId}:${appConfig.clientSecret}`).toString('base64');
 
-    const response = await axios.post(`${SPOTIFY_ACCOUNTS_URL}/api/token`, params.toString(), {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization: `Basic ${authHeader}`,
-      },
-    });
+    let response;
+    try {
+      response = await axios.post(`${SPOTIFY_ACCOUNTS_URL}/api/token`, params.toString(), {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Authorization: `Basic ${authHeader}`,
+        },
+      });
+    } catch (error) {
+      if (isSpotifyInvalidGrantError(error)) {
+        await this.deleteDeviceAuth(deviceId);
+        throw new Error('Spotify authorization expired for device. Please reconnect Spotify for this kiosk.');
+      }
+      throw error;
+    }
 
     const { access_token, refresh_token: newRefreshToken, expires_in, scope } = response.data;
     const tokenExpiresAt = new Date(Date.now() + expires_in * 1000);
@@ -588,10 +730,8 @@ export class SpotifyService {
   }
 
   async getDeviceAuthStatus(deviceId: string): Promise<SpotifyDeviceAuthStatus> {
-    const row = await this.getDeviceAuthRow(deviceId);
-
-    if (!row) {
-      return {
+    let row = await this.getDeviceAuthRow(deviceId);
+    const buildDisconnectedStatus = (reason?: string | null): SpotifyDeviceAuthStatus => ({
         deviceId,
         connected: false,
         spotifyAccountId: null,
@@ -602,21 +742,56 @@ export class SpotifyService {
         tokenExpiresAt: null,
         scopes: null,
         hasRefreshToken: false,
-      };
+        reason: reason ?? null,
+    });
+    const buildStatusFromRow = (
+      deviceAuthRow: SpotifyDeviceAuthRow,
+      connected: boolean,
+      reason?: string | null
+    ): SpotifyDeviceAuthStatus => ({
+        deviceId,
+        connected,
+        spotifyAccountId: deviceAuthRow.spotify_account_id,
+        spotifyDisplayName: deviceAuthRow.spotify_display_name,
+        spotifyEmail: deviceAuthRow.spotify_email,
+        spotifyProduct: deviceAuthRow.spotify_product,
+        spotifyCountry: deviceAuthRow.spotify_country,
+        tokenExpiresAt: deviceAuthRow.token_expires_at,
+        scopes: deviceAuthRow.scopes,
+        hasRefreshToken: Boolean(deviceAuthRow.refresh_token),
+        reason: reason ?? null,
+    });
+
+    if (!row) {
+      return buildDisconnectedStatus();
     }
 
-    return {
-      deviceId,
-      connected: true,
-      spotifyAccountId: row.spotify_account_id,
-      spotifyDisplayName: row.spotify_display_name,
-      spotifyEmail: row.spotify_email,
-      spotifyProduct: row.spotify_product,
-      spotifyCountry: row.spotify_country,
-      tokenExpiresAt: row.token_expires_at,
-      scopes: row.scopes,
-      hasRefreshToken: Boolean(row.refresh_token),
-    };
+    const expiresAt = new Date(row.token_expires_at).getTime();
+    if (expiresAt < Date.now() + 5 * 60 * 1000) {
+      try {
+        await this.refreshDeviceAccessToken(deviceId, row.refresh_token);
+        row = await this.getDeviceAuthRow(deviceId);
+        if (!row) {
+          return buildDisconnectedStatus('Spotify bağlantısı gerekli');
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (
+          message.includes('Spotify authorization expired for device') ||
+          message.includes('No Spotify authorization found for device')
+        ) {
+          return buildDisconnectedStatus(message);
+        }
+        throw error;
+      }
+    }
+
+    const playbackCapabilityIssue = getSpotifyPlaybackCapabilityIssue(row);
+    if (playbackCapabilityIssue) {
+      return buildStatusFromRow(row, false, playbackCapabilityIssue);
+    }
+
+    return buildStatusFromRow(row, true);
   }
 
   async deleteDeviceAuth(deviceId: string): Promise<void> {
@@ -709,8 +884,13 @@ export class SpotifyService {
 
   // ─── Playback Control ───
 
-  async playTrack(deviceId: string, spotifyUri: string): Promise<void> {
-    const token = await this.getAccessToken();
+  private async resolvePlaybackAccessToken(accessTokenOverride?: string): Promise<string> {
+    const token = accessTokenOverride?.trim();
+    return token || this.getAccessToken();
+  }
+
+  async playTrack(deviceId: string, spotifyUri: string, accessTokenOverride?: string): Promise<void> {
+    const token = await this.resolvePlaybackAccessToken(accessTokenOverride);
 
     await axios.put(
       `${SPOTIFY_API_URL}/me/player/play`,
@@ -722,8 +902,8 @@ export class SpotifyService {
     );
   }
 
-  async transferPlayback(deviceId: string, play = true): Promise<void> {
-    const token = await this.getAccessToken();
+  async transferPlayback(deviceId: string, play = true, accessTokenOverride?: string): Promise<void> {
+    const token = await this.resolvePlaybackAccessToken(accessTokenOverride);
 
     await axios.put(
       `${SPOTIFY_API_URL}/me/player`,
@@ -737,8 +917,8 @@ export class SpotifyService {
     );
   }
 
-  async pausePlayback(deviceId: string): Promise<void> {
-    const token = await this.getAccessToken();
+  async pausePlayback(deviceId: string, accessTokenOverride?: string): Promise<void> {
+    const token = await this.resolvePlaybackAccessToken(accessTokenOverride);
 
     await axios.put(
       `${SPOTIFY_API_URL}/me/player/pause`,
@@ -750,8 +930,8 @@ export class SpotifyService {
     );
   }
 
-  async resumePlayback(deviceId: string): Promise<void> {
-    const token = await this.getAccessToken();
+  async resumePlayback(deviceId: string, accessTokenOverride?: string): Promise<void> {
+    const token = await this.resolvePlaybackAccessToken(accessTokenOverride);
 
     await axios.put(
       `${SPOTIFY_API_URL}/me/player/play`,
@@ -763,8 +943,8 @@ export class SpotifyService {
     );
   }
 
-  async setVolume(deviceId: string, volumePercent: number): Promise<void> {
-    const token = await this.getAccessToken();
+  async setVolume(deviceId: string, volumePercent: number, accessTokenOverride?: string): Promise<void> {
+    const token = await this.resolvePlaybackAccessToken(accessTokenOverride);
 
     const clamped = Math.max(0, Math.min(100, Math.round(volumePercent)));
 
@@ -778,8 +958,8 @@ export class SpotifyService {
     );
   }
 
-  async skipTrack(deviceId: string): Promise<void> {
-    const token = await this.getAccessToken();
+  async skipTrack(deviceId: string, accessTokenOverride?: string): Promise<void> {
+    const token = await this.resolvePlaybackAccessToken(accessTokenOverride);
 
     await axios.post(
       `${SPOTIFY_API_URL}/me/player/next`,
@@ -791,13 +971,13 @@ export class SpotifyService {
     );
   }
 
-  async getCurrentPlaybackSnapshot(): Promise<{
+  async getCurrentPlaybackSnapshot(accessTokenOverride?: string): Promise<{
     deviceId: string | null;
     isPlaying: boolean;
     progressMs: number | null;
     itemUri: string | null;
   } | null> {
-    const token = await this.getAccessToken();
+    const token = await this.resolvePlaybackAccessToken(accessTokenOverride);
 
     const response = await axios.get(
       `${SPOTIFY_API_URL}/me/player`,
@@ -837,11 +1017,21 @@ export class SpotifyService {
         throw new Error('No Spotify authorization found for device');
       }
 
+      const playbackCapabilityIssue = getSpotifyPlaybackCapabilityIssue(refreshedRow);
+      if (playbackCapabilityIssue) {
+        throw new Error(playbackCapabilityIssue);
+      }
+
       return {
         accessToken,
         tokenExpiresAt: refreshedRow.token_expires_at,
         scopes: refreshedRow.scopes,
       };
+    }
+
+    const playbackCapabilityIssue = getSpotifyPlaybackCapabilityIssue(row);
+    if (playbackCapabilityIssue) {
+      throw new Error(playbackCapabilityIssue);
     }
 
     return {

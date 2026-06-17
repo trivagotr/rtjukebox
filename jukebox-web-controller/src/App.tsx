@@ -1,25 +1,25 @@
-import { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import axios, { isAxiosError } from 'axios';
 import { io, Socket } from 'socket.io-client';
 import {
-  Music,
-  Search,
-  Plus,
-  User,
-  CheckCircle2,
   AlertCircle,
-  TrendingUp,
-  Disc,
-  ListMusic,
-  RefreshCw,
-  ArrowBigUp,
   ArrowBigDown,
-  Trophy,
-  LogOut,
+  ArrowBigUp,
+  CheckCircle2,
   ChevronRight,
-  Star
+  Disc3,
+  ListMusic,
+  LogOut,
+  Plus,
+  Radio,
+  RefreshCw,
+  Search,
+  Sparkles,
+  Star,
+  Trophy,
+  User,
 } from 'lucide-react';
-import { AdminDashboard } from './AdminDashboard';
+import { AdminDashboard, type DeviceSummary } from './AdminDashboard';
 import { buildQueueRequestPayload, getSearchResultKey, type CatalogSearchSong } from './jukeboxCatalog';
 import { buildGuestQueueHeaders } from './guestFingerprint';
 import {
@@ -48,25 +48,106 @@ interface Song extends CatalogSearchSong {
   artist: string;
 }
 
+interface QueueSong {
+  id: string;
+  title: string;
+  artist: string;
+  cover_url: string | null;
+  added_by_name?: string | null;
+  duration_seconds?: number | null;
+  user_vote?: number;
+  upvotes?: number;
+  downvotes?: number;
+  super_votes?: number;
+  score?: number;
+  song_score?: number | null;
+  priority_score?: number | null;
+}
+
 interface AppUser {
   id: string;
   display_name: string;
   is_guest: boolean;
   total_songs_added: number;
+  rank_score?: number;
   monthly_rank_score?: number;
   role?: string;
   last_super_vote_at?: string;
 }
 
-// --- Utils ---
+interface LeaderboardUser {
+  id: string;
+  display_name: string;
+  total_songs_added: number;
+  score?: number;
+  rank_score?: number;
+  monthly_rank_score?: number;
+}
+
+interface QueueState {
+  now_playing: QueueSong | null;
+  queue: QueueSong[];
+}
+
+interface ConnectResponse {
+  device: DeviceSummary;
+  queue: QueueState;
+}
+
+interface ProgressState {
+  currentTime: number;
+  duration: number;
+  percent: number;
+}
+
+interface ToastState {
+  type: 'success' | 'error';
+  text: string;
+}
+
+declare global {
+  interface Window {
+    toggleLeaderboard?: () => void;
+  }
+}
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (isAxiosError<{ error?: string; message?: string }>(error)) {
+    return error.response?.data?.message || error.response?.data?.error || fallback;
+  }
+
+  if (error instanceof Error) return error.message;
+  return fallback;
+};
+
 const formatTime = (seconds: number) => {
-  if (!seconds || isNaN(seconds)) return '0:00';
+  if (!seconds || Number.isNaN(seconds)) return '0:00';
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
 
-// --- Components ---
+const getInitial = (name?: string | null) => (name?.trim().substring(0, 1) || '?').toUpperCase();
+
+interface LoginViewProps {
+  deviceCode: string;
+  deviceCodeInput: string;
+  setDeviceCodeInput: (value: string) => void;
+  connectToDevice: (code: string) => void;
+  user: AppUser | null;
+  guestName: string;
+  setGuestName: (value: string) => void;
+  handleGuestLogin: () => void;
+  loading: boolean;
+  showLoginModal: boolean;
+  setShowLoginModal: (value: boolean) => void;
+  email: string;
+  setEmail: (value: string) => void;
+  password: string;
+  setPassword: (value: string) => void;
+  handleLogin: () => void;
+  logout: () => void;
+}
 
 const LoginView = ({
   deviceCode,
@@ -85,432 +166,259 @@ const LoginView = ({
   password,
   setPassword,
   handleLogin,
-  logout
-}: any) => (
-  <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-6 py-10">
-    <div
-      className="pointer-events-none absolute inset-0 opacity-90"
-      style={{
-        background: [
-          'radial-gradient(circle at 18% 18%, rgba(227,30,38,0.22), transparent 28%)',
-          'radial-gradient(circle at 82% 14%, rgba(243,106,7,0.18), transparent 30%)',
-          'radial-gradient(circle at 50% 100%, rgba(227,30,38,0.10), transparent 42%)'
-        ].join(', ')
-      }}
-    ></div>
-    <div
-      className="relative z-10 w-full max-w-md text-center space-y-6 rounded-[32px] p-8"
-      style={{
-        background: 'linear-gradient(180deg, rgba(19,19,24,0.92) 0%, rgba(11,11,15,0.96) 100%)',
-        border: '1px solid var(--border)',
-        boxShadow: '0 24px 80px rgba(0,0,0,0.45)'
-      }}
-    >
-      <div className="relative mb-2">
-        <div
-          className="absolute inset-0 mx-auto h-24 w-24 rounded-full blur-3xl opacity-20"
-          style={{ background: 'linear-gradient(135deg, #E31E26, #F36A07)' }}
-        ></div>
-        <div
-          className="relative mx-auto flex h-20 w-20 items-center justify-center rounded-[28px] shadow-2xl"
-          style={{
-            background: 'linear-gradient(135deg, #E31E26 0%, #F36A07 100%)',
-            boxShadow: '0 20px 40px rgba(227,30,38,0.35), 0 0 0 1px rgba(255,255,255,0.08)'
-          }}
-        >
-          <Music size={36} color="white" />
+  logout,
+}: LoginViewProps) => (
+  <main className="arcade-login">
+    <section className="arcade-login-panel" aria-label="RadioTEDU Jukebox giriş">
+      <div className="brand-marquee">
+        <div className="brand-mark">
+          <Radio size={32} />
+        </div>
+        <div>
+          <p className="eyebrow">RadioTEDU</p>
+          <h1>Arcade Jukebox</h1>
         </div>
       </div>
 
-      <div className="space-y-3">
-        <h1 className="text-4xl font-black tracking-tight text-white">Jukebox<span style={{ color: 'var(--orange)' }}>.</span></h1>
-        <p className="text-text-muted font-medium">TEDU kampüsünde müziği sen yönet.</p>
+      <div className="login-copy">
+        <p>Kampüs ritmini seç, sıraya gir, oylamayla akışı değiştir.</p>
       </div>
 
       {user ? (
-        <div
-          className="w-full animate-fade rounded-[28px] p-6"
-          style={{
-            background: 'linear-gradient(180deg, rgba(227,30,38,0.10) 0%, rgba(243,106,7,0.07) 100%)',
-            border: '1px solid rgba(227,30,38,0.16)'
-          }}
-        >
-          <div className="flex items-center gap-4 mb-6">
-            <div
-              className="flex h-14 w-14 items-center justify-center rounded-2xl font-black text-xl text-white"
-              style={{
-                background: 'linear-gradient(135deg, #E31E26 0%, #F36A07 100%)',
-                boxShadow: '0 16px 30px rgba(227,30,38,0.26)'
-              }}
-            >
-              {user.display_name.substring(0, 1).toUpperCase()}
-            </div>
-            <div className="text-left flex-1">
-              <div className="text-xs font-bold text-primary uppercase tracking-widest mb-1">Hoş Geldin</div>
-              <div className="font-black text-xl">{user.display_name}</div>
+        <div className="panel-stack">
+          <div className="user-ticket">
+            <div className="avatar-chip">{getInitial(user.display_name)}</div>
+            <div>
+              <span>Hoş geldin</span>
+              <strong>{user.display_name}</strong>
             </div>
           </div>
 
           {!deviceCode ? (
-            <div className="space-y-3">
+            <div className="form-grid">
               <input
-                className="input-field py-4 text-center font-bold tracking-[4px] text-lg uppercase"
+                className="arcade-input code-input"
                 placeholder="CIHAZ KODU"
                 value={deviceCodeInput}
                 maxLength={10}
-                onChange={e => setDeviceCodeInput(e.target.value.toUpperCase())}
+                onChange={(event) => setDeviceCodeInput(event.target.value.toUpperCase())}
               />
               <button
+                className="arcade-button primary"
                 onClick={() => connectToDevice(deviceCodeInput)}
-                className="w-full rounded-xl py-4 font-black text-white transition-all uppercase tracking-wider"
-                style={{
-                  background: 'linear-gradient(135deg, #E31E26 0%, #F36A07 100%)',
-                  boxShadow: '0 6px 20px rgba(227,30,38,0.25)',
-                  fontSize: '12px',
-                  letterSpacing: '0.08em'
-                }}
                 disabled={loading || !deviceCodeInput}
               >
-                Cihaza Bağlan
+                Cihaza bağlan
               </button>
             </div>
           ) : (
-            <button
-              onClick={() => connectToDevice(deviceCode)}
-              className="w-full rounded-xl py-4 font-black text-white transition-all uppercase tracking-wider"
-              style={{
-                background: 'linear-gradient(135deg, #E31E26 0%, #F36A07 100%)',
-                boxShadow: '0 6px 20px rgba(227,30,38,0.25)',
-                fontSize: '12px',
-                letterSpacing: '0.08em'
-              }}
-              disabled={loading}
-            >
-              {loading ? 'Bağlanıyor...' : 'Müzik Kutusuna Gir'}
+            <button className="arcade-button primary" onClick={() => connectToDevice(deviceCode)} disabled={loading}>
+              {loading ? 'Bağlanıyor...' : 'Müzik kutusuna gir'}
             </button>
           )}
 
-          <button onClick={logout} className="mt-4 text-xs font-bold text-text-muted hover:text-rose-500 tracking-widest uppercase">Farklı Hesapla Giriş</button>
+          <button className="text-button" onClick={logout}>
+            Farklı hesapla giriş
+          </button>
         </div>
       ) : (
-        <div className="space-y-6 w-full text-left">
-          <div className="space-y-4 rounded-[28px] border p-6" style={{ borderColor: 'var(--border)' }}>
-            <div
-              className="text-[10px] font-black uppercase"
-              style={{ color: 'var(--orange)', letterSpacing: '0.18em' }}
-            >
-              HIZLI BASLA
-            </div>
+        <div className="panel-stack">
+          <div className="login-card">
+            <p className="eyebrow amber">Hızlı başla</p>
             <input
-              className="input-field py-4"
+              className="arcade-input"
               placeholder="Adın nedir?"
               value={guestName}
-              onChange={(e) => setGuestName(e.target.value)}
+              onChange={(event) => setGuestName(event.target.value)}
             />
-            <button
-              onClick={handleGuestLogin}
-              className="flex w-full items-center justify-center gap-2 rounded-xl py-4 font-black text-white transition-all hover:-translate-y-0.5 active:scale-95"
-              style={{
-                background: 'linear-gradient(135deg, #E31E26 0%, #F36A07 100%)',
-                boxShadow: '0 8px 24px rgba(227,30,38,0.25)',
-                fontSize: '13px',
-                letterSpacing: '0.06em',
-                textTransform: 'uppercase'
-              }}
-              disabled={loading}
-            >
-              {loading ? 'Baglaniyor...' : 'Hizli Basla'} <ChevronRight size={18} />
+            <button className="arcade-button primary icon-button" onClick={handleGuestLogin} disabled={loading}>
+              {loading ? 'Bağlanıyor...' : 'Hızlı başla'} <ChevronRight size={18} />
             </button>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="flex-1 h-px" style={{ background: 'var(--border-bright)' }}></div>
-            <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.12em' }}>VEYA</span>
-            <div className="flex-1 h-px" style={{ background: 'var(--border-bright)' }}></div>
-          </div>
+          <div className="divider-label">veya</div>
 
-          <button
-            onClick={() => setShowLoginModal(true)}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all"
-            style={{
-              border: '1px solid var(--border-bright)',
-              color: 'var(--text-muted)',
-              fontSize: '12px',
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase'
-            }}
-          >
-            <User size={14} /> Üye Girişi
+          <button className="arcade-button secondary icon-button" onClick={() => setShowLoginModal(true)}>
+            <User size={16} /> Üye girişi
           </button>
         </div>
       )}
-    </div>
+    </section>
 
-    {/* Login Modal */}
     {showLoginModal && (
-      <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 animate-fade">
-        <div
-          className="w-full max-w-sm p-8 rounded-[32px] shadow-2xl relative"
-          style={{
-            background: 'linear-gradient(180deg, rgba(19,19,24,0.96) 0%, rgba(11,11,15,0.98) 100%)',
-            border: '1px solid var(--border)'
-          }}
-        >
-          <button
-            onClick={() => setShowLoginModal(false)}
-            className="absolute top-6 right-6 text-text-muted hover:text-white transition-colors"
-          >✕</button>
-
-          <div className="text-center mb-8">
-            <h2 className="text-2xl font-black mb-2">Üye Girişi</h2>
-            <p className="text-xs text-text-muted font-bold tracking-widest uppercase">RadioTEDU Premium</p>
-          </div>
-
-          <div className="flex flex-col gap-5">
-            <div className="space-y-2">
-              <label className="text-[10px] text-text-muted uppercase font-black tracking-widest ml-1">Kullanıcı Adı / Email</label>
+      <div className="modal-screen" role="dialog" aria-modal="true" aria-label="Üye girişi">
+        <section className="modal-card compact">
+          <button className="modal-close" onClick={() => setShowLoginModal(false)} aria-label="Kapat">
+            x
+          </button>
+          <p className="eyebrow amber">RadioTEDU hesabı</p>
+          <h2>Üye girişi</h2>
+          <div className="form-grid">
+            <label>
+              Kullanıcı adı / email
               <input
-                className="input-field"
+                className="arcade-input"
                 placeholder="admin@radiotedu.com"
                 value={email}
-                onChange={e => setEmail(e.target.value)}
+                onChange={(event) => setEmail(event.target.value)}
               />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] text-text-muted uppercase font-black tracking-widest ml-1">Şifre</label>
+            </label>
+            <label>
+              Şifre
               <input
+                className="arcade-input"
                 type="password"
-                className="input-field"
                 placeholder="••••••"
                 value={password}
-                onChange={e => setPassword(e.target.value)}
+                onChange={(event) => setPassword(event.target.value)}
               />
-            </div>
-            <button
-              onClick={handleLogin}
-              className="btn-primary py-4 mt-2"
-              disabled={loading}
-            >
-              {loading ? 'Giriş Yapılıyor...' : 'GİRİŞ YAP'}
+            </label>
+            <button className="arcade-button primary" onClick={handleLogin} disabled={loading}>
+              {loading ? 'Giriş yapılıyor...' : 'Giriş yap'}
             </button>
           </div>
-        </div>
+        </section>
       </div>
     )}
-  </div>
+  </main>
 );
 
-const LeaderboardView = ({ leaderboard, period, onPeriodChange, onClose }: any) => (
-  <div
-    className="fixed inset-0 z-[250] flex items-center justify-center p-4 sm:p-6 backdrop-blur-2xl animate-fade"
-    style={{ background: 'rgba(0,0,0,0.85)' }}
-  >
-    <div
-      className="w-full max-w-xl p-6 sm:p-8 relative overflow-hidden flex flex-col"
-      style={{
-        maxHeight: '80vh',
-        background: 'rgba(13,13,18,0.95)',
-        border: '1px solid var(--border-bright)',
-        borderRadius: '28px',
-        backdropFilter: 'blur(24px)',
-        boxShadow: '0 24px 80px rgba(0,0,0,0.45)'
-      }}
-    >
-      <div
-        className="absolute inset-x-0 top-0"
-        style={{ height: '2px', background: 'linear-gradient(90deg, transparent, #E31E26 30%, #F36A07 70%, transparent)', opacity: 0.7 }}
-      ></div>
+interface LeaderboardViewProps {
+  leaderboard: LeaderboardUser[];
+  period: 'total' | 'monthly';
+  onPeriodChange: (period: 'total' | 'monthly') => void;
+  onClose: () => void;
+}
 
-      <div className="mb-8 flex items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div
-            className="w-12 h-12 rounded-2xl flex items-center justify-center"
-            style={{
-              background: 'linear-gradient(135deg, rgba(227,30,38,0.15), rgba(243,106,7,0.15))',
-              border: '1px solid rgba(243,106,7,0.25)'
-            }}
-          >
-            <Trophy size={26} style={{ color: 'var(--orange)' }} />
-          </div>
-          <div>
-            <h2 className="text-2xl font-black tracking-tight">Siralama</h2>
-            <p className="text-xs text-text-muted font-bold uppercase tracking-[0.18em]">
-              {period === 'monthly' ? 'Bu Ay En Cok Katki Saglayanlar' : 'Tum Zamanlar En Cok Katki Saglayanlar'}
-            </p>
-          </div>
+const LeaderboardView = ({ leaderboard, period, onPeriodChange, onClose }: LeaderboardViewProps) => (
+  <div className="modal-screen" role="dialog" aria-modal="true" aria-label="Jukebox sıralaması">
+    <section className="modal-card leaderboard-modal">
+      <div className="modal-heading">
+        <div className="icon-tile amber">
+          <Trophy size={24} />
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center rounded-2xl border border-white/10 bg-white/[0.03] p-1">
-            {['total', 'monthly'].map((value) => (
-              <button
-                key={value}
-                onClick={() => onPeriodChange(value)}
-                className="px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.16em] transition-all"
-                style={{
-                  background: period === value ? 'linear-gradient(135deg, rgba(227,30,38,0.22), rgba(243,106,7,0.22))' : 'transparent',
-                  color: period === value ? 'white' : 'var(--text-muted)',
-                }}
-              >
-                {value === 'monthly' ? 'Aylik' : 'Total'}
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={onClose}
-            className="flex h-11 w-11 items-center justify-center rounded-2xl transition-all"
-            style={{
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid var(--border)',
-              color: 'var(--text-secondary)'
-            }}
-          >
-            X
-          </button>
+        <div>
+          <p className="eyebrow amber">Skor tablosu</p>
+          <h2>Sıralama</h2>
+          <p>{period === 'monthly' ? 'Bu ay en çok katkı sağlayanlar' : 'Tüm zamanlar en çok katkı sağlayanlar'}</p>
         </div>
+        <button className="modal-close inline" onClick={onClose} aria-label="Sıralamayı kapat">
+          x
+        </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+      <div className="segmented-control" role="tablist" aria-label="Sıralama dönemi">
+        <button className={period === 'total' ? 'active' : ''} onClick={() => onPeriodChange('total')}>
+          Total
+        </button>
+        <button className={period === 'monthly' ? 'active' : ''} onClick={() => onPeriodChange('monthly')}>
+          Aylık
+        </button>
+      </div>
+
+      <div className="leaderboard-list custom-scrollbar">
         {leaderboard.length === 0 ? (
-          <div
-            className="flex flex-col items-center justify-center rounded-[24px] py-20 text-center"
-            style={{
-              background: 'rgba(255,255,255,0.02)',
-              border: '1px solid var(--border)'
-            }}
-          >
-            <div
-              className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl"
-              style={{
-                background: 'linear-gradient(135deg, rgba(227,30,38,0.12), rgba(243,106,7,0.12))',
-                border: '1px solid rgba(243,106,7,0.2)'
-              }}
-            >
-              <Trophy size={28} style={{ color: 'var(--orange)' }} />
-            </div>
-            <p className="text-sm font-black uppercase tracking-[0.18em]">Henuz kimse yok</p>
-            <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">
-              Ilk siraya gecmek icin ilk sarkiyi ekle
-            </p>
+          <div className="empty-panel">
+            <Trophy size={34} />
+            <strong>Henüz kimse yok</strong>
+            <span>İlk sıraya geçmek için ilk şarkıyı ekle.</span>
           </div>
         ) : (
-          leaderboard.map((u: any, idx: number) => (
-            <div
-              key={u.id}
-              className="flex items-center gap-3 rounded-[22px] border p-4 transition-all sm:gap-4"
-              style={{
-                background: idx === 0 ? 'rgba(243,106,7,0.10)' : 'rgba(255,255,255,0.025)',
-                border: idx === 0 ? '1px solid rgba(243,106,7,0.25)' : '1px solid var(--border)',
-                boxShadow: idx === 0 ? '0 12px 32px rgba(243,106,7,0.12)' : 'none'
-              }}
-            >
-              <div
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl font-black text-sm"
-                style={{
-                  background: idx === 0
-                    ? 'linear-gradient(135deg, #E31E26, #F36A07)'
-                    : idx === 1 ? 'rgba(148,163,184,0.3)'
-                      : idx === 2 ? 'rgba(180,120,60,0.3)'
-                        : 'rgba(255,255,255,0.08)',
-                  color: 'white'
-                }}
-              >
-                {idx + 1}
+          leaderboard.map((entry, index) => (
+            <article className={`leaderboard-row ${index === 0 ? 'is-winner' : ''}`} key={entry.id}>
+              <div className="rank-badge">{index + 1}</div>
+              <div className="avatar-chip small">{getInitial(entry.display_name)}</div>
+              <div className="row-main">
+                <strong>{entry.display_name}</strong>
+                <span>{entry.total_songs_added} şarkı</span>
               </div>
-              <div
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border font-black"
-                style={{
-                  background: 'linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.04))',
-                  borderColor: 'rgba(255,255,255,0.10)',
-                  color: idx === 0 ? 'var(--orange)' : 'white'
-                }}
-              >
-                {(u.display_name?.substring(0, 1) || '?').toUpperCase()}
+              <div className="score-readout">
+                <strong>{entry.score ?? entry.monthly_rank_score ?? entry.rank_score ?? 0}</strong>
+                <span>puan</span>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-black truncate text-sm">{u.display_name}</div>
-                <div className="text-[10px] text-text-muted font-bold uppercase tracking-[0.16em]">
-                  {u.total_songs_added} sarki
-                </div>
-              </div>
-              <div className="shrink-0 text-right">
-                <div style={{ fontSize: '16px', fontWeight: 900, color: idx === 0 ? 'var(--orange)' : 'var(--primary)' }}>
-                  {u.score ?? u.monthly_rank_score ?? u.rank_score}
-                </div>
-                <div className="text-[10px] text-primary/50 font-bold uppercase tracking-[0.16em] leading-none">puan</div>
-              </div>
-            </div>
+            </article>
           ))
         )}
       </div>
-    </div>
+    </section>
   </div>
 );
 
-const MemoizedQueueItem = ({ item, idx, myVotes, handleVote, user }: any) => {
+interface QueueItemProps {
+  item: QueueSong;
+  idx: number;
+  myVotes: Record<string, number>;
+  handleVote: (queueItemId: string, voteType: number, isSuper?: boolean) => void;
+  user: AppUser;
+}
+
+const QueueItem = ({ item, idx, myVotes, handleVote, user }: QueueItemProps) => {
   const currentVote = resolveDisplayedVote(item, myVotes);
+  const supervoteAvailable = hasSupervoteAvailableToday(user.last_super_vote_at);
 
   return (
-    <div
-      className="group relative flex items-center gap-4 p-3 rounded-2xl transition-all animate-fade"
-      style={{
-        background: 'rgba(255,255,255,0.025)',
-        border: '1px solid var(--border)',
-        marginBottom: '8px'
-      }}
-    >
-      <div className="absolute -left-2 top-1/2 -translate-y-1/2 w-6 h-6 bg-primary rounded-lg flex items-center justify-center text-[10px] font-black shadow-lg shadow-primary/20 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-        {idx + 1}
+    <article className="queue-item">
+      <div className="queue-index">{idx + 1}</div>
+      <img src={item.cover_url ?? ''} className="song-thumb" alt="" />
+      <div className="row-main">
+        <strong>{item.title}</strong>
+        <span>{item.artist}</span>
       </div>
-      <img src={item.cover_url} className="w-12 h-12 rounded-xl object-cover shadow-md" alt="" />
-      <div className="flex-1 min-w-0">
-        <div className="font-bold text-xs truncate mb-0.5">{item.title}</div>
-        <div className="text-[10px] text-text-muted truncate font-semibold uppercase tracking-tight">{item.artist}</div>
-      </div>
-      <div className="flex flex-col items-end gap-1">
-        <div
-          className="flex items-center gap-1.5 px-2 py-1 rounded-full"
-          style={{
-            background: 'rgba(243,106,7,0.12)',
-            border: '1px solid rgba(243,106,7,0.22)'
-          }}
-        >
-          <TrendingUp size={9} style={{ color: 'var(--orange)' }} />
-          <span style={{ fontSize: '10px', color: 'var(--orange)', fontWeight: 800 }}>{getDisplayedSongScore(item)}</span>
+      <div className="vote-stack">
+        <div className="score-pill">
+          <Sparkles size={11} />
+          {getDisplayedSongScore(item)}
         </div>
-        {/* Voting Controls */}
-        <div className="flex items-center gap-1 mt-1">
+        <div className="vote-controls" aria-label={`${item.title} oyları`}>
           <button
-            onClick={(e) => { e.stopPropagation(); handleVote(item.id, 1); }}
-            className={`p-1 rounded-md transition-colors ${currentVote === 1 ? 'bg-emerald-500/20 text-emerald-500' : 'text-text-muted hover:bg-emerald-500/20 hover:text-emerald-500'}`}
+            className={currentVote === 1 ? 'vote active-up' : 'vote'}
+            onClick={() => handleVote(item.id, 1)}
             title="Upvote"
           >
-            <ArrowBigUp size={16} fill={currentVote === 1 ? "currentColor" : "none"} />
+            <ArrowBigUp size={17} fill={currentVote === 1 ? 'currentColor' : 'none'} />
           </button>
-          <span className="text-[10px] font-bold text-text-muted min-w-[12px] text-center">{getDisplayedSongScore(item)}</span>
           <button
-            onClick={(e) => { e.stopPropagation(); handleVote(item.id, -1); }}
-            className={`p-1 rounded-md transition-colors ${currentVote === -1 ? 'bg-rose-500/20 text-rose-500' : 'text-text-muted hover:bg-rose-500/20 hover:text-rose-500'}`}
+            className={currentVote === -1 ? 'vote active-down' : 'vote'}
+            onClick={() => handleVote(item.id, -1)}
             title="Downvote"
           >
-            <ArrowBigDown size={16} fill={currentVote === -1 ? "currentColor" : "none"} />
+            <ArrowBigDown size={17} fill={currentVote === -1 ? 'currentColor' : 'none'} />
           </button>
-
-          {/* Super Upvote Button */}
-          {!user?.is_guest && (
+          {!user.is_guest && (
             <button
-              onClick={(e) => { e.stopPropagation(); handleVote(item.id, 1, true); }}
-              disabled={!hasSupervoteAvailableToday(user?.last_super_vote_at)}
-              className={`p-1 rounded-md transition-all ${isSupervoteActive(currentVote) ? 'bg-amber-500/30 text-amber-500 scale-110' : 'text-text-muted hover:bg-amber-500/20 hover:text-amber-500 opacity-60 hover:opacity-100'}`}
-              title={!hasSupervoteAvailableToday(user?.last_super_vote_at) ? "Bugün süper oy hakkın bitti" : "Süper Oy (+3 şarkı / +2 rank)"}
+              className={isSupervoteActive(currentVote) ? 'vote active-super' : 'vote'}
+              onClick={() => handleVote(item.id, 1, true)}
+              disabled={!supervoteAvailable}
+              title={!supervoteAvailable ? 'Bugün süper oy hakkın bitti' : 'Süper Oy (+3 şarkı / +2 rank)'}
             >
-              <Star size={14} fill={isSupervoteActive(currentVote) ? "currentColor" : "none"} />
+              <Star size={15} fill={isSupervoteActive(currentVote) ? 'currentColor' : 'none'} />
             </button>
           )}
         </div>
       </div>
-    </div>
+    </article>
   );
 };
+
+interface JukeboxViewProps {
+  user: AppUser;
+  device: DeviceSummary;
+  logout: () => void;
+  search: string;
+  setSearch: (value: string) => void;
+  searchSongs: () => void;
+  results: Song[];
+  addToQueue: (song: Song) => void;
+  nowPlaying: QueueSong | null;
+  queue: QueueSong[];
+  fetchCurrentQueue: (deviceId: string) => void;
+  progress: ProgressState | null;
+  setDevice: (device: DeviceSummary) => void;
+  interpolatedProgress: number;
+  handleVote: (queueItemId: string, voteType: number, isSuper?: boolean) => void;
+  onShowLeaderboard: () => void;
+  myVotes: Record<string, number>;
+}
 
 const JukeboxView = ({
   user,
@@ -529,696 +437,454 @@ const JukeboxView = ({
   interpolatedProgress,
   handleVote,
   onShowLeaderboard,
-  myVotes
-}: any) => {
+  myVotes,
+}: JukeboxViewProps) => {
   const nowPlayingCurrentVote = nowPlaying ? resolveDisplayedVote(nowPlaying, myVotes) : undefined;
   const nowPlayingSongScore = nowPlaying ? getDisplayedSongScore(nowPlaying) : 0;
+  const duration = progress?.duration || nowPlaying?.duration_seconds || 0;
+  const progressPercent = duration ? Math.min(100, (interpolatedProgress / duration) * 100) : 0;
+  const supervoteAvailable = hasSupervoteAvailableToday(user.last_super_vote_at);
 
   return (
-  <div className="flex flex-col min-h-screen lg:flex-row w-full max-w-full">
-    {/* Global Desktop Sidebar (Mobile Top) */}
-    <div
-      className="lg:w-80 border-b lg:border-r p-6 flex flex-col z-20 sticky top-0 lg:h-screen lg:shrink-0"
-      style={{
-        background: 'rgba(13,13,18,0.92)',
-        backdropFilter: 'blur(28px)',
-        borderColor: 'var(--border)',
-        position: 'relative'
-      }}
-    >
-      <div
-        className="absolute top-0 left-0 right-0"
-        style={{
-          height: '2px',
-          background: 'linear-gradient(90deg, #E31E26, #F36A07 50%, transparent)',
-          opacity: 0.7
-        }}
-      ></div>
-      <div className="flex items-center gap-3 mb-8">
-        <div
-          className="w-11 h-11 rounded-2xl flex items-center justify-center shadow-lg flex-shrink-0"
-          style={{
-            background: 'linear-gradient(135deg, #E31E26, #F36A07)',
-            boxShadow: '0 8px 20px rgba(227,30,38,0.3)'
-          }}
-        >
-          <Music size={20} color="white" />
-        </div>
-        <div>
-          <h1 className="font-black text-xl tracking-tight">Jukebox<span style={{ color: 'var(--orange)' }}>.</span></h1>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
-            <span className="text-[10px] font-bold text-text-muted uppercase tracking-widest">{device?.name}</span>
+    <div className="jukebox-console">
+      <aside className="control-rail">
+        <div className="rail-brand">
+          <div className="brand-mark small">
+            <Radio size={20} />
+          </div>
+          <div>
+            <p className="eyebrow">RadioTEDU</p>
+            <h1>Jukebox</h1>
           </div>
         </div>
-      </div>
 
-      <div className="relative mb-6">
-        <Search className="absolute left-5 top-1/2 -translate-y-1/2 z-10" size={15} style={{ color: 'var(--orange)' }} />
-        <input
-          className="input-field pl-12 h-12"
-          style={{ fontSize: '13px', fontWeight: 500 }}
-          placeholder="Şarkı veya Sanatçı Ara..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyUp={(e) => e.key === 'Enter' && searchSongs()}
-        />
-      </div>
-
-      <div className="flex-1 overflow-y-auto space-y-2 pr-1 -mr-1">
-        {results.length > 0 ? (
-          <>
-            <div className="flex items-center justify-between mb-2 mt-4 ml-1">
-              <h2 className="text-[10px] font-black text-text-muted uppercase tracking-[2px]">Arama Sonuçları</h2>
-              <div className="flex gap-4">
-                <button onClick={() => setSearch('')} className="text-[10px] font-bold text-primary">Temizle</button>
-              </div>
-            </div>
-            {results.map((song: Song, idx: number) => (
-              <div
-                key={getSearchResultKey(song, idx)}
-                className="group flex items-center gap-3 p-2.5 rounded-2xl transition-all cursor-pointer animate-fade"
-                style={{
-                  background: 'rgba(255,255,255,0.025)',
-                  border: '1px solid var(--border)',
-                  marginBottom: '6px'
-                }}
-                onClick={() => addToQueue(song)}
-              >
-                <img src={song.cover_url ?? ''} className="w-10 h-10 rounded-xl object-cover shadow-md group-hover:scale-105 transition-transform" alt="" />
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-xs truncate transition-colors group-hover:text-white">{song.title}</div>
-                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 500 }}>{song.artist}</div>
-                </div>
-                <div className="w-8 h-8 rounded-full flex items-center justify-center transition-all" style={{ color: 'var(--text-muted)' }}>
-                  <Plus size={16} />
-                </div>
-              </div>
-            ))}
-          </>
-        ) : (
-          <div className="hidden lg:flex flex-col items-center justify-center h-48 text-center px-4">
-            <Trophy size={48} className="text-primary/20 mb-4 cursor-pointer hover:scale-110 transition-transform" onClick={onShowLeaderboard} />
-            <p className="text-xs text-text-muted font-medium mb-4">TEDU kütüphanesinden dilediğin şarkıyı ara.</p>
-            <button
-              onClick={onShowLeaderboard}
-              className="px-4 py-2 glass border-primary/30 rounded-xl text-[10px] font-black text-primary uppercase tracking-widest hover:bg-primary/10 transition-colors"
-            >
-              Sıralamayı Gör
-            </button>
+        <div className="device-card">
+          <span className="status-light online"></span>
+          <div>
+            <p>Bağlı cihaz</p>
+            <strong>{device.name}</strong>
+            <span>{device.device_code}</span>
           </div>
-        )}
-      </div>
+        </div>
 
-      {/* User Info Card */}
-      <div className="mt-6 pt-6 space-y-4" style={{ borderTop: '1px solid var(--border)' }}>
-        {user?.role === 'admin' && (
-          <AdminDashboard
-            token={localStorage.getItem('token') || ''}
-            device={device}
-            onSelectDevice={setDevice}
+        <label className="search-panel">
+          <Search size={16} />
+          <input
+            className="arcade-input"
+            placeholder="Şarkı veya sanatçı ara..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            onKeyUp={(event) => event.key === 'Enter' && searchSongs()}
           />
-        )}
+        </label>
 
-        <div
-          className="flex items-center justify-between p-3 rounded-2xl"
-          style={{
-            background: 'rgba(255,255,255,0.025)',
-            border: '1px solid var(--border)'
-          }}
-        >
-          <div className="flex items-center gap-3">
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center font-black shadow-inner relative"
-              style={{
-                background: 'linear-gradient(135deg, rgba(227,30,38,0.2), rgba(243,106,7,0.15))',
-                border: '1px solid rgba(227,30,38,0.25)',
-                color: 'var(--primary)',
-                fontSize: '16px'
-              }}
-            >
-              {user?.display_name.substring(0, 1).toUpperCase()}
-              {!user?.is_guest && (
-                <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: 'var(--green)', border: '2px solid var(--background)' }}>
-                  <Trophy size={8} className="text-white" />
-                </div>
-              )}
-            </div>
-            <div className="flex flex-col">
-              <span className="text-xs font-black">{user?.display_name}</span>
-              <div className="flex items-center gap-1.5">
-                <span style={{ fontSize: '9px', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{user?.role === 'admin' ? 'Yonetici' : user?.is_guest ? 'Misafir' : 'Dinleyici'}</span>
-                {!user?.is_guest && user?.rank_score !== undefined && (
-                  <span style={{ fontSize: '10px', fontWeight: 800, color: 'var(--orange)' }}>
-                    • {user.rank_score} puan
+        <div className="search-results custom-scrollbar">
+          {results.length > 0 ? (
+            <>
+              <div className="section-heading">
+                <span>Arama sonuçları</span>
+                <button onClick={() => setSearch('')}>Temizle</button>
+              </div>
+              {results.map((song, index) => (
+                <button className="search-result" key={getSearchResultKey(song, index)} onClick={() => addToQueue(song)}>
+                  <img src={song.cover_url ?? ''} alt="" />
+                  <span>
+                    <strong>{song.title}</strong>
+                    <small>{song.artist}</small>
                   </span>
-                )}
-              </div>
-            </div>
-          </div>
-          <button onClick={logout} className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors" title="Çıkış">
-            <LogOut size={16} />
-          </button>
-        </div>
-      </div>
-    </div>
-
-    {/* Main Player & Queue Area */}
-    <div className="flex-1 flex flex-col h-full lg:h-screen lg:overflow-hidden bg-decor-dots">
-      <div className="flex-1 flex flex-col lg:flex-row lg:overflow-hidden">
-
-        {/* Now Playing Section */}
-        <div className="flex-1 p-8 flex flex-col items-center justify-center relative overflow-hidden">
-          {nowPlaying ? (
-            <div className="max-w-md w-full text-center space-y-8 animate-fade">
-              <div className="relative inline-block group">
-                <div
-                  className="absolute inset-0 blur-[80px] opacity-30 transition-opacity"
-                  style={{ background: 'linear-gradient(135deg, #E31E26, #F36A07)' }}
-                ></div>
-                <div className="relative">
-                  <img
-                    src={nowPlaying.cover_url}
-                    className="w-56 h-56 lg:w-80 lg:h-80 rounded-[40px] shadow-2xl object-cover"
-                    style={{
-                      boxShadow: '0 30px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.06)',
-                      transition: 'box-shadow 0.5s ease'
-                    }}
-                    alt=""
-                  />
-                  <div className="absolute inset-x-0 -bottom-4 flex items-center justify-center gap-2">
-                    <div
-                      className="px-6 py-2 rounded-full flex items-center gap-3 shadow-xl"
-                      style={{
-                        background: 'rgba(13,13,18,0.85)',
-                        backdropFilter: 'blur(12px)',
-                        border: '1px solid rgba(227,30,38,0.25)'
-                      }}
-                    >
-                      <Disc style={{ color: 'var(--orange)' }} size={14} />
-                      <span className="text-[10px] font-black tracking-widest uppercase">Şu An Çalıyor</span>
-                    </div>
-                    <button
-                      onClick={() => device && fetchCurrentQueue(device.id)}
-                      className="w-8 h-8 glass rounded-full flex items-center justify-center text-primary/50 hover:text-primary transition-colors shadow-lg border border-primary/20"
-                      title="Senkronize Et"
-                    >
-                      <RefreshCw size={12} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <h1 className="text-2xl lg:text-5xl font-black tracking-tighter leading-tight">{nowPlaying.title}</h1>
-                <p style={{ fontSize: '22px', fontWeight: 700, color: 'var(--orange)', letterSpacing: '-0.01em' }}>{nowPlaying.artist}</p>
-
-                <div className="w-full max-w-xs mx-auto space-y-2 py-4">
-                  {/* Kiosk Sync Status */}
-                  <div className="flex justify-center mb-2">
-                    <div className="text-[10px] bg-emerald-500/20 p-1 px-3 rounded-full border border-emerald-500/30 text-emerald-400 font-black tracking-tighter flex items-center gap-1.5 opacity-60">
-                      <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></div>
-                      KIOSK CANLI
-                    </div>
-                  </div>
-
-                  <div className="flex justify-between text-[10px] font-black tracking-widest text-text-muted uppercase">
-                    <span>{formatTime(interpolatedProgress)}</span>
-                    <span>{formatTime(progress?.duration || nowPlaying.duration_seconds || 0)}</span>
-                  </div>
-                  <div className="h-2 w-full rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
-                    <div
-                      className="h-full rounded-full relative transition-all duration-1000 ease-linear"
-                      style={{
-                        width: `${Math.min(100, (interpolatedProgress / (progress?.duration || nowPlaying.duration_seconds || 1)) * 100)}%`,
-                        background: 'linear-gradient(90deg, #E31E26, #F36A07)',
-                        boxShadow: '0 0 12px rgba(243,106,7,0.5)'
-                      }}
-                    ></div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-center gap-2">
-                  <div className="flex -space-x-2">
-                    <div className="w-6 h-6 rounded-full bg-primary/20 border border-primary/50 flex items-center justify-center"><User size={10} className="text-primary" /></div>
-                  </div>
-                  <span className="text-xs text-text-muted font-bold tracking-tight">İsteyen: <span className="text-white">{nowPlaying.added_by_name}</span></span>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
-                  <div
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-full"
-                    style={{
-                      background: 'rgba(243,106,7,0.12)',
-                      border: '1px solid rgba(243,106,7,0.22)'
-                    }}
-                  >
-                    <TrendingUp size={11} style={{ color: 'var(--orange)' }} />
-                    <span className="text-[10px] font-black uppercase tracking-[0.16em]" style={{ color: 'var(--orange)' }}>
-                      {nowPlayingSongScore} puan
-                    </span>
-                  </div>
-
-                  <div
-                    className="flex items-center gap-1 rounded-full px-2 py-1.5"
-                    style={{
-                      background: 'rgba(255,255,255,0.04)',
-                      border: '1px solid var(--border)'
-                    }}
-                  >
-                    <button
-                      onClick={() => handleVote(nowPlaying.id, 1)}
-                      className={`p-2 rounded-full transition-colors ${nowPlayingCurrentVote === 1 ? 'bg-emerald-500/20 text-emerald-500' : 'text-text-muted hover:bg-emerald-500/20 hover:text-emerald-500'}`}
-                      title="Upvote"
-                    >
-                      <ArrowBigUp size={18} fill={nowPlayingCurrentVote === 1 ? "currentColor" : "none"} />
-                    </button>
-                    <span className="min-w-[28px] text-center text-xs font-black text-text-muted">
-                      {nowPlayingSongScore}
-                    </span>
-                    <button
-                      onClick={() => handleVote(nowPlaying.id, -1)}
-                      className={`p-2 rounded-full transition-colors ${nowPlayingCurrentVote === -1 ? 'bg-rose-500/20 text-rose-500' : 'text-text-muted hover:bg-rose-500/20 hover:text-rose-500'}`}
-                      title="Downvote"
-                    >
-                      <ArrowBigDown size={18} fill={nowPlayingCurrentVote === -1 ? "currentColor" : "none"} />
-                    </button>
-                    {!user?.is_guest && (
-                      <button
-                        onClick={() => handleVote(nowPlaying.id, 1, true)}
-                        disabled={!hasSupervoteAvailableToday(user?.last_super_vote_at)}
-                        className={`p-2 rounded-full transition-all ${isSupervoteActive(nowPlayingCurrentVote) ? 'bg-amber-500/30 text-amber-500 scale-110' : 'text-text-muted hover:bg-amber-500/20 hover:text-amber-500 opacity-70 hover:opacity-100'} ${!hasSupervoteAvailableToday(user?.last_super_vote_at) ? 'cursor-not-allowed opacity-40' : ''}`}
-                        title={!hasSupervoteAvailableToday(user?.last_super_vote_at) ? "Bugün süper oy hakkın bitti" : "Süper Oy (+3 şarkı / +2 rank)"}
-                      >
-                        <Star size={16} fill={isSupervoteActive(nowPlayingCurrentVote) ? "currentColor" : "none"} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
+                  <Plus size={16} />
+                </button>
+              ))}
+            </>
           ) : (
-            <div className="text-center space-y-6">
-              <div className="w-20 h-20 glass rounded-full flex items-center justify-center mx-auto opacity-20">
-                <Disc size={40} className="text-white" />
-              </div>
-              <div className="space-y-1">
-                <h2 className="text-xl font-black">Müzik Sırası Boş</h2>
-                <p className="text-sm text-text-muted font-medium">Hemen bir şarkı ara ve kampüste yankılansın!</p>
-              </div>
+            <div className="empty-rail">
+              <Trophy size={36} />
+              <span>TEDU kataloğundan şarkı ara.</span>
+              <button className="arcade-button secondary mini" onClick={onShowLeaderboard}>
+                Sıralama
+              </button>
             </div>
           )}
         </div>
 
-        {/* Queue Column (Desktop Right) */}
-        <div className="lg:w-96 flex flex-col p-6 lg:h-full lg:overflow-hidden bg-white/[0.02] lg:border-l border-white/5">
-          <div className="flex items-center justify-between mb-6 px-1">
-            <div className="flex items-center gap-2">
-              <ListMusic size={18} className="text-primary" />
-              <h2 className="text-sm font-black tracking-widest uppercase">SIRADAKİLER</h2>
+        <div className="rail-footer">
+          {user.role === 'admin' && <AdminDashboard token={localStorage.getItem('token') || ''} device={device} onSelectDevice={setDevice} />}
+
+          <div className="user-console-card">
+            <div className="avatar-chip">{getInitial(user.display_name)}</div>
+            <div className="row-main">
+              <strong>{user.display_name}</strong>
+              <span>{user.role === 'admin' ? 'Yönetici' : user.is_guest ? 'Misafir' : 'Dinleyici'}</span>
             </div>
-            <div className="px-3 py-1 glass rounded-full text-[10px] font-black text-primary border-primary/20">
-              {queue.length} PARÇA
+            <button className="icon-only danger" onClick={logout} title="Çıkış">
+              <LogOut size={16} />
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <main className="player-stage">
+        <section className="now-playing-panel">
+          {nowPlaying ? (
+            <div className="record-display">
+              <div className="record-art">
+                <img src={nowPlaying.cover_url ?? ''} alt="" />
+                <span className="record-ring"></span>
+              </div>
+              <div className="track-copy">
+                <p className="eyebrow amber">Şu an çalıyor</p>
+                <h2>{nowPlaying.title}</h2>
+                <p className="artist-name">{nowPlaying.artist}</p>
+                <div className="request-line">
+                  <User size={14} /> İsteyen: <strong>{nowPlaying.added_by_name || 'RadioTEDU'}</strong>
+                </div>
+              </div>
+
+              <div className="progress-module">
+                <div className="module-topline">
+                  <span>{formatTime(interpolatedProgress)}</span>
+                  <button className="sync-button" onClick={() => fetchCurrentQueue(device.id)} title="Senkronize et">
+                    <RefreshCw size={13} />
+                  </button>
+                  <span>{formatTime(duration)}</span>
+                </div>
+                <div className="progress-track">
+                  <span style={{ width: `${progressPercent}%` }}></span>
+                </div>
+                <div className="status-chip live">
+                  <span className="status-light online"></span> Kiosk canlı
+                </div>
+              </div>
+
+              <div className="now-vote-panel">
+                <div className="score-pill large">
+                  <Sparkles size={13} /> {nowPlayingSongScore} puan
+                </div>
+                <div className="vote-controls large">
+                  <button
+                    className={nowPlayingCurrentVote === 1 ? 'vote active-up' : 'vote'}
+                    onClick={() => handleVote(nowPlaying.id, 1)}
+                    title="Upvote"
+                  >
+                    <ArrowBigUp size={22} fill={nowPlayingCurrentVote === 1 ? 'currentColor' : 'none'} />
+                  </button>
+                  <button
+                    className={nowPlayingCurrentVote === -1 ? 'vote active-down' : 'vote'}
+                    onClick={() => handleVote(nowPlaying.id, -1)}
+                    title="Downvote"
+                  >
+                    <ArrowBigDown size={22} fill={nowPlayingCurrentVote === -1 ? 'currentColor' : 'none'} />
+                  </button>
+                  {!user.is_guest && (
+                    <button
+                      className={isSupervoteActive(nowPlayingCurrentVote) ? 'vote active-super' : 'vote'}
+                      onClick={() => handleVote(nowPlaying.id, 1, true)}
+                      disabled={!supervoteAvailable}
+                      title={!supervoteAvailable ? 'Bugün süper oy hakkın bitti' : 'Süper Oy (+3 şarkı / +2 rank)'}
+                    >
+                      <Star size={20} fill={isSupervoteActive(nowPlayingCurrentVote) ? 'currentColor' : 'none'} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="empty-stage">
+              <Disc3 size={56} />
+              <h2>Müzik sırası boş</h2>
+              <p>Bir şarkı ara ve kampüs hoparlörlerine gönder.</p>
+            </div>
+          )}
+        </section>
+
+        <aside className="queue-column">
+          <div className="queue-heading">
+            <div>
+              <p className="eyebrow">Sıradakiler</p>
+              <h2>Queue</h2>
+            </div>
+            <div className="count-pill">
+              <ListMusic size={15} /> {queue.length}
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto space-y-3 px-1">
+          <div className="queue-list custom-scrollbar">
             {queue.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-center p-8 opacity-20">
-                <TrendingUp size={48} className="mb-4" />
-                <p className="text-xs font-bold uppercase tracking-widest">Kuyruk Bekleniyor</p>
+              <div className="empty-panel slim">
+                <ListMusic size={34} />
+                <strong>Kuyruk bekleniyor</strong>
               </div>
             ) : (
-              queue.map((item: any, idx: number) => (
-                <MemoizedQueueItem
-                  key={item.id}
-                  item={item}
-                  idx={idx}
-                  myVotes={myVotes}
-                  handleVote={handleVote}
-                  user={user}
-                />
+              queue.map((item, index) => (
+                <QueueItem key={item.id} item={item} idx={index} myVotes={myVotes} handleVote={handleVote} user={user} />
               ))
             )}
           </div>
-        </div>
-      </div>
+        </aside>
+      </main>
 
-      {/* Guest Toast / Info Bar (Mobile Bottom) */}
-      {user?.is_guest && (
-        <div className="lg:hidden fixed bottom-6 left-6 right-6 p-4 glass border-primary/30 rounded-3xl shadow-2xl flex items-center justify-between z-50 animate-fade">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-primary/20 rounded-xl flex items-center justify-center">
-              <User size={20} className="text-primary" />
-            </div>
-            <div>
-              <div className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-0.5">Misafir Modu</div>
-              <div className="text-sm font-black">{user.total_songs_added >= 1 ? 'Hakkın Doldu' : '1 şarkı hakkın var'}</div>
-            </div>
-          </div>
-          {user.total_songs_added >= 1 ? (
-            <button onClick={logout} className="px-5 py-2.5 bg-primary rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">Üye Ol</button>
-          ) : (
-            <div className="px-3 py-1 bg-emerald-500/20 text-emerald-500 text-[10px] rounded-full font-black uppercase tracking-widest border border-emerald-500/30">Aktif</div>
-          )}
+      {user.is_guest && (
+        <div className="guest-status">
+          <User size={18} />
+          <span>{user.total_songs_added >= 1 ? 'Misafir hakkın doldu' : 'Misafir modu: 1 şarkı hakkın var'}</span>
+          {user.total_songs_added >= 1 ? <button onClick={logout}>Üye ol</button> : <strong>Aktif</strong>}
         </div>
       )}
     </div>
-  </div>
   );
 };
 
 function App() {
   const [deviceCode, setDeviceCode] = useState('');
   const [deviceCodeInput, setDeviceCodeInput] = useState('');
-  const [device, setDevice] = useState<any>(null);
+  const [device, setDevice] = useState<DeviceSummary | null>(null);
   const [user, setUser] = useState<AppUser | null>(null);
   const [guestName, setGuestName] = useState('');
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<Song[]>([]);
-  const [queue, setQueue] = useState<any[]>([]);
-  const [nowPlaying, setNowPlaying] = useState<any>(null);
-  const [progress, setProgress] = useState<{ currentTime: number, duration: number, percent: number } | null>(null);
-  const [interpolatedProgress, setInterpolatedProgress] = useState<number>(0);
+  const [queue, setQueue] = useState<QueueSong[]>([]);
+  const [nowPlaying, setNowPlaying] = useState<QueueSong | null>(null);
+  const [progress, setProgress] = useState<ProgressState | null>(null);
+  const [interpolatedProgress, setInterpolatedProgress] = useState(0);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [msg, setMsg] = useState<ToastState | null>(null);
   const [myVotes, setMyVotes] = useState<Record<string, number>>({});
-
-  // Use a ref for the interceptor to avoid stale closures
-  const deviceRef = useRef<any>(null);
-  useEffect(() => {
-    deviceRef.current = device;
-  }, [device]);
-
-
-  // Login States
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-
-  // Initialize from URL
-  useEffect(() => {
-    if (msg) {
-      const timer = setTimeout(() => setMsg(null), 4000);
-      return () => clearTimeout(timer);
-    }
-  }, [msg]);
-
-  // Smooth progress interpolation
-  useEffect(() => {
-    let timer: any;
-    if (progress) {
-      // Set initial value from kiosk
-      setInterpolatedProgress(progress.currentTime);
-
-      // Increment locally every second
-      timer = setInterval(() => {
-        setInterpolatedProgress(prev => {
-          if (prev < progress.duration) return prev + 1;
-          return prev;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [progress]);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    if (code) {
-      setDeviceCode(code);
-    }
-
-    // Check localStorage for user
-    const savedUser = localStorage.getItem('user');
-    if (savedUser && savedUser !== 'undefined' && savedUser !== 'null') {
-      try {
-        const parsed = JSON.parse(savedUser);
-        setUser(parsed);
-        // If we have a code and a user, try to connect automatically
-        if (code) connectToDevice(code);
-      } catch (e) {
-        localStorage.removeItem('user');
-        localStorage.removeItem('token');
-      }
-    }
-  }, []);
-
-  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardUser[]>([]);
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<'total' | 'monthly'>('total');
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const deviceRef = useRef<DeviceSummary | null>(null);
   const leaderboardRequestSeqRef = useRef(0);
   const leaderboardPeriodRef = useRef<'total' | 'monthly'>('total');
 
-  useEffect(() => {
-    leaderboardPeriodRef.current = leaderboardPeriod;
-  }, [leaderboardPeriod]);
-
-  // Expose toggle to sub-components via window for simplicity (not ideal but works here)
-  useEffect(() => {
-    (window as any).toggleLeaderboard = () => {
-      fetchLeaderboard(leaderboardPeriodRef.current);
-      setShowLeaderboard(true);
-    };
+  const syncVotesFromQueue = useCallback((nextNowPlaying: QueueSong | null, nextQueue: QueueSong[]) => {
+    const nextVotes: Record<string, number> = {};
+    if (nextNowPlaying?.user_vote !== undefined) nextVotes[nextNowPlaying.id] = nextNowPlaying.user_vote;
+    nextQueue.forEach((item) => {
+      if (item.user_vote !== undefined) nextVotes[item.id] = item.user_vote;
+    });
+    if (Object.keys(nextVotes).length > 0) setMyVotes((prev) => ({ ...prev, ...nextVotes }));
   }, []);
 
-  const fetchLeaderboard = async (period: 'total' | 'monthly' = leaderboardPeriod) => {
+  const fetchCurrentQueue = useCallback(
+    async (deviceId: string) => {
+      try {
+        const res = await axios.get<QueueState>(`${API_URL}/api/v1/jukebox/queue/${deviceId}`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+        });
+        const nextQueue = res.data.queue || [];
+        const nextNowPlaying = res.data.now_playing || null;
+        setQueue(nextQueue);
+        setNowPlaying(nextNowPlaying);
+        syncVotesFromQueue(nextNowPlaying, nextQueue);
+      } catch (error) {
+        console.error('Failed to sync queue:', error);
+      }
+    },
+    [syncVotesFromQueue],
+  );
+
+  const connectToDevice = useCallback(
+    async (code: string) => {
+      if (!code) return;
+      try {
+        setLoading(true);
+        const res = await axios.post<{ data: ConnectResponse }>(
+          `${API_URL}/api/v1/jukebox/connect`,
+          { device_code: code },
+          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } },
+        );
+
+        const responseData = res.data.data;
+        setDevice(responseData.device);
+        setQueue(responseData.queue.queue);
+        setNowPlaying(responseData.queue.now_playing);
+        syncVotesFromQueue(responseData.queue.now_playing, responseData.queue.queue);
+        setMsg({ type: 'success', text: `${responseData.device.name} cihazına bağlanıldı!` });
+        setDeviceCode(code);
+      } catch {
+        setMsg({ type: 'error', text: 'Cihaza bağlanılamadı. Kod hatalı olabilir.' });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [syncVotesFromQueue],
+  );
+
+  const fetchLeaderboard = useCallback(async (period: 'total' | 'monthly' = leaderboardPeriodRef.current) => {
     const requestSeq = leaderboardRequestSeqRef.current + 1;
     leaderboardRequestSeqRef.current = requestSeq;
     setLeaderboardPeriod(period);
 
     try {
-      const res = await axios.get(`${API_URL}/api/v1/users/leaderboard`, {
-        params: { period }
+      const res = await axios.get<{ data: { leaderboard?: LeaderboardUser[] } }>(`${API_URL}/api/v1/users/leaderboard`, {
+        params: { period },
       });
-
-      if (leaderboardRequestSeqRef.current !== requestSeq) {
-        return;
-      }
-
+      if (leaderboardRequestSeqRef.current !== requestSeq) return;
       setLeaderboard(res.data.data.leaderboard || []);
-    } catch (err) {
-      if (leaderboardRequestSeqRef.current !== requestSeq) {
-        return;
-      }
-
-      console.error('Leaderboard fetch failed:', err);
+    } catch (error) {
+      if (leaderboardRequestSeqRef.current !== requestSeq) return;
+      console.error('Leaderboard fetch failed:', error);
     }
-  };
+  }, []);
 
-  // Axios Interceptor for 401 errors
+  useEffect(() => {
+    deviceRef.current = device;
+  }, [device]);
+
+  useEffect(() => {
+    leaderboardPeriodRef.current = leaderboardPeriod;
+  }, [leaderboardPeriod]);
+
+  useEffect(() => {
+    if (!msg) return undefined;
+    const timer = window.setTimeout(() => setMsg(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [msg]);
+
+  useEffect(() => {
+    if (!progress) return undefined;
+    setInterpolatedProgress(progress.currentTime);
+    const timer = window.setInterval(() => {
+      setInterpolatedProgress((prev) => (prev < progress.duration ? prev + 1 : prev));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [progress]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    if (code) setDeviceCode(code);
+
+    const savedUser = localStorage.getItem('user');
+    if (savedUser && savedUser !== 'undefined' && savedUser !== 'null') {
+      try {
+        const parsed = JSON.parse(savedUser) as AppUser;
+        setUser(parsed);
+        if (code) void connectToDevice(code);
+      } catch {
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+      }
+    }
+  }, [connectToDevice]);
+
+  useEffect(() => {
+    window.toggleLeaderboard = () => {
+      void fetchLeaderboard(leaderboardPeriodRef.current);
+      setShowLeaderboard(true);
+    };
+    return () => {
+      delete window.toggleLeaderboard;
+    };
+  }, [fetchLeaderboard]);
+
   useEffect(() => {
     const interceptor = axios.interceptors.response.use(
       (response) => response,
       (error) => {
         if (error.response?.status === 401) {
-          console.warn('Session expired or invalid token');
           localStorage.removeItem('user');
           localStorage.removeItem('token');
           setUser(null);
           setMsg({ type: 'error', text: 'Oturum süreniz doldu. Lütfen tekrar giriş yapın.' });
         }
 
-        // Handle Session Requirement for Devices
         if (error.response?.data?.code === 'SESSION_REQUIRED') {
-          console.warn('🔒 [SECURITY] Session required or invalidated by admin');
-
-          // Use ref to get the current device even in this stale closure
           const currentDevice = deviceRef.current;
-
-          // SILENT RE-CONNECT: If we have a current device we try to re-connect automatically once to restore the session.
           if (currentDevice?.device_code) {
-            console.log('🔄 Attempting silent re-connect to restore session for', currentDevice.device_code);
-            connectToDevice(currentDevice.device_code);
+            void connectToDevice(currentDevice.device_code);
             return Promise.reject(error);
           }
         }
 
         return Promise.reject(error);
-      }
+      },
     );
 
     return () => axios.interceptors.response.eject(interceptor);
-  }, []);
+  }, [connectToDevice]);
 
-  // Socket Connection Management
   useEffect(() => {
-    if (!device) return;
+    if (!device || socket) return undefined;
 
-    if (!socket) {
-      console.log('🚀 Initializing socket connection to:', SOCKET_URL, SOCKET_PATH);
-      const newSocket = io(SOCKET_URL, {
-        path: SOCKET_PATH,
-        reconnectionAttempts: 10,
-        reconnectionDelay: 2000,
-        transports: ['websocket', 'polling']
-      });
-      setSocket(newSocket);
+    const newSocket = io(SOCKET_URL, {
+      path: SOCKET_PATH,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 2000,
+      transports: ['websocket', 'polling'],
+    });
+    setSocket(newSocket);
 
-      return () => {
-        console.log('🔌 Cleaning up socket...');
-        newSocket.disconnect();
-        setSocket(null);
-      };
-    }
-  }, [device?.id]); // Only re-run if the device changes
+    return () => {
+      newSocket.disconnect();
+      setSocket(null);
+    };
+  }, [device, socket]);
 
-  // Socket Events & Room Management
   useEffect(() => {
-    if (socket && device) {
-      const handleConnect = () => {
-        console.log('✅ Socket connected, joining room:', device.id);
-        socket.emit('join_device', device.id);
-        fetchCurrentQueue(device.id);
-      };
+    if (!socket || !device) return undefined;
 
-      if (socket.connected) {
-        handleConnect();
-      }
+    const handleConnect = () => {
+      socket.emit('join_device', device.id);
+      void fetchCurrentQueue(device.id);
+    };
 
-      socket.on('connect', handleConnect);
+    const handleQueueUpdated = (data: QueueState) => {
+      const nextQueue = data.queue || [];
+      const nextNowPlaying = data.now_playing || null;
+      setQueue(nextQueue);
+      setNowPlaying(nextNowPlaying);
+      setProgress(null);
+      syncVotesFromQueue(nextNowPlaying, nextQueue);
+    };
 
-      // DEBUG: Log ALL incoming events
-      socket.onAny((eventName, ...args) => {
-        console.log(`🔍 [SOCKET EVENT] ${eventName}:`, args);
-      });
+    const handleForceLogout = () => {
+      if (user?.role === 'admin') return;
+      setDevice(null);
+      setMsg({ type: 'error', text: 'Cihaz oturumunuz admin tarafından sonlandırıldı.' });
+    };
 
-      socket.on('queue_updated', (data: any) => {
-        console.log('📋 Queue update:', data);
-        setQueue(data.queue);
-        setNowPlaying(data.now_playing);
-        setProgress(null);
+    const handlePlaybackProgress = (data: ProgressState) => setProgress(data);
+    const handleSongSkipped = () => void fetchCurrentQueue(device.id);
 
-        // Sync myVotes from incoming data ONLY if it contains user_vote info
-        // General broadcasts from server will omit user_vote to prevent resetting local state
-        const newVotes: Record<string, number> = {};
+    if (socket.connected) handleConnect();
+    socket.on('connect', handleConnect);
+    socket.on('queue_updated', handleQueueUpdated);
+    socket.on('force_logout', handleForceLogout);
+    socket.on('playback_progress', handlePlaybackProgress);
+    socket.on('song_skipped', handleSongSkipped);
 
-        if (data.now_playing && data.now_playing.user_vote !== undefined) {
-          newVotes[data.now_playing.id] = data.now_playing.user_vote;
-        }
+    return () => {
+      socket.off('connect', handleConnect);
+      socket.off('queue_updated', handleQueueUpdated);
+      socket.off('force_logout', handleForceLogout);
+      socket.off('playback_progress', handlePlaybackProgress);
+      socket.off('song_skipped', handleSongSkipped);
+      socket.emit('leave_device', device.id);
+    };
+  }, [device, fetchCurrentQueue, socket, syncVotesFromQueue, user?.role]);
 
-        data.queue.forEach((item: any) => {
-          if (item.user_vote !== undefined) {
-            newVotes[item.id] = item.user_vote;
-          }
-        });
-
-        if (Object.keys(newVotes).length > 0) {
-          console.log('🗳️ Syncing votes from server:', newVotes);
-          setMyVotes(prev => ({ ...prev, ...newVotes }));
-        }
-      });
-
-      socket.on('force_logout', () => {
-        console.warn('⚠️ Force logout received from server');
-
-        // Don't affect admins at all
-        if (user?.role === 'admin') {
-          console.log('🛡️ Admin detected, ignoring force_logout signal completely');
-          return;
-        }
-
-        // For regular users, kick them out
-        setDevice(null);
-        setMsg({ type: 'error', text: 'Cihaz oturumunuz admin tarafından sonlandırıldı.' });
-      });
-
-      socket.on('playback_progress', (data: any) => {
-        console.info('⏱️ Progress data received:', data.currentTime);
-        setProgress(data);
-      });
-
-      socket.on('song_skipped', () => {
-        console.log('⏭️ Song skipped, refreshing...');
-        fetchCurrentQueue(device.id);
-      });
-
-      return () => {
-        socket.off('connect', handleConnect);
-        socket.off('queue_updated');
-        socket.off('playback_progress');
-        socket.off('song_skipped');
-        if (device) socket.emit('leave_device', device.id);
-      };
-    }
-  }, [socket, device?.id]);
-
-  // Fetch queue when device changes
   useEffect(() => {
-    if (device?.id) {
-      fetchCurrentQueue(device.id);
-    }
-  }, [device?.id]);
-
-  const fetchCurrentQueue = async (deviceId: string) => {
-    try {
-      const res = await axios.get(`${API_URL}/api/v1/jukebox/queue/${deviceId}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      // The API returns { now_playing: ..., queue: [...] }
-      setQueue(res.data.queue || []);
-      setNowPlaying(res.data.now_playing || null);
-
-      // Sync myVotes also on manual refresh/fetch
-      const refreshedVotes: Record<string, number> = {};
-      if (res.data.now_playing?.user_vote !== undefined) refreshedVotes[res.data.now_playing.id] = res.data.now_playing.user_vote;
-      res.data.queue.forEach((item: any) => {
-        if (item.user_vote !== undefined) refreshedVotes[item.id] = item.user_vote;
-      });
-      setMyVotes(prev => ({ ...prev, ...refreshedVotes }));
-    } catch (err) {
-      console.error('Failed to sync queue:', err);
-    }
-  };
-
-  const connectToDevice = async (code: string) => {
-    if (!code) return;
-    try {
-      setLoading(true);
-      const res = await axios.post(`${API_URL}/api/v1/jukebox/connect`, {
-        device_code: code
-      }, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-
-      const responseData = res.data.data;
-
-      setDevice(responseData.device);
-      setQueue(responseData.queue.queue);
-      setNowPlaying(responseData.queue.now_playing);
-      setMsg({ type: 'success', text: `${responseData.device.name} cihazına bağlanıldı!` });
-      setDeviceCode(code);
-
-      // Sync myVotes from initial fetch
-      const initialVotes: Record<string, number> = {};
-      if (responseData.queue.now_playing?.user_vote !== undefined) initialVotes[responseData.queue.now_playing.id] = responseData.queue.now_playing.user_vote;
-      responseData.queue.queue.forEach((item: any) => {
-        if (item.user_vote !== undefined) initialVotes[item.id] = item.user_vote;
-      });
-      setMyVotes(initialVotes);
-    } catch (err: any) {
-      setMsg({ type: 'error', text: 'Cihaza bağlanılamadı. Kod hatalı olabilir.' });
-    } finally {
-      setLoading(false);
-    }
-  };
+    if (device?.id) void fetchCurrentQueue(device.id);
+  }, [device?.id, fetchCurrentQueue]);
 
   const handleGuestLogin = async () => {
     if (!guestName) return;
     try {
       setLoading(true);
-      const res = await axios.post(`${API_URL}/api/v1/auth/guest`, { display_name: guestName });
+      const res = await axios.post<{ data: { user: AppUser; access_token: string } }>(`${API_URL}/api/v1/auth/guest`, {
+        display_name: guestName,
+      });
       const userData = res.data.data.user;
       setUser(userData);
       localStorage.setItem('user', JSON.stringify(userData));
       localStorage.setItem('token', res.data.data.access_token);
-
-      // If we already have a deviceCode in state, connect automatically
-      if (deviceCode) {
-        connectToDevice(deviceCode);
-      }
-    } catch (err) {
+      if (deviceCode) void connectToDevice(deviceCode);
+    } catch {
       setMsg({ type: 'error', text: 'Giriş yapılamadı.' });
     } finally {
       setLoading(false);
@@ -1229,45 +895,45 @@ function App() {
     if (!email || !password) return;
     try {
       setLoading(true);
-      const res = await axios.post(`${API_URL}/api/v1/auth/login`, { email, password });
+      const res = await axios.post<{ data: { user: AppUser; access_token: string } }>(`${API_URL}/api/v1/auth/login`, {
+        email,
+        password,
+      });
       setUser(res.data.data.user);
       localStorage.setItem('token', res.data.data.access_token);
       localStorage.setItem('user', JSON.stringify(res.data.data.user));
       setGuestName('');
       setShowLoginModal(false);
 
-      // Auto-connect after login if we have a code
       const currentCode = deviceCode || deviceCodeInput;
-      if (currentCode) {
-        connectToDevice(currentCode);
-      }
-    } catch (err: any) {
-      setMsg({ type: 'error', text: err.response?.data?.error || 'Giriş yapılamadı.' });
+      if (currentCode) void connectToDevice(currentCode);
+    } catch (error) {
+      setMsg({ type: 'error', text: getErrorMessage(error, 'Giriş yapılamadı.') });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleVote = async (queueItemId: string, voteType: number, isSuper: boolean = false) => {
+  const handleVote = async (queueItemId: string, voteType: number, isSuper = false) => {
     if (!device) return;
     try {
-      const response = await axios.post(`${API_URL}/api/v1/jukebox/vote`, {
-        queue_item_id: queueItemId,
-        vote: voteType,
-        device_id: device.id,
-        is_super: isSuper
-      }, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
+      const response = await axios.post<{ data: { user_vote: number } }>(
+        `${API_URL}/api/v1/jukebox/vote`,
+        {
+          queue_item_id: queueItemId,
+          vote: voteType,
+          device_id: device.id,
+          is_super: isSuper,
+        },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } },
+      );
 
       if (isSuper && user) {
         setUser({ ...user, last_super_vote_at: new Date().toISOString() });
       }
 
       const serverUserVote = response.data.data.user_vote;
-
-      // Update local myVotes with server confirmation
-      setMyVotes(prev => {
+      setMyVotes((prev) => {
         if (serverUserVote === 0) {
           const newState = { ...prev };
           delete newState[queueItemId];
@@ -1275,49 +941,36 @@ function App() {
         }
         return { ...prev, [queueItemId]: serverUserVote };
       });
-    } catch (err: any) {
-      console.error('Vote failed:', err);
-      setMsg({ type: 'error', text: err.response?.data?.message || 'Oy verme başarısız oldu.' });
+    } catch (error) {
+      setMsg({ type: 'error', text: getErrorMessage(error, 'Oy verme başarısız oldu.') });
     }
   };
 
   const logout = async () => {
-    // Store device code before clearing
     const savedDeviceCode = device?.device_code || deviceCode;
 
-    // Call backend to delete session (requires password on reconnect)
     if (device?.id) {
       try {
-        await axios.post(`${API_URL}/api/v1/jukebox/disconnect`,
+        await axios.post(
+          `${API_URL}/api/v1/jukebox/disconnect`,
           { device_id: device.id },
-          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } },
         );
-        console.log('🔐 Session deleted from server');
-      } catch (err) {
-        console.warn('Failed to delete session:', err);
+      } catch (error) {
+        console.warn('Failed to delete session:', error);
       }
 
-      // Clear cached password for this device
       localStorage.removeItem(`device_pwd_${device.device_code}`);
-
-      // Emit leave signal
-      if (socket) {
-        socket.emit('leave_device', device.id);
-        console.log('📤 Sent leave_device for', device.id);
-      }
+      socket?.emit('leave_device', device.id);
     }
 
-    // Clear state but keep device code for re-entry
     setUser(null);
     setDevice(null);
     setQueue([]);
     setNowPlaying(null);
-
-    // Clear auth data
     localStorage.removeItem('user');
     localStorage.removeItem('token');
 
-    // Clear state but keep device code for re-entry
     if (savedDeviceCode) {
       setDeviceCode(savedDeviceCode);
       setDeviceCodeInput(savedDeviceCode);
@@ -1327,10 +980,12 @@ function App() {
   const searchSongs = async () => {
     if (!search) return;
     try {
-      const res = await axios.get(`${API_URL}/api/v1/jukebox/songs?search=${search}`);
-      setResults(res.data.data.items);
-    } catch (err) {
-      console.error(err);
+      const res = await axios.get<{ data: { items: Song[] } }>(`${API_URL}/api/v1/jukebox/songs`, {
+        params: { search },
+      });
+      setResults(res.data.data.items || []);
+    } catch (error) {
+      console.error('Song search failed:', error);
     }
   };
 
@@ -1338,16 +993,12 @@ function App() {
     if (!user || !device) return;
     try {
       setLoading(true);
-      const payload = buildQueueRequestPayload(device.id, song);
-      await axios.post(`${API_URL}/api/v1/jukebox/queue`,
-        payload,
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}`,
-            ...buildGuestQueueHeaders(Boolean(user.is_guest))
-          }
-        }
-      );
+      await axios.post(`${API_URL}/api/v1/jukebox/queue`, buildQueueRequestPayload(device.id, song), {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+          ...buildGuestQueueHeaders(Boolean(user.is_guest)),
+        },
+      });
       setMsg({ type: 'success', text: 'Şarkı kuyruğa eklendi!' });
       setSearch('');
       setResults([]);
@@ -1355,13 +1006,12 @@ function App() {
       if (user.is_guest) {
         setUser({ ...user, total_songs_added: user.total_songs_added + 1 });
       }
-    } catch (err: any) {
-      const resp = err.response?.data;
-      if (resp?.code === 'GUEST_LIMIT_REACHED') {
-        setMsg({ type: 'error', text: 'Misafir limitin doldu. Giris yap veya uye ol; sinirsiz sarki ekleyebilirsin.' });
+    } catch (error) {
+      if (isAxiosError<{ code?: string; message?: string }>(error) && error.response?.data?.code === 'GUEST_LIMIT_REACHED') {
+        setMsg({ type: 'error', text: 'Misafir limitin doldu. Giriş yap veya üye ol; sınırsız şarkı ekleyebilirsin.' });
         setShowLoginModal(true);
       } else {
-        setMsg({ type: 'error', text: resp?.message || 'Şarkı eklenemedi.' });
+        setMsg({ type: 'error', text: getErrorMessage(error, 'Şarkı eklenemedi.') });
       }
     } finally {
       setLoading(false);
@@ -1369,93 +1019,73 @@ function App() {
   };
 
   return (
-    <div className="bg-black min-h-screen text-white font-sans overflow-x-hidden relative flex flex-col items-center">
-      <div className="bg-decor">
-        <div className="orb orb-1"></div>
-        <div className="orb orb-2"></div>
-        <div className="orb orb-3"></div>
-      </div>
+    <div className="arcade-app-shell">
+      {!user || !device ? (
+        <LoginView
+          deviceCode={deviceCode}
+          deviceCodeInput={deviceCodeInput}
+          setDeviceCodeInput={setDeviceCodeInput}
+          connectToDevice={connectToDevice}
+          user={user}
+          guestName={guestName}
+          setGuestName={setGuestName}
+          handleGuestLogin={handleGuestLogin}
+          loading={loading}
+          showLoginModal={showLoginModal}
+          setShowLoginModal={setShowLoginModal}
+          email={email}
+          setEmail={setEmail}
+          password={password}
+          setPassword={setPassword}
+          handleLogin={handleLogin}
+          logout={logout}
+        />
+      ) : (
+        <JukeboxView
+          user={user}
+          device={device}
+          logout={logout}
+          search={search}
+          setSearch={setSearch}
+          searchSongs={searchSongs}
+          results={results}
+          addToQueue={addToQueue}
+          nowPlaying={nowPlaying}
+          queue={queue}
+          fetchCurrentQueue={fetchCurrentQueue}
+          progress={progress}
+          setDevice={setDevice}
+          interpolatedProgress={interpolatedProgress}
+          handleVote={handleVote}
+          onShowLeaderboard={() => {
+            void fetchLeaderboard();
+            setShowLeaderboard(true);
+          }}
+          myVotes={myVotes}
+        />
+      )}
 
-      <div className="app-container w-full">
-        {!user || !device ? (
-          <LoginView
-            deviceCode={deviceCode}
-            deviceCodeInput={deviceCodeInput}
-            setDeviceCodeInput={setDeviceCodeInput}
-            connectToDevice={connectToDevice}
-            user={user}
-            guestName={guestName}
-            setGuestName={setGuestName}
-            handleGuestLogin={handleGuestLogin}
-            loading={loading}
-            showLoginModal={showLoginModal}
-            setShowLoginModal={setShowLoginModal}
-            email={email}
-            setEmail={setEmail}
-            password={password}
-            setPassword={setPassword}
-            handleLogin={handleLogin}
-            logout={logout}
-          />
-        ) : (
-          <JukeboxView
-            user={user}
-            device={device}
-            logout={logout}
-            search={search}
-            setSearch={setSearch}
-            searchSongs={searchSongs}
-            results={results}
-            addToQueue={addToQueue}
-            nowPlaying={nowPlaying}
-            queue={queue}
-            fetchCurrentQueue={fetchCurrentQueue}
-            progress={progress}
-            setDevice={setDevice}
-            interpolatedProgress={interpolatedProgress}
-            handleVote={handleVote}
-            onShowLeaderboard={() => {
-              fetchLeaderboard();
-              setShowLeaderboard(true);
-            }}
-            myVotes={myVotes}
-          />
-        )}
+      {showLeaderboard && (
+        <LeaderboardView
+          leaderboard={leaderboard}
+          period={leaderboardPeriod}
+          onPeriodChange={(period) => void fetchLeaderboard(period)}
+          onClose={() => setShowLeaderboard(false)}
+        />
+      )}
 
-        {/* Leaderboard Modal */}
-        {showLeaderboard && (
-          <LeaderboardView
-            leaderboard={leaderboard}
-            period={leaderboardPeriod}
-            onPeriodChange={(period: 'total' | 'monthly') => {
-              fetchLeaderboard(period);
-            }}
-            onClose={() => setShowLeaderboard(false)}
-          />
-        )}
-
-
-        {/* Toast Notification */}
-        {msg && (
-          <div className={`fixed bottom-24 lg:bottom-10 left-1/2 -translate-x-1/2 w-[90%] max-w-sm p-5 rounded-3xl shadow-2xl flex items-center gap-4 z-[100] backdrop-blur-2xl border transition-all animate-fade ${msg.type === 'success' ? 'bg-emerald-500/80 border-emerald-400/30' : 'bg-rose-500/80 border-rose-400/30'}`}>
-            <div className="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center shrink-0">
-              {msg.type === 'success' ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
-            </div>
-            <div className="flex-1">
-              <div className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-0.5">{msg.type === 'success' ? 'Başarılı' : 'Hata'}</div>
-              <div className="text-sm font-black leading-tight">{msg.text}</div>
-            </div>
-            <button onClick={() => setMsg(null)} className="p-2 opacity-50 hover:opacity-100 transition-opacity">✕</button>
+      {msg && (
+        <div className={`toast ${msg.type}`} role="status">
+          {msg.type === 'success' ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
+          <div>
+            <span>{msg.type === 'success' ? 'Başarılı' : 'Hata'}</span>
+            <strong>{msg.text}</strong>
           </div>
-        )}
-      </div>
-
-      <style>{`
-        .bg-decor-dots {
-          background-image: radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px);
-          background-size: 30px 30px;
-        }
-      `}</style>
+          <button onClick={() => setMsg(null)} aria-label="Bildirimi kapat">
+            x
+          </button>
+        </div>
+      )}
     </div>
   );
 }

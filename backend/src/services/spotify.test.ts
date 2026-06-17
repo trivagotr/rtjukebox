@@ -53,6 +53,18 @@ describe('SpotifyService', () => {
     expect(SPOTIFY_REQUIRED_SCOPES).toContain('user-read-private');
   });
 
+  it('round-trips the admin return origin through signed oauth state', async () => {
+    const service = new SpotifyService();
+
+    const url = new URL(await service.getAuthUrl('state-123', 'http://127.0.0.1:5173/admin'));
+    const state = url.searchParams.get('state');
+
+    expect(state).toBeTruthy();
+    expect(state).not.toBe('state-123');
+    expect(state?.split('.')).toHaveLength(4);
+    await expect(service.getAuthReturnOriginFromState(state)).resolves.toBe('http://127.0.0.1:5173');
+  });
+
   it('resolves spotify app credentials from db config before env fallback', async () => {
     process.env.SPOTIFY_CLIENT_ID = 'env-client-id';
     process.env.SPOTIFY_CLIENT_SECRET = 'env-client-secret';
@@ -313,6 +325,41 @@ describe('SpotifyService', () => {
     expect(url.searchParams.get('state')).toContain('device-1');
   });
 
+  it('round-trips the return origin through signed device auth state', async () => {
+    const service = new SpotifyService();
+    const startUrl = new URL(await service.getDeviceAuthStartUrl('device-1', 'http://127.0.0.1:5173/some/path'));
+    const state = startUrl.searchParams.get('state');
+    expect(state).toBeTruthy();
+    expect(state?.split('.')).toHaveLength(5);
+
+    mockAxiosPost.mockResolvedValueOnce({
+      data: {
+        access_token: 'device-access-token',
+        refresh_token: 'device-refresh-token',
+        expires_in: 3600,
+        scope: 'streaming user-modify-playback-state',
+      },
+    });
+
+    mockAxiosGet.mockResolvedValueOnce({
+      data: {
+        id: 'spotify-user-1',
+        display_name: 'Kiosk Device',
+        email: 'kiosk@example.com',
+        product: 'premium',
+      },
+    });
+
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const result = await service.handleDeviceAuthCallback('auth-code', state!);
+
+    expect(result.returnOrigin).toBe('http://127.0.0.1:5173');
+  });
+
   it('preserves the public jukebox prefix when deriving the device auth callback uri', () => {
     expect(
       deriveSpotifyDeviceAuthRedirectUri('https://radiotedu.com/jukebox/api/v1/spotify/callback')
@@ -502,6 +549,260 @@ describe('SpotifyService', () => {
     await expect(service.getKioskPlaybackToken('device-1')).rejects.toThrow('No Spotify authorization found');
   });
 
+  it('rejects kiosk playback token lookup when the Spotify account is not Premium', async () => {
+    const service = new SpotifyService();
+
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          device_id: 'device-1',
+          access_token: 'device-access-token',
+          refresh_token: 'device-refresh-token',
+          token_expires_at: new Date('2099-04-03T11:00:00.000Z'),
+          scopes: 'streaming user-modify-playback-state user-read-playback-state',
+          spotify_account_id: 'spotify-user-1',
+          spotify_display_name: 'Kiosk Device',
+          spotify_email: 'kiosk@example.com',
+          spotify_product: 'free',
+        },
+      ],
+    });
+
+    await expect(service.getKioskPlaybackToken('device-1')).rejects.toThrow(
+      'Spotify Premium hesabı gerekli'
+    );
+  });
+
+  it('rejects kiosk playback token lookup when playback scopes are missing', async () => {
+    const service = new SpotifyService();
+
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          device_id: 'device-1',
+          access_token: 'device-access-token',
+          refresh_token: 'device-refresh-token',
+          token_expires_at: new Date('2099-04-03T11:00:00.000Z'),
+          scopes: 'streaming user-read-email',
+          spotify_account_id: 'spotify-user-1',
+          spotify_display_name: 'Kiosk Device',
+          spotify_email: 'kiosk@example.com',
+          spotify_product: 'premium',
+        },
+      ],
+    });
+
+    await expect(service.getKioskPlaybackToken('device-1')).rejects.toThrow(
+      'Spotify yetkileri eksik: user-modify-playback-state, user-read-playback-state'
+    );
+  });
+
+  it('rejects kiosk playback token lookup when device auth cannot be refreshed', async () => {
+    const service = new SpotifyService();
+
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          device_id: 'device-1',
+          access_token: 'device-access-token',
+          refresh_token: null,
+          token_expires_at: new Date('2099-04-03T11:00:00.000Z'),
+          scopes: 'streaming user-modify-playback-state user-read-playback-state',
+          spotify_account_id: 'spotify-user-1',
+          spotify_display_name: 'Kiosk Device',
+          spotify_email: 'kiosk@example.com',
+          spotify_product: 'premium',
+        },
+      ],
+    });
+
+    await expect(service.getKioskPlaybackToken('device-1')).rejects.toThrow(
+      'Spotify bağlantısı gerekli'
+    );
+  });
+
+  it('clears device auth when spotify rejects the device refresh token', async () => {
+    const service = new SpotifyService();
+
+    mockDbQuery
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            device_id: 'device-1',
+            access_token: 'expired-device-access-token',
+            refresh_token: 'dead-device-refresh-token',
+            token_expires_at: new Date('2020-04-03T11:00:00.000Z'),
+            scopes: 'streaming user-modify-playback-state user-read-playback-state',
+            spotify_account_id: 'spotify-user-1',
+            spotify_display_name: 'Kiosk Device',
+            spotify_email: 'kiosk@example.com',
+            spotify_product: 'premium',
+          },
+        ],
+      });
+
+    const invalidGrantError = new Error('invalid_grant') as Error & {
+      response?: { status: number; data: { error: string; error_description: string } };
+    };
+    invalidGrantError.response = {
+      status: 400,
+      data: {
+        error: 'invalid_grant',
+        error_description: 'Refresh token revoked',
+      },
+    };
+    mockAxiosPost.mockRejectedValueOnce(invalidGrantError);
+
+    await expect(service.getKioskPlaybackToken('device-1')).rejects.toThrow(
+      'Spotify authorization expired for device'
+    );
+    expect(mockDbQuery.mock.calls.some(([sql, params]) =>
+      String(sql).includes('DELETE FROM spotify_device_auth WHERE device_id = $1') &&
+      params?.[0] === 'device-1'
+    )).toBe(true);
+  });
+
+  it('reports device auth as disconnected when status refresh discovers a revoked refresh token', async () => {
+    const service = new SpotifyService();
+
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          device_id: 'device-1',
+          access_token: 'expired-device-access-token',
+          refresh_token: 'dead-device-refresh-token',
+          token_expires_at: new Date('2020-04-03T11:00:00.000Z'),
+          scopes: 'streaming user-modify-playback-state user-read-playback-state',
+          spotify_account_id: 'spotify-user-1',
+          spotify_display_name: 'Kiosk Device',
+          spotify_email: 'kiosk@example.com',
+          spotify_product: 'premium',
+          spotify_country: 'TR',
+        },
+      ],
+    });
+    const invalidGrantError = new Error('invalid_grant') as Error & {
+      response?: { status: number; data: { error: string; error_description: string } };
+    };
+    invalidGrantError.response = {
+      status: 400,
+      data: {
+        error: 'invalid_grant',
+        error_description: 'Refresh token revoked',
+      },
+    };
+    mockAxiosPost.mockRejectedValueOnce(invalidGrantError);
+
+    const status = await service.getDeviceAuthStatus('device-1');
+
+    expect(status).toEqual(expect.objectContaining({
+      deviceId: 'device-1',
+      connected: false,
+      spotifyAccountId: null,
+      hasRefreshToken: false,
+    }));
+    expect(mockDbQuery.mock.calls.some(([sql, params]) =>
+      String(sql).includes('DELETE FROM spotify_device_auth WHERE device_id = $1') &&
+      params?.[0] === 'device-1'
+    )).toBe(true);
+  });
+
+  it('reports device auth as disconnected when the Spotify account is not Premium', async () => {
+    const service = new SpotifyService();
+
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          device_id: 'device-1',
+          access_token: 'device-access-token',
+          refresh_token: 'device-refresh-token',
+          token_expires_at: new Date('2099-04-03T11:00:00.000Z'),
+          scopes: 'streaming user-modify-playback-state user-read-playback-state',
+          spotify_account_id: 'spotify-user-1',
+          spotify_display_name: 'Kiosk Device',
+          spotify_email: 'kiosk@example.com',
+          spotify_product: 'free',
+          spotify_country: 'TR',
+        },
+      ],
+    });
+
+    const status = await service.getDeviceAuthStatus('device-1');
+
+    expect(status).toEqual(expect.objectContaining({
+      deviceId: 'device-1',
+      connected: false,
+      spotifyAccountId: 'spotify-user-1',
+      spotifyProduct: 'free',
+      hasRefreshToken: true,
+      reason: 'Spotify Premium hesabı gerekli',
+    }));
+  });
+
+  it('reports device auth as disconnected when playback scopes are missing', async () => {
+    const service = new SpotifyService();
+
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          device_id: 'device-1',
+          access_token: 'device-access-token',
+          refresh_token: 'device-refresh-token',
+          token_expires_at: new Date('2099-04-03T11:00:00.000Z'),
+          scopes: 'streaming user-read-email',
+          spotify_account_id: 'spotify-user-1',
+          spotify_display_name: 'Kiosk Device',
+          spotify_email: 'kiosk@example.com',
+          spotify_product: 'premium',
+          spotify_country: 'TR',
+        },
+      ],
+    });
+
+    const status = await service.getDeviceAuthStatus('device-1');
+
+    expect(status).toEqual(expect.objectContaining({
+      deviceId: 'device-1',
+      connected: false,
+      spotifyAccountId: 'spotify-user-1',
+      spotifyProduct: 'premium',
+      hasRefreshToken: true,
+      reason: 'Spotify yetkileri eksik: user-modify-playback-state, user-read-playback-state',
+    }));
+  });
+
+  it('reports device auth as disconnected when the stored auth cannot be refreshed', async () => {
+    const service = new SpotifyService();
+
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          device_id: 'device-1',
+          access_token: 'device-access-token',
+          refresh_token: null,
+          token_expires_at: new Date('2099-04-03T11:00:00.000Z'),
+          scopes: 'streaming user-modify-playback-state user-read-playback-state',
+          spotify_account_id: 'spotify-user-1',
+          spotify_display_name: 'Kiosk Device',
+          spotify_email: 'kiosk@example.com',
+          spotify_product: 'premium',
+          spotify_country: 'TR',
+        },
+      ],
+    });
+
+    const status = await service.getDeviceAuthStatus('device-1');
+
+    expect(status).toEqual(expect.objectContaining({
+      deviceId: 'device-1',
+      connected: false,
+      spotifyAccountId: 'spotify-user-1',
+      spotifyProduct: 'premium',
+      hasRefreshToken: false,
+      reason: 'Spotify bağlantısı gerekli',
+    }));
+  });
+
   it('transfers playback to the kiosk browser device before starting playback', async () => {
     const service = new SpotifyService();
     vi.spyOn(service, 'getAccessToken').mockResolvedValue('user-access-token');
@@ -516,6 +817,36 @@ describe('SpotifyService', () => {
       },
       {
         headers: { Authorization: 'Bearer user-access-token' },
+      }
+    );
+  });
+
+  it('uses a provided kiosk device token for playback control without reading global admin auth', async () => {
+    const service = new SpotifyService();
+    const getAccessTokenSpy = vi.spyOn(service, 'getAccessToken');
+
+    await service.transferPlayback('browser-device-1', true, 'device-access-token');
+    await service.playTrack('browser-device-1', 'spotify:track:123', 'device-access-token');
+
+    expect(getAccessTokenSpy).not.toHaveBeenCalled();
+    expect(mockAxiosPut).toHaveBeenNthCalledWith(
+      1,
+      'https://api.spotify.com/v1/me/player',
+      {
+        device_ids: ['browser-device-1'],
+        play: true,
+      },
+      {
+        headers: { Authorization: 'Bearer device-access-token' },
+      }
+    );
+    expect(mockAxiosPut).toHaveBeenNthCalledWith(
+      2,
+      'https://api.spotify.com/v1/me/player/play',
+      { uris: ['spotify:track:123'] },
+      {
+        headers: { Authorization: 'Bearer device-access-token' },
+        params: { device_id: 'browser-device-1' },
       }
     );
   });

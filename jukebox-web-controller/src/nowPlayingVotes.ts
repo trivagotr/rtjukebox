@@ -13,8 +13,8 @@ export function getIstanbulDayKey(value: string | Date) {
   return `${year}-${month}-${day}`;
 }
 
-export function hasSupervoteAvailableToday(lastSuperVoteAt?: string) {
-  return !lastSuperVoteAt || getIstanbulDayKey(lastSuperVoteAt) !== getIstanbulDayKey(new Date());
+export function hasSupervoteAvailableToday(lastSuperVoteAt?: string, now: string | Date = new Date()) {
+  return !lastSuperVoteAt || getIstanbulDayKey(lastSuperVoteAt) !== getIstanbulDayKey(now);
 }
 
 export function getDisplayedSongScore(item: { song_score?: number | null; priority_score?: number | null }) {

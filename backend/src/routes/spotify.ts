@@ -4,7 +4,7 @@ import { db } from '../db';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { rbacMiddleware } from '../middleware/rbac';
 import { sendSuccess, sendError } from '../utils/response';
-import { deriveSpotifyDeviceAuthRedirectUri, spotifyService, type SpotifyAppConfig } from '../services/spotify';
+import { deriveSpotifyDeviceAuthRedirectUri, normalizeSpotifyReturnOrigin, spotifyService, type SpotifyAppConfig } from '../services/spotify';
 
 export interface SpotifyAppConfigUpdatePayload {
   client_id?: unknown;
@@ -59,6 +59,12 @@ function readSpotifyDeviceIdFromPathParam(req: Request): string | null {
   return typeof req.params?.deviceId === 'string' ? req.params.deviceId.trim() || null : null;
 }
 
+function readSpotifyReturnOriginFromRequest(req: Request): string | null {
+  return normalizeSpotifyReturnOrigin(
+    typeof req.query?.return_origin === 'string' ? req.query.return_origin : null
+  );
+}
+
 export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -71,9 +77,13 @@ export function escapeHtml(value: string): string {
 function renderSpotifyDeviceAuthSuccess(res: Response, result: {
   deviceId: string;
   spotifyDisplayName: string | null;
+  returnOrigin?: string | null;
 }) {
   const escapedDisplayName = escapeHtml(result.spotifyDisplayName || 'a Spotify account');
   const escapedDeviceId = escapeHtml(result.deviceId);
+  const postMessageScript = result.returnOrigin
+    ? `window.opener.postMessage({ type: 'SPOTIFY_DEVICE_AUTH_SUCCESS', deviceId: ${JSON.stringify(result.deviceId)} }, ${JSON.stringify(result.returnOrigin)});`
+    : '';
 
   return res.send(`
       <!DOCTYPE html>
@@ -85,7 +95,7 @@ function renderSpotifyDeviceAuthSuccess(res: Response, result: {
         <p>You can close this window and return to the admin dashboard.</p>
         <script>
           if (window.opener) {
-            window.opener.postMessage({ type: 'SPOTIFY_DEVICE_AUTH_SUCCESS', deviceId: ${JSON.stringify(result.deviceId)} }, '*');
+            ${postMessageScript}
             setTimeout(() => window.close(), 2000);
           }
         </script>
@@ -126,7 +136,10 @@ export async function handleSpotifyDeviceAuthStart(req: Request, res: Response) 
       return sendError(res, 'Device not found', 404);
     }
 
-    const authUrl = await spotifyService.getDeviceAuthStartUrl(deviceId);
+    const authUrl = await spotifyService.getDeviceAuthStartUrl(
+      deviceId,
+      readSpotifyReturnOriginFromRequest(req)
+    );
     if (typeof req.query?.format === 'string' && req.query.format.toLowerCase() === 'json') {
       return sendSuccess(res, { authUrl }, 'Spotify device auth start url fetched');
     }
@@ -178,6 +191,13 @@ export async function handleSpotifyAuthCallback(req: Request, res: Response) {
       return await completeSpotifyDeviceAuthCallback(req, res);
     }
 
+    const returnOrigin = typeof state === 'string'
+      ? await spotifyService.getAuthReturnOriginFromState(state)
+      : null;
+    const postMessageScript = returnOrigin
+      ? `window.opener.postMessage({ type: 'SPOTIFY_AUTH_SUCCESS' }, ${JSON.stringify(returnOrigin)});`
+      : '';
+
     await spotifyService.handleCallback(code);
 
     return res.send(`
@@ -189,7 +209,7 @@ export async function handleSpotifyAuthCallback(req: Request, res: Response) {
         <p>You can close this window and return to the admin dashboard.</p>
         <script>
           if (window.opener) {
-            window.opener.postMessage({ type: 'SPOTIFY_AUTH_SUCCESS' }, '*');
+            ${postMessageScript}
             setTimeout(() => window.close(), 2000);
           }
         </script>
@@ -209,6 +229,19 @@ export async function handleSpotifyAuthCallback(req: Request, res: Response) {
       </body>
       </html>
     `);
+  }
+}
+
+export async function handleSpotifyAuthStart(req: Request, res: Response) {
+  try {
+    const state = crypto.randomBytes(16).toString('hex');
+    // In production, store state in session/cookie for CSRF validation.
+    // For now we pass it through and validate signed return origins on callback.
+    const authUrl = await spotifyService.getAuthUrl(state, readSpotifyReturnOriginFromRequest(req));
+    return res.redirect(authUrl);
+  } catch (error: any) {
+    console.error('[Spotify Auth] Error initiating OAuth:', error.message);
+    return sendError(res, 'Failed to initiate Spotify authorization', 500);
   }
 }
 
@@ -253,18 +286,7 @@ router.get(
   '/auth',
   authMiddleware,
   rbacMiddleware(['admin']),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      const state = crypto.randomBytes(16).toString('hex');
-      // In production, store state in session/cookie for CSRF validation.
-      // For now we pass it through and validate on callback.
-      const authUrl = await spotifyService.getAuthUrl(state);
-      return res.redirect(authUrl);
-    } catch (error: any) {
-      console.error('[Spotify Auth] Error initiating OAuth:', error.message);
-      return sendError(res, 'Failed to initiate Spotify authorization', 500);
-    }
-  }
+  handleSpotifyAuthStart
 );
 
 /**
