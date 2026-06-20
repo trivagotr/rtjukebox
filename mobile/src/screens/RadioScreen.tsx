@@ -21,6 +21,11 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {COLORS, SPACING} from '../theme/theme';
 import api from '../services/api';
 import {RADIO_CHANNELS, RadioChannel} from '../data/radioChannels';
+import {
+  ensureBrowsableQueue,
+  playTrackById,
+  replaceChannelTrack,
+} from '../services/playbackQueue';
 import {useMetadata} from '../context/MetadataContext';
 import {useChannels} from '../context/ChannelContext';
 import GlobalHeader from '../components/GlobalHeader';
@@ -114,38 +119,12 @@ const RadioScreen = () => {
       clearMetadata();
     }
 
-    const queue = await TrackPlayer.getQueue();
-    const channelIndex = RADIO_CHANNELS.findIndex((item) => item.id === channel.id);
-
-    if (queue.length !== RADIO_CHANNELS.length) {
-      await TrackPlayer.reset();
-      const tracks = RADIO_CHANNELS.map((item) => {
-        const quality = qualityOverride || streamQuality;
-        return {
-          id: item.id,
-          url: resolveChannelUrl(item, quality),
-          title: item.name,
-          artist: item.description,
-          artwork: item.logo || 'https://radiotedu.com/logo.png',
-          isLiveStream: true,
-        };
-      });
-      await TrackPlayer.add(tracks);
-    } else if (isQualitySwitch) {
-      const quality = qualityOverride || streamQuality;
-      await TrackPlayer.remove(channelIndex);
-      await TrackPlayer.add({
-        id: channel.id,
-        url: resolveChannelUrl(channel, quality),
-        title: channel.name,
-        artist: channel.description,
-        artwork: channel.logo || 'https://radiotedu.com/logo.png',
-        isLiveStream: true,
-      }, channelIndex);
-    }
-
-    await TrackPlayer.skip(channelIndex);
-    await TrackPlayer.play();
+    const quality = qualityOverride || streamQuality;
+    // Keep the full browsable queue intact (channels + podcasts for the car),
+    // refresh just this channel's track to the requested quality, then play it.
+    await ensureBrowsableQueue(quality);
+    await replaceChannelTrack(channel, quality);
+    await playTrackById(channel.id);
     setCurrentPlayingId(channel.id);
   };
 
@@ -460,19 +439,6 @@ function HistoryModal({
       </View>
     </Modal>
   );
-}
-
-function resolveChannelUrl(channel: RadioChannel, quality: 'low' | 'medium' | 'high') {
-  if (quality === 'low' && channel.streams?.low) {
-    return channel.streams.low;
-  }
-  if (quality === 'medium' && channel.streams?.medium) {
-    return channel.streams.medium;
-  }
-  if (quality === 'high' && channel.streams?.high) {
-    return channel.streams.high;
-  }
-  return channel.streamUrl;
 }
 
 function getQualityProps(streamQuality: 'low' | 'medium' | 'high') {

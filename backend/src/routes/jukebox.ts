@@ -2981,7 +2981,6 @@ router.post('/admin/process-song', authMiddleware, async (req: Request, res: Res
 router.post('/kiosk/register', async (req: Request, res: Response) => {
     try {
         const { device_code, password } = req.body;
-        console.log(`[KIOSK REGISTER] device_code="${device_code}" password="${password}"`);
 
         const deviceCheck = await db.query('SELECT password FROM devices WHERE device_code = $1', [device_code]);
         if (deviceCheck.rows.length === 0) {
@@ -2990,10 +2989,9 @@ router.post('/kiosk/register', async (req: Request, res: Response) => {
         }
 
         const device = deviceCheck.rows[0];
-        console.log(`[KIOSK REGISTER] DB password="${device.password}" received="${password}"`);
 
         if (device.password && device.password !== password) {
-            console.log(`[KIOSK REGISTER] Password mismatch!`);
+            console.log(`[KIOSK REGISTER] Password mismatch for device_code="${device_code}"`);
             return sendError(res, 'Invalid device password for registration', 403, 'INVALID_PASSWORD');
         }
 

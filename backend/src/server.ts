@@ -6,6 +6,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
+import fs from 'fs';
 import authRoutes from './routes/auth';
 import podcastRoutes from './routes/podcasts';
 import podcastFeedRoutes from './routes/podcastFeeds';
@@ -19,6 +20,25 @@ import profileRoutes from './routes/profile';
 import { authMiddleware } from './middleware/auth';
 import { setupSocketHandlers } from './sockets';
 import { registerUtilityRoutes } from './utilityRoutes';
+import { startRadioHistoryWatcher } from './services/radioHistory';
+import { syncPodcastFeed } from './services/podcastFeeds';
+import { db } from './db';
+
+const IS_TEST_ENV = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
+
+// Fail fast on missing JWT secrets in non-test environments so the server never
+// boots with insecure defaults. Tests are allowed deterministic defaults.
+if (!IS_TEST_ENV) {
+    const missingSecrets = ['JWT_SECRET', 'JWT_REFRESH_SECRET'].filter(
+        (name) => !process.env[name] || !process.env[name]!.trim()
+    );
+    if (missingSecrets.length > 0) {
+        throw new Error(
+            `Missing required environment variable(s): ${missingSecrets.join(', ')}. ` +
+            'Set them before starting the server.'
+        );
+    }
+}
 
 const app = express();
 function normalizePublicBasePath(value?: string) {
@@ -57,8 +77,13 @@ app.use(helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
 
+const corsOriginsEnv = (process.env.CORS_ORIGINS || '').trim();
+const corsOrigin = corsOriginsEnv
+    ? corsOriginsEnv.split(',').map((origin) => origin.trim()).filter(Boolean)
+    : '*';
+
 app.use(cors({
-    origin: '*',
+    origin: corsOrigin,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
@@ -81,6 +106,18 @@ mountWithOptionalPublicBase('/kiosk', express.static(path.join(__dirname, '../..
     }
 }));
 mountWithOptionalPublicBase('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// Static: Jukebox Web Controller (built SPA). Mounted at /controller to avoid
+// colliding with the /jukebox API routes. Safe to start even when dist/ is absent.
+const controllerDistPath = path.join(__dirname, '../../jukebox-web-controller/dist');
+const controllerIndexPath = path.join(controllerDistPath, 'index.html');
+mountWithOptionalPublicBase('/controller', express.static(controllerDistPath));
+registerGetWithOptionalPublicBase('/controller/*', (req, res, next) => {
+    if (!fs.existsSync(controllerIndexPath)) {
+        return next();
+    }
+    return res.sendFile(controllerIndexPath);
+});
 
 // Routes
 mountWithOptionalPublicBase('/api/v1/auth', authRoutes);
@@ -115,9 +152,61 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     });
 });
 
+// Background tasks (never started under tests to keep the suite deterministic
+// and avoid open timers / live network or DB calls).
+function startBackgroundTasks() {
+    // Radio now-playing history watcher + periodic cleanup.
+    startRadioHistoryWatcher();
+
+    // Periodic podcast RSS sync.
+    const podcastSyncIntervalHours = Number(process.env.PODCAST_SYNC_INTERVAL_HOURS) || 6;
+    const podcastSyncIntervalMs = podcastSyncIntervalHours * 60 * 60 * 1000;
+
+    async function runPodcastSync() {
+        try {
+            const result = await db.query(
+                'SELECT id, feed_url, title FROM podcast_feeds WHERE is_active = true'
+            );
+            for (const feed of result.rows) {
+                try {
+                    await syncPodcastFeed(db, {
+                        id: feed.id,
+                        feedUrl: feed.feed_url,
+                        title: feed.title,
+                    });
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : 'unknown error';
+                    console.error(`[podcastSync] Failed to sync feed "${feed.id}":`, message);
+                }
+            }
+        } catch (error) {
+            console.error('[podcastSync] Failed to load podcast feeds for sync:', error);
+        }
+    }
+
+    // Initial sync shortly after startup, then on a fixed interval.
+    const initialSyncTimer = setTimeout(() => {
+        void runPodcastSync();
+    }, 30_000);
+    if (typeof initialSyncTimer.unref === 'function') {
+        initialSyncTimer.unref();
+    }
+
+    const podcastSyncTimer = setInterval(() => {
+        void runPodcastSync();
+    }, podcastSyncIntervalMs);
+    if (typeof podcastSyncTimer.unref === 'function') {
+        podcastSyncTimer.unref();
+    }
+}
+
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+
+if (!IS_TEST_ENV) {
+    startBackgroundTasks();
+}
 
 // io is now accessed via getIO() in other modules

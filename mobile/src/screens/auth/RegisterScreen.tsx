@@ -8,7 +8,6 @@ import {
     ActivityIndicator,
     KeyboardAvoidingView,
     Platform,
-    Image,
     Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';

@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import {useTranslation} from 'react-i18next';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useNavigation} from '@react-navigation/native';
 import GlobalHeader from '../components/GlobalHeader';
@@ -37,6 +38,7 @@ const emptyHome: GamificationHome = {
 
 const HomeScreen = () => {
   const navigation = useNavigation<any>();
+  const {t} = useTranslation();
   const {user} = useAuth();
   const [home, setHome] = useState<GamificationHome>(emptyHome);
   const [loading, setLoading] = useState(false);
@@ -110,6 +112,7 @@ const HomeScreen = () => {
           ) : null}
 
           <View style={styles.quickGrid}>
+            <QuickAction icon="timer-outline" label={t('focus.title')} onPress={() => navigation.navigate('Focus')} />
             <QuickAction icon="calendar-star" label="Etkinlikler" onPress={() => navigation.navigate('Events')} />
             <QuickAction icon="gamepad-variant" label="Oyunlar" onPress={() => navigation.navigate('Games')} />
             <QuickAction icon="shopping-outline" label="Market" onPress={() => navigation.navigate('Market')} />

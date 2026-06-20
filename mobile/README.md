@@ -1,79 +1,72 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# RadioTEDU Mobile
 
-# Getting Started
+The official **RadioTEDU** mobile app — for everyone to listen to RadioTEDU easily.
 
->**Note**: Make sure you have completed the [React Native - Environment Setup](https://reactnative.dev/docs/environment-setup) instructions till "Creating a new application" step, before proceeding.
+A React Native app (Android + iOS) for live radio, podcasts, the cafeteria **Jukebox** controller, games, and the listener leaderboard. Built for in-car listening with **Android Auto** (and CarPlay planned).
 
-## Step 1: Start the Metro Server
+> Extracted from the `rtjukebox` monorepo into a standalone repository. The backend, kiosk display, and web controller live in their own repositories.
 
-First, you will need to start **Metro**, the JavaScript _bundler_ that ships _with_ React Native.
+## Features
 
-To start Metro, run the following command from the _root_ of your React Native project:
+- **Live Radio** — multiple RadioTEDU channels with background playback and lock-screen controls.
+- **Podcasts** — browse and listen to school podcasts.
+- **Jukebox controller** — scan a cafeteria QR code to join a session and vote on the queue.
+- **Android Auto** — browse channels (and podcasts) and control playback from the car. *(CarPlay planned — requires Apple's CarPlay audio entitlement.)*
+- **Games & Leaderboard** — gamified listening.
 
-```bash
-# using npm
-npm start
+## Tech stack
 
-# OR using Yarn
-yarn start
-```
+- React Native `0.76.9`, React `18.3.1`, TypeScript
+- `react-native-track-player` v4 (audio + Android Auto / CarPlay)
+- `@react-navigation` (bottom tabs + native stack)
+- `zustand` (player state), `axios` (API), `socket.io-client` (live jukebox)
 
-## Step 2: Start your Application
-
-Let Metro Bundler run in its _own_ terminal. Open a _new_ terminal from the _root_ of your React Native project. Run the following command to start your _Android_ or _iOS_ app:
-
-### For Android
-
-```bash
-# using npm
-npm run android
-
-# OR using Yarn
-yarn android
-```
-
-### For iOS
+## Getting started
 
 ```bash
-# using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
+npm install
+# iOS only:
+cd ios && pod install && cd ..
 ```
 
-If everything is set up _correctly_, you should see your new app running in your _Android Emulator_ or _iOS Simulator_ shortly provided you have set up your emulator/simulator correctly.
+### Run
 
-This is one way to run your app — you can also run it directly from within Android Studio and Xcode respectively.
+```bash
+npm start          # Metro bundler
+npm run android    # build & run on Android device/emulator
+npm run ios        # build & run on iOS simulator (macOS only)
+```
 
-## Step 3: Modifying your App
+### Quality checks
 
-Now that you have successfully run the app, let's modify it.
+```bash
+npm run lint            # ESLint
+npx tsc --noEmit        # TypeScript typecheck
+npm test                # Jest
+```
 
-1. Open `App.tsx` in your text editor of choice and edit some lines.
-2. For **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Developer Menu** (<kbd>Ctrl</kbd> + <kbd>M</kbd> (on Window and Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (on macOS)) to see your changes!
+## Project structure
 
-   For **iOS**: Hit <kbd>Cmd ⌘</kbd> + <kbd>R</kbd> in your iOS Simulator to reload the app and see your changes!
+```text
+src/
+  components/     Shared UI (MiniPlayer, GlobalHeader, AuthGuard, …)
+  context/        Auth, Channel, Metadata providers
+  data/           radioChannels.ts (channel catalog + artwork)
+  navigation/     RootNavigator (tabs + stacks)
+  screens/        Radio, Podcasts, Jukebox, Games, Profile, …
+  services/       api, playbackService, playbackQueue, podcastService, …
+  store/          zustand stores
+  theme/          colors & styling
+android/          native Android project (incl. Android Auto config)
+ios/              native iOS project
+```
 
-## Congratulations! :tada:
+## Android Auto
 
-You've successfully run and modified your React Native App. :partying_face:
+Channels (and podcasts) are exposed to the car via `react-native-track-player`'s media session.
+See [`docs/ANDROID_AUTO.md`](docs/ANDROID_AUTO.md) for architecture, the required square artwork
+assets, and the Desktop Head Unit (DHU) test checklist.
 
-### Now what?
+## License
 
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [Introduction to React Native](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you can't get this to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+See the upstream RadioTEDU project. Deployments must include a visible "RadioTEDU" reference.

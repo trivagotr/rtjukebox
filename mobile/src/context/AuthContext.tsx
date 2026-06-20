@@ -51,6 +51,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     useEffect(() => {
         loadStorageData();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const loadStorageData = async () => {

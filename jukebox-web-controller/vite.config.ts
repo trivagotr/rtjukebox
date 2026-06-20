@@ -7,6 +7,8 @@ export default defineConfig((env) => {
 
   return {
     plugins: [react()],
-    base: env.command === 'serve' && !isPreview ? '/' : (process.env.VITE_APP_BASE_PATH || '/jukebox/'),
+    // The dev server is served from root; production/preview builds are served
+    // from the backend at /controller (overridable per-deployment).
+    base: env.command === 'serve' && !isPreview ? '/' : (process.env.VITE_APP_BASE_PATH || '/controller/'),
   }
 })

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Production default: HTTPS only. Block all cleartext (HTTP) traffic to
+         prevent man-in-the-middle interception. All radiotedu.com API and
+         stream endpoints are HTTPS. -->
+    <base-config cleartextTrafficPermitted="false" />
+
+    <!-- Allow cleartext ONLY for local development servers / emulator loopback
+         (the dev API at http://127.0.0.1:3000). Never reaches production. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

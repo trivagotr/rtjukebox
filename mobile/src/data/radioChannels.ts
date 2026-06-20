@@ -1,3 +1,17 @@
+// Each channel exposes two images:
+//   logo    - wide banner used inside the app UI
+//   artwork - image used for lock screen, notification and Android Auto /
+//             CarPlay. Car systems center-CROP this to a square, so a true
+//             square export (>=512x512) looks best. The URLs below are the real
+//             RadioTEDU brand images (landscape ~2560x1551) and will be
+//             center-cropped in the car until square versions are provided.
+const MAIN_LOGO =
+  'https://radiotedu.com/wp-content/uploads/2025/07/logo-02-scaled.png';
+const JAZZ_LOGO =
+  'https://radiotedu.com/wp-content/uploads/2025/07/tedu_jazz-scaled.png';
+const LOFI_LOGO =
+  'https://radiotedu.com/wp-content/uploads/2025/07/tedu_lofi-scaled.png';
+
 export const RADIO_CHANNELS = [
   {
     id: 'radiotedu-main',
@@ -11,7 +25,8 @@ export const RADIO_CHANNELS = [
     },
     icon: 'radio-tower',
     color: '#E31E24',
-    logo: 'https://radiotedu.com/logos/main-banner.png',
+    logo: MAIN_LOGO,
+    artwork: MAIN_LOGO,
   },
   {
     id: 'radiotedu-classic',
@@ -25,7 +40,9 @@ export const RADIO_CHANNELS = [
     },
     icon: 'music-clef-treble',
     color: '#E5A000',
-    logo: 'https://radiotedu.com/logos/classic-banner.png',
+    // TODO: no Classic-specific asset provided yet - falls back to main logo.
+    logo: MAIN_LOGO,
+    artwork: MAIN_LOGO,
   },
   {
     id: 'radiotedu-jazz',
@@ -39,7 +56,8 @@ export const RADIO_CHANNELS = [
     },
     icon: 'saxophone',
     color: '#9C27B0',
-    logo: 'https://radiotedu.com/logos/jazz-banner.png',
+    logo: JAZZ_LOGO,
+    artwork: JAZZ_LOGO,
   },
   {
     id: 'radiotedu-lofi',
@@ -53,8 +71,11 @@ export const RADIO_CHANNELS = [
     },
     icon: 'headphones',
     color: '#00BCD4',
-    logo: 'https://radiotedu.com/logos/lofi-banner.png',
+    logo: LOFI_LOGO,
+    artwork: LOFI_LOGO,
   },
 ];
 
 export type RadioChannel = (typeof RADIO_CHANNELS)[0];
+
+export type StreamQuality = 'low' | 'medium' | 'high';

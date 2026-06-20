@@ -112,6 +112,7 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
                 onFinishRef.current();
             }
         });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isReady, width, height, insets.top]);
 
     if (!isReady) {

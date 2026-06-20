@@ -10,7 +10,6 @@ import {
   Alert,
   Modal,
   Image,
-  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -30,10 +29,8 @@ import {
 import GlobalHeader from '../../components/GlobalHeader';
 import PageTransition from '../../components/PageTransition';
 
-const { width } = Dimensions.get('window');
-
 const JukeboxScreen = ({ route }: any) => {
-  const { user, guestLogin } = useAuth();
+  const { user, guestLogin, logout } = useAuth();
   const navigation = useNavigation<any>();
   const deviceCodeFromLink = route.params?.deviceCode;
 
@@ -42,7 +39,7 @@ const JukeboxScreen = ({ route }: any) => {
   const [search, setSearch] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [device, setDevice] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [, setIsLoading] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
 
   // Multi-device states
@@ -144,10 +141,24 @@ const JukeboxScreen = ({ route }: any) => {
       Alert.alert('Şarkı Geçildi', 'Topluluk oylaması sonucu şarkı geçildi.');
     });
 
+    socket.on('song_rejected', () => {
+      Alert.alert('Şarkı Kaldırıldı', 'Kuyruğa eklediğiniz şarkı kaldırıldı.');
+    });
+
+    socket.on('force_logout', async () => {
+      socket.disconnect();
+      // Clear device/session state and sign the user out.
+      setDevice(null);
+      setQueue([]);
+      setNowPlaying(null);
+      await AsyncStorage.removeItem('last_jukebox_code');
+      await logout();
+    });
+
     return () => {
       socket.disconnect();
     };
-  }, [deviceCodeFromLink, device]);
+  }, [deviceCodeFromLink, device, logout]);
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
@@ -159,6 +170,7 @@ const JukeboxScreen = ({ route }: any) => {
     }, 500);
 
     return () => clearTimeout(delayDebounceFn);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
   const performSearch = async () => {

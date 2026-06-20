@@ -64,3 +64,28 @@ yarn-error.log
 
 # testing
 /coverage
+
+# local tooling logs
+.npm-install.log
+.gradle-build.log
+.emu-install.log
+.metro.log
+.emu-run.log
+.aaos-install.log
+.screen1.png
+.home.png
+
+# release signing (never commit real keystores/passwords)
+keystore.properties
+*.jks
+!debug.keystore
+.focus.png
+
+# local emulator scratch
+.car.png
+.car0.png
+.car1.png
+.car-emu.log
+.aaos-install.log
+.cat.json
+.dhu.png

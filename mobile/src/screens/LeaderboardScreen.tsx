@@ -43,6 +43,7 @@ const LeaderboardScreen = () => {
 
   useEffect(() => {
     fetchLeaderboard(period, category);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period, category]);
 
   useEffect(() => {

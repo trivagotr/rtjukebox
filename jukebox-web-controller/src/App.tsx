@@ -35,7 +35,10 @@ const runtimeConfig = resolveWebRuntimeConfig({
   windowProtocol: window.location.protocol,
   windowHostname: window.location.hostname,
   isDev: import.meta.env.DEV,
-  baseUrl: import.meta.env.BASE_URL,
+  // The static assets are served under the build base (/controller), but the
+  // backend API lives under its own reverse-proxy sub-path (/jukebox). Keep the
+  // two decoupled so changing where the SPA is served does not move the API.
+  baseUrl: import.meta.env.DEV ? '/' : (import.meta.env.VITE_PUBLIC_BASE_PATH || '/jukebox/'),
   apiOriginOverride: import.meta.env.VITE_API_ORIGIN,
 });
 

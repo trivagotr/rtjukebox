@@ -4,14 +4,24 @@ import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import TrackPlayer, { Capability } from 'react-native-track-player';
 import { RootNavigator } from './src/navigation/RootNavigator';
-import { COLORS } from './src/theme/theme';
 import { MetadataProvider } from './src/context/MetadataContext';
 import { ChannelProvider } from './src/context/ChannelContext';
 import { AuthProvider } from './src/context/AuthContext';
 
 import MiniPlayer from './src/components/MiniPlayer';
 import SplashScreen from './src/screens/SplashScreen';
-import { RADIO_CHANNELS } from './src/data/radioChannels';
+import {
+  ensureBrowsableQueue,
+  setCachedPodcasts,
+} from './src/services/playbackQueue';
+import { DEFAULT_STREAM_QUALITY } from './src/services/config';
+import { fetchPodcasts } from './src/services/podcastService';
+import { initI18n } from './src/i18n';
+import { ConsentProvider, useConsent } from './src/privacy/ConsentContext';
+import ConsentScreen from './src/screens/ConsentScreen';
+import { Analytics, setAnalyticsConsent } from './src/services/analyticsService';
+import { startListeningTracker } from './src/services/listeningTracker';
+import { initCarBridge, pushCarCatalog } from './src/services/carBridge';
 
 const linking: any = {
   prefixes: ['radiotedu://', 'https://radiotedu.com', 'https://radiotedu.com/jukebox'],
@@ -23,6 +33,8 @@ const linking: any = {
         },
       },
       Profile: 'profile',
+      Focus: 'focus',
+      Language: 'language',
       Auth: 'auth',
     },
   },
@@ -30,7 +42,14 @@ const linking: any = {
 
 function App(): React.JSX.Element {
   const [showSplash, setShowSplash] = React.useState(true);
+  const [i18nReady, setI18nReady] = React.useState(false);
   const handleSplashFinish = React.useCallback(() => setShowSplash(false), []);
+
+  // Resolve the saved/device language before rendering UI to avoid a flash of
+  // the wrong language.
+  useEffect(() => {
+    initI18n().finally(() => setI18nReady(true));
+  }, []);
 
   useEffect(() => {
     const setupPlayer = async () => {
@@ -71,19 +90,26 @@ function App(): React.JSX.Element {
           },
         });
 
-        // Pre-populate queue for Android Auto browsing
-        const queue = await TrackPlayer.getQueue();
-        if (queue.length === 0) {
-          const tracks = RADIO_CHANNELS.map(c => ({
-            id: c.id,
-            url: c.streamUrl, // Use default stream for pre-load
-            title: c.name,
-            artist: c.description,
-            artwork: 'https://radiotedu.com/logo.png',
-            isLiveStream: true,
-          }));
-          await TrackPlayer.add(tracks);
+        // Pre-load recent podcasts so they appear in the Android Auto / CarPlay
+        // browse list alongside the live channels (best-effort - never blocks
+        // radio from loading if the podcast API is unavailable).
+        try {
+          const {items} = await fetchPodcasts(1);
+          setCachedPodcasts(items);
+          pushCarCatalog(items); // include podcasts in the car browse tree
+        } catch (podcastError) {
+          console.log('Podcast preload skipped:', podcastError);
         }
+
+        // Build the browsable queue (channels + podcasts) for the car. Uses the
+        // shared helper so the in-app player and the car stay in sync.
+        await ensureBrowsableQueue(DEFAULT_STREAM_QUALITY);
+
+        // Measure listening minutes (only emitted if the user consented).
+        startListeningTracker();
+
+        // Wire the native Android Auto / Automotive car browser (Android only).
+        initCarBridge();
       } catch (e) {
         console.log('Player already setup or error:', e);
       }
@@ -98,25 +124,80 @@ function App(): React.JSX.Element {
     };
   }, []);
 
+  if (!i18nReady) {
+    return <SafeAreaProvider />;
+  }
+
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <MetadataProvider>
-          <ChannelProvider>
-            <StatusBar
-              barStyle="light-content"
-              backgroundColor="transparent"
-              translucent={true}
-            />
-            <NavigationContainer linking={linking}>
-              <RootNavigator />
-              <MiniPlayer />
-            </NavigationContainer>
-            {showSplash && <SplashScreen onFinish={handleSplashFinish} />}
-          </ChannelProvider>
-        </MetadataProvider>
-      </AuthProvider>
+      <ConsentProvider>
+        <AuthProvider>
+          <MetadataProvider>
+            <ChannelProvider>
+              <StatusBar
+                barStyle="light-content"
+                backgroundColor="transparent"
+                translucent={true}
+              />
+              <ConsentGate
+                showSplash={showSplash}
+                onSplashFinish={handleSplashFinish}
+              />
+            </ChannelProvider>
+          </MetadataProvider>
+        </AuthProvider>
+      </ConsentProvider>
     </SafeAreaProvider>
+  );
+}
+
+/**
+ * Gates the app behind the first-launch privacy consent, and syncs the user's
+ * consent choice into the analytics layer.
+ */
+function ConsentGate({
+  showSplash,
+  onSplashFinish,
+}: {
+  showSplash: boolean;
+  onSplashFinish: () => void;
+}): React.JSX.Element | null {
+  const { consent, ready } = useConsent();
+
+  useEffect(() => {
+    if (ready && consent.decided) {
+      setAnalyticsConsent(consent.analytics, {
+        ageRange: consent.ageRange,
+        gender: consent.gender,
+      });
+      Analytics.appOpen();
+    }
+  }, [
+    ready,
+    consent.decided,
+    consent.analytics,
+    consent.ageRange,
+    consent.gender,
+  ]);
+
+  if (!ready) {
+    return null;
+  }
+
+  // First launch (or after a policy-version bump): ask for consent before
+  // anything else runs.
+  if (!consent.decided) {
+    return <ConsentScreen />;
+  }
+
+  return (
+    <>
+      <NavigationContainer linking={linking}>
+        <RootNavigator />
+        <MiniPlayer />
+      </NavigationContainer>
+      {showSplash && <SplashScreen onFinish={onSplashFinish} />}
+    </>
   );
 }
 

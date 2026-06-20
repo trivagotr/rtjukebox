@@ -9,8 +9,15 @@ import { sendSuccess, sendError } from '../utils/response';
 import { ROLES } from '../middleware/rbac';
 import { normalizeText } from '../utils/textNormalization';
 import { getIstanbulYearMonth } from '../services/jukeboxScoring';
+import { JWT_SECRET } from '../middleware/auth';
 
 const router = Router();
+
+const IS_TEST_ENV = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
+
+// In production these are asserted at startup (see server.ts). A deterministic
+// default is only allowed under tests so the suite can run without secrets.
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || (IS_TEST_ENV ? 'test-refresh-secret-key' : '');
 
 const registerSchema = z.object({
     email: z.string().email(),
@@ -67,13 +74,13 @@ export function mapCurrentUserProfile(row: Record<string, unknown>) {
 async function createAuthSession(userId: string, email: string, role: string) {
     const accessToken = jwt.sign(
         { id: userId, email, role },
-        process.env.JWT_SECRET || 'your-secret-key',
+        JWT_SECRET,
         { expiresIn: '24h' }
     );
 
     const refreshToken = jwt.sign(
         { id: userId, email, role },
-        process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key',
+        JWT_REFRESH_SECRET,
         { expiresIn: '30d' }
     );
 
@@ -215,7 +222,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
 
         const decoded = jwt.verify(
             refresh_token,
-            process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key'
+            JWT_REFRESH_SECRET
         ) as any;
 
         // Verify token exists in DB
@@ -294,7 +301,7 @@ router.post('/upload-avatar', authMiddleware, upload.single('avatar'), async (re
             [avatarUrl, req.user?.id]
         );
 
-        res.json({ avatar_url: avatarUrl });
+        return sendSuccess(res, { avatar_url: avatarUrl });
     } catch (error) {
         console.error('Avatar upload failed:', error);
         res.status(500).json({ error: 'Upload failed' });

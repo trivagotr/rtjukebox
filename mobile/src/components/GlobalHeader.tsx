@@ -8,11 +8,9 @@ import {
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation } from '@react-navigation/native';
 import { SPACING } from '../theme/theme';
-import { useAuth } from '../context/AuthContext';
 
 const GlobalHeader = () => {
   const navigation = useNavigation<any>();
-  const { user } = useAuth();
 
   const handleProfilePress = () => {
     navigation.navigate('Profile');

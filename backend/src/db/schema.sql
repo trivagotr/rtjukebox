@@ -600,3 +600,15 @@ CREATE TABLE IF NOT EXISTS spotify_device_auth (
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Radio Song History Table (now-playing log for live radio channels)
+CREATE TABLE IF NOT EXISTS song_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    channel_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    artist TEXT,
+    cover_url TEXT,
+    played_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_song_history_channel_played_at
+    ON song_history(channel_id, played_at DESC);

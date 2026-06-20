@@ -2,6 +2,7 @@ import React from 'react';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {ActivityIndicator, Text, View} from 'react-native';
+import {useTranslation} from 'react-i18next';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import AuthGuard from '../components/AuthGuard';
 import {useAuth} from '../context/AuthContext';
@@ -21,6 +22,9 @@ import RhythmTapScreen from '../screens/games/RhythmTapScreen';
 import WordGuessScreen from '../screens/games/WordGuessScreen';
 import LoginScreen from '../screens/auth/LoginScreen';
 import RegisterScreen from '../screens/auth/RegisterScreen';
+import LanguageScreen from '../screens/LanguageScreen';
+import FocusScreen from '../screens/FocusScreen';
+import PrivacyScreen from '../screens/PrivacyScreen';
 import {COLORS} from '../theme/theme';
 
 const Tab = createBottomTabNavigator();
@@ -37,6 +41,7 @@ function AuthStack() {
 }
 
 function MainTabs() {
+  const {t} = useTranslation();
   return (
     <Tab.Navigator
       screenOptions={({route}) => ({
@@ -71,7 +76,7 @@ function MainTabs() {
             }}
             maxFontSizeMultiplier={1.1}
             numberOfLines={1}>
-            {getTabLabel(route.name)}
+            {getTabLabel(t, route.name)}
           </Text>
         ),
         tabBarStyle: {
@@ -99,20 +104,20 @@ function MainTabs() {
   );
 }
 
-function getTabLabel(routeName: string) {
+function getTabLabel(t: (key: string) => string, routeName: string) {
   if (routeName === 'Home') {
-    return 'Ana Sayfa';
+    return t('tabs.home');
   }
   if (routeName === 'Radio') {
-    return 'Yayın';
+    return t('tabs.radio');
   }
   if (routeName === 'Podcasts') {
-    return 'Podcastler';
+    return t('tabs.podcasts');
   }
   if (routeName === 'Jukebox') {
-    return 'Jukebox';
+    return t('tabs.jukebox');
   }
-  return 'Sıralama';
+  return t('tabs.leaderboard');
 }
 
 export function RootNavigator() {
@@ -130,6 +135,9 @@ export function RootNavigator() {
     <Stack.Navigator screenOptions={{headerShown: false}}>
       <Stack.Screen name="MainTabs" component={MainTabs} />
       <Stack.Screen name="Profile" component={ProfileScreen} />
+      <Stack.Screen name="Language" component={LanguageScreen} />
+      <Stack.Screen name="Focus" component={FocusScreen} />
+      <Stack.Screen name="Privacy" component={PrivacyScreen} />
       <Stack.Screen name="Events" component={EventsScreen} />
       <Stack.Screen name="Games" component={GamesScreen} />
       <Stack.Screen name="Market" component={MarketScreen} />

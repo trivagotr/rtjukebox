@@ -1,73 +1,46 @@
-# React + TypeScript + Vite
+# Jukebox Web Controller
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The web controller for the RadioTEDU Jukebox. It is a React + TypeScript (Vite)
+single-page app that guests and admins use to search the catalog, queue songs,
+and vote on what is playing. It talks to the jukebox backend over HTTP and a
+Socket.IO realtime connection.
 
-Currently, two official plugins are available:
+## Development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The dev server runs at the root path (`/`) and, by default, points the API at
+the local backend on `http://<host>:3000`.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Build
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build
 ```
+
+This runs `tsc -b && vite build` and emits the production bundle to `dist/`.
+
+## How it is served
+
+In production the backend serves the built `dist/` as static files under the
+`/controller` path (with SPA history fallback), so the app is reached at
+`https://<host>/controller`. The asset base path is set to `/controller/` so the
+hashed JS/CSS/asset URLs resolve correctly behind that sub-path.
+
+The backend API itself lives under its own reverse-proxy sub-path
+(`/jukebox` by default); the SPA serving path (`/controller`) and the API path
+(`/jukebox`) are independent.
+
+## Environment knobs
+
+- `VITE_API_ORIGIN` — overrides the API/socket origin the app talks to. When
+  unset, the app uses `http://<host>:3000` in dev and the page's own origin in
+  production.
+- `VITE_APP_BASE_PATH` — overrides the Vite build base path (where the assets are
+  served from). Defaults to `/controller/`. Used by `vite build` / `vite preview`.
+- `VITE_PUBLIC_BASE_PATH` — overrides the API reverse-proxy sub-path used to build
+  the API root and socket path in production. Defaults to `/jukebox/`. In dev this
+  is forced to `/` to match the local backend.

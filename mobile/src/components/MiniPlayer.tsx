@@ -15,10 +15,12 @@ import TrackPlayer, {
   Event,
 } from 'react-native-track-player';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import {COLORS, SPACING} from '../theme/theme';
+import {COLORS} from '../theme/theme';
 import {useNavigation, useNavigationState} from '@react-navigation/native';
 import {fetchAlbumArtwork} from '../utils/api';
 import {RADIO_CHANNELS} from '../data/radioChannels';
+import {playChannelById} from '../services/playbackQueue';
+import {DEFAULT_STREAM_QUALITY} from '../services/config';
 import {useMetadata} from '../context/MetadataContext';
 import {useChannels} from '../context/ChannelContext';
 
@@ -181,20 +183,11 @@ const MiniPlayer = () => {
 
     try {
       setIsChangingChannel(true);
-      await TrackPlayer.reset();
-      await TrackPlayer.add({
-        id: prevChannel.id,
-        url: prevChannel.streamUrl,
-        title: prevChannel.name,
-        artist: 'RadioTEDU',
-        artwork: 'https://radiotedu.com/logo.png',
-      });
-      await TrackPlayer.play();
+      // Play within the existing browsable queue so the car browse list and
+      // notification controls stay intact (no full reset).
+      await playChannelById(prevChannel.id, DEFAULT_STREAM_QUALITY);
     } catch (error) {
       console.log('Skip error:', error);
-      // Fallback reset if something goes wrong
-      await TrackPlayer.reset();
-      await TrackPlayer.play();
     } finally {
       setTimeout(() => setIsChangingChannel(false), 500);
     }
@@ -227,15 +220,9 @@ const MiniPlayer = () => {
 
     try {
       setIsChangingChannel(true);
-      await TrackPlayer.reset();
-      await TrackPlayer.add({
-        id: nextChannel.id,
-        url: nextChannel.streamUrl,
-        title: nextChannel.name,
-        artist: 'RadioTEDU',
-        artwork: 'https://radiotedu.com/logo.png',
-      });
-      await TrackPlayer.play();
+      // Play within the existing browsable queue so the car browse list and
+      // notification controls stay intact (no full reset).
+      await playChannelById(nextChannel.id, DEFAULT_STREAM_QUALITY);
     } catch (error) {
       console.log('Skip error:', error);
     } finally {

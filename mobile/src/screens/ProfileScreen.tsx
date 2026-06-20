@@ -12,13 +12,14 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { COLORS, SPACING } from '../theme/theme';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { launchImageLibrary } from 'react-native-image-picker';
-import axios from 'axios';
-import { BASE_API, STORAGE_API } from '../services/config';
+import api from '../services/api';
+import { STORAGE_API } from '../services/config';
 import {
   createPodcastFeed,
   deletePodcastFeed,
@@ -37,6 +38,7 @@ import {
 
 const ProfileScreen = () => {
   const navigation = useNavigation<any>();
+  const { t } = useTranslation();
   const { user, logout } = useAuth();
   const isAdmin = user?.role === 'admin';
 
@@ -54,7 +56,6 @@ const ProfileScreen = () => {
   const [favoritesForm, setFavoritesForm] = useState<ProfileCustomization>({});
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
-  const BASE_API_LOCAL = BASE_API;
   const STORAGE_API_LOCAL = STORAGE_API;
 
   const loadFeeds = useCallback(async () => {
@@ -241,7 +242,7 @@ const ProfileScreen = () => {
           name: asset.fileName || 'avatar.jpg',
         } as any);
 
-        const response = await axios.post(`${BASE_API_LOCAL}/auth/upload-avatar`, formData, {
+        const response = await api.post('/auth/upload-avatar', formData, {
           headers: {
             'Content-Type': 'multipart/form-data',
           },
@@ -523,11 +524,27 @@ const ProfileScreen = () => {
             <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
           </TouchableOpacity>
 
+          <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Language')}>
+            <View style={[styles.menuIconContainer, styles.settingsIconContainer]}>
+              <Icon name="translate" size={24} color={COLORS.text} />
+            </View>
+            <Text style={styles.menuText}>{t('common.language')}</Text>
+            <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('Privacy')}>
+            <View style={[styles.menuIconContainer, styles.settingsIconContainer]}>
+              <Icon name="shield-lock-outline" size={24} color={COLORS.text} />
+            </View>
+            <Text style={styles.menuText}>{t('privacy.title')}</Text>
+            <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
+          </TouchableOpacity>
+
           <TouchableOpacity style={styles.menuItem}>
             <View style={[styles.menuIconContainer, styles.settingsIconContainer]}>
               <Icon name="cog-outline" size={24} color={COLORS.text} />
             </View>
-            <Text style={styles.menuText}>Settings</Text>
+            <Text style={styles.menuText}>{t('common.settings')}</Text>
             <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
           </TouchableOpacity>
 

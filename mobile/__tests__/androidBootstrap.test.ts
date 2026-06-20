@@ -13,7 +13,7 @@ describe('Android bootstrap', () => {
       'main',
       'java',
       'com',
-      'com.radiotedumobile',
+      'radiotedumobile',
       'MainApplication.kt'
     );
 

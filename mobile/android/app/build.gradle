@@ -2,6 +2,17 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+// Load release signing credentials from a gitignored keystore.properties file
+// (never commit real keystores or passwords). If absent, release falls back to
+// the debug key so local dev still builds — but a production release MUST use a
+// real keystore. See docs/SECURITY_REVIEW.md.
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+def hasReleaseKeystore = keystorePropertiesFile.exists()
+if (hasReleaseKeystore) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
@@ -91,6 +102,20 @@ android {
         versionCode 1
         versionName "1.0"
     }
+    // Two build variants from the same code/JS:
+    //   mobile     - phones & tablets (automotive feature NOT required)
+    //   automotive - Android Automotive OS head units; the automotive sourceSet
+    //                manifest marks the automotive feature required=true, which
+    //                is what makes AAOS list the app as a media (template) app.
+    flavorDimensions "platform"
+    productFlavors {
+        mobile {
+            dimension "platform"
+        }
+        automotive {
+            dimension "platform"
+        }
+    }
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -98,15 +123,23 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (hasReleaseKeystore) {
+            release {
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // Uses a real release keystore when keystore.properties is present;
+            // otherwise falls back to debug (dev only — NOT for production).
+            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
@@ -132,7 +165,10 @@ dependencies {
         implementation jscFlavor
     }
 
-    implementation("androidx.car.app:app:1.4.0")
+    // androidx.media provides MediaBrowserServiceCompat / MediaSessionCompat used
+    // by RadioTeduCarService. The androidx.car.app (Car App Library) dependency was
+    // removed — this app uses the standard media-browser template, not the Car App
+    // Library, so no androidx.car.app/CarAppService/Screen/Session symbols exist.
     implementation("androidx.media:media:1.7.0")
 }
 

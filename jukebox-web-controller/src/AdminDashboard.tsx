@@ -37,7 +37,9 @@ const API_URL = resolveWebRuntimeConfig({
   windowProtocol: window.location.protocol,
   windowHostname: window.location.hostname,
   isDev: import.meta.env.DEV,
-  baseUrl: import.meta.env.BASE_URL,
+  // Assets are served under the build base (/controller); the API stays under
+  // its own reverse-proxy sub-path (/jukebox). Keep them decoupled.
+  baseUrl: import.meta.env.DEV ? '/' : (import.meta.env.VITE_PUBLIC_BASE_PATH || '/jukebox/'),
   apiOriginOverride: import.meta.env.VITE_API_ORIGIN,
 }).apiRoot;
 

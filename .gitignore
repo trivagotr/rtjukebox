@@ -45,6 +45,6 @@ Thumbs.db
 .worktrees/
 
 # Mobile specifically
-mobile/android/
-mobile/ios/
+# NOTE: mobile/android and mobile/ios are tracked source (the Android Auto car
+# service lives there). mobile/ has its own RN .gitignore for build artifacts.
 mobile/node_modules/

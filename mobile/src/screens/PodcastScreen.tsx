@@ -80,13 +80,19 @@ const PodcastScreen = () => {
     try {
       const url = resolvePodcastLaunchUrl(podcast);
 
-      if (url) {
-        const supported = await Linking.canOpenURL(url);
+      // Podcast URLs come from external RSS/WordPress feeds. Only open http(s)
+      // links — never feed-controlled schemes like javascript:/file:/intent:.
+      const isSafeUrl = !!url && /^https?:\/\//i.test(url.trim());
+
+      if (isSafeUrl) {
+        const supported = await Linking.canOpenURL(url as string);
         if (supported) {
-          await Linking.openURL(url);
+          await Linking.openURL(url as string);
         } else {
           Alert.alert('Hata', 'Bu bağlantı açılamıyor: ' + url);
         }
+      } else if (url) {
+        Alert.alert('Hata', 'Güvenli olmayan bağlantı engellendi.');
       }
     } catch (error) {
       console.error('Error opening podcast:', error);
