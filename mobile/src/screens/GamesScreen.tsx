@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,7 +20,7 @@ import {
   fetchGames,
   fetchMarketItems,
 } from '../services/gamificationService';
-import {getGameRouteForSlug} from './games/gameRoutes';
+import {BUILTIN_GAMES, getGameRouteForSlug} from './games/gameRoutes';
 
 const GamesScreen = () => {
   const navigation = useNavigation<any>();
@@ -52,6 +52,29 @@ const GamesScreen = () => {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Always show the games bundled in the app, enriched with the backend record
+  // (real id + daily point limit) when the slug exists on the server. This is
+  // why the list no longer reads "no active games on the server" when the
+  // arcade-games registry is empty.
+  const displayGames = useMemo<ArcadeGame[]>(() => {
+    const serverBySlug = new Map(
+      games.filter(g => !!g.slug).map(g => [g.slug as string, g]),
+    );
+    const builtins: ArcadeGame[] = BUILTIN_GAMES.map(b => {
+      const server = serverBySlug.get(b.slug);
+      return {
+        id: server?.id ?? `builtin:${b.slug}`,
+        slug: b.slug,
+        title: server?.title ?? b.title,
+        description: server?.description ?? b.description,
+        daily_point_limit: server?.daily_point_limit ?? b.daily_point_limit,
+      };
+    });
+    const builtinSlugs = new Set(BUILTIN_GAMES.map(b => b.slug));
+    const extras = games.filter(g => g.slug && !builtinSlugs.has(g.slug));
+    return [...builtins, ...extras];
+  }, [games]);
 
   const handlePlay = (game: ArcadeGame) => {
     if (isAccountRequired) {
@@ -100,10 +123,10 @@ const GamesScreen = () => {
         <Text style={styles.sectionTitle}>Aktif oyunlar</Text>
         {loading && !refreshing ? (
           <ActivityIndicator color={COLORS.primary} style={styles.loader} />
-        ) : games.length === 0 ? (
-          <Empty text="Sunucuda aktif oyun yok. snake, memory, tetris, rhythm-tap ve word-guess slug kayıtları eklenince burada görünecek." />
+        ) : displayGames.length === 0 ? (
+          <Empty text="Oyunlar şu anda yüklenemedi. Yenilemek için aşağı çekin." />
         ) : (
-          games.map((game) => (
+          displayGames.map((game) => (
             <View key={game.id} style={styles.gameCard}>
               <View style={styles.gameIcon}>
                 <Icon name={getGameIcon(game.slug)} size={28} color={COLORS.primary} />

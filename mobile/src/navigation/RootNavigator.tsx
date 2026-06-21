@@ -25,6 +25,7 @@ import RegisterScreen from '../screens/auth/RegisterScreen';
 import LanguageScreen from '../screens/LanguageScreen';
 import FocusScreen from '../screens/FocusScreen';
 import PrivacyScreen from '../screens/PrivacyScreen';
+import PlayerScreen from '../screens/PlayerScreen';
 import {COLORS} from '../theme/theme';
 
 const Tab = createBottomTabNavigator();
@@ -134,6 +135,11 @@ export function RootNavigator() {
   return (
     <Stack.Navigator screenOptions={{headerShown: false}}>
       <Stack.Screen name="MainTabs" component={MainTabs} />
+      <Stack.Screen
+        name="Player"
+        component={PlayerScreen}
+        options={{presentation: 'modal', animation: 'slide_from_bottom'}}
+      />
       <Stack.Screen name="Profile" component={ProfileScreen} />
       <Stack.Screen name="Language" component={LanguageScreen} />
       <Stack.Screen name="Focus" component={FocusScreen} />

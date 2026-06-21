@@ -134,9 +134,11 @@ Driven by `CarUxRestrictions` / `CarUxRestrictionsManager` listeners.
 
 ## 7. Voice
 
-- `onPlayFromSearch` already wired in JS (`findChannelByQuery`). Extend to also
-  match podcast titles and "TEDU"/"jukebox" → the Jukebox glance.
-- Empty query → resume / play main channel.
+- `onPlayFromSearch` is handled **natively** in `RadioTeduCarService`: it matches
+  a radio item whose title contains the query (case-insensitive), else the first
+  radio station, and plays its embedded `url` on ExoPlayer. (Future: also match
+  podcast titles and "TEDU"/"jukebox" → the Jukebox glance.)
+- Empty query → play the first / main radio station.
 
 ---
 
@@ -145,15 +147,27 @@ Driven by `CarUxRestrictions` / `CarUxRestrictionsManager` listeners.
 RNTP v4 ships **no `MediaBrowserService`**, so to deliver the categorized tree
 above we add a **custom native `MediaBrowserService`** (`RadioTeduCarService`).
 
-**Chosen design — the car service keeps its OWN `MediaSession`.** Rather than
-forwarding RNTP's session token, `RadioTeduCarService` owns a dedicated
-`MediaSessionCompat` and acts as a *relay*: it forwards the car's transport
-intents to JS (which drives RNTP), and JS reports the resulting **actual**
-playback state back into this session. This was chosen over token-forwarding
-because the JS bridge (`carBridge.ts`) is already the integration point for the
-catalog and now-playing data, so a single in-process bridge cleanly handles both
-browsing and transport, and the service does not need a handle to RNTP's
-internal session.
+**Chosen design — the car service plays audio NATIVELY and HEADLESSLY with
+media3 ExoPlayer.** `RadioTeduCarService` owns a dedicated `MediaSessionCompat`
+**and** a media3 `ExoPlayer` instance. The car's transport drives that ExoPlayer
+directly; **the React Native JS runtime is not involved in playback at all.**
+
+**Why the relay design was replaced (the cold-start bug).** The previous design
+forwarded the car's transport intents to JS (`CarBridge.command(...)` →
+`RadioTeduCarCommand` `DeviceEventEmitter` event → `handleCommand` in
+`carBridge.ts`), and JS drove RNTP. That JS listener is only registered by
+`initCarBridge()`, which runs from `App.tsx`'s `useEffect` — i.e. only **after
+the app UI has been opened**. On a **cold start from the car** (app process not
+running, UI never shown) the play command was delivered to **no listener**, so
+playback never started and the car **showed a loading spinner forever**. Playing
+natively removes the JS dependency entirely, so a cold start works.
+
+To make native playback possible with **no JS at play time**, each **playable**
+catalog item now **embeds its stream `url`** (set in `carBridge.ts`): radio →
+channel stream URL, podcast → `audioUrl`, ranking → main channel URL, jukebox →
+`JUKEBOX_STREAM_URL` or main channel URL, recent → its own/looked-up URL.
+Non-playable items carry `url: ''`. The service reads this URL straight from the
+catalog JSON in `SharedPreferences`.
 
 ```
 Android Auto / AAOS
@@ -161,41 +175,66 @@ Android Auto / AAOS
         ▼
 RadioTeduCarService  (Kotlin, MediaBrowserServiceCompat + own MediaSessionCompat)
         │  onLoadChildren(): builds tree from the catalog (SharedPreferences)
-        │
-        │  transport → CarBridge.command(...) ─► RadioTeduCarCommand event ─► JS
-        │                                                          │
-        ▲  updateNowPlaying(title,artist,artwork,isPlaying)        ▼
-        │  ◄──────────────────────────────────────────  playbackQueue / RNTP
-        │     (sets THIS session's metadata + PlaybackState         (plays audio,
-        │      to the actual JS state — single authority)            owns playback
-        │                                                            notification)
+        │  transport → controls media3 ExoPlayer directly (NO JS)
+        ▼
+   media3 ExoPlayer (headless)
+        │  Player.Listener maps state → car PlaybackState:
+        │  STATE_BUFFERING / STATE_PLAYING / STATE_PAUSED / STATE_STOPPED,
+        │  onPlayerError → STATE_ERROR (+ message)  ← replaces infinite spinner
+        ▼
+   plays the embedded stream `url` of the tapped item
+
    catalog JSON  ◄── setCatalog(json) from JS (channels, recent podcasts,
-   (SharedPreferences) rankings top-3, jukebox now-playing)
+   (SharedPreferences)  rankings top-3, jukebox now-playing) — each playable
+                        item embeds its stream `url`. CATALOG ONLY; no transport
+                        or now-playing relay to/from JS anymore.
 ```
 
 Why this design:
-- **Single source of truth for state.** `updateNowPlaying` is the *only* place
-  the car session's `PlaybackState`/metadata is set. The `SessionCallback` never
-  sets `STATE_PLAYING`/`STATE_PAUSED` optimistically — it only relays the intent
-  to JS — so the car never desyncs from RNTP if a command is overridden/fails.
-- **Tap-to-play reuses the existing JS path:** a playable leaf → `playId`
-  command → JS `playbackQueue` plays it. No duplicate player.
+- **No JS dependency for playback.** ExoPlayer plays the embedded `url` directly,
+  so playback works on a **cold start from the car** even when the RN JS runtime
+  never started. This is the core bug fix.
+- **Single source of truth for state = the native player.** A `Player.Listener`
+  maps ExoPlayer state to the car `PlaybackState`. `onPlayFromMediaId` sets
+  metadata + `STATE_BUFFERING` immediately so the car shows **buffering** while
+  the stream connects, and `onPlayerError` sets **STATE_ERROR** with a message —
+  so a bad stream shows an **error**, never an infinite spinner. JS
+  `updateNowPlaying` is now a harmless no-op.
+- **Buffering always terminates.** The HTTP data source uses finite connect/read
+  timeouts (15 s) and a 20 s **buffering watchdog** forces STATE_ERROR if the
+  player is still buffering — so a half-open stream (socket connects, no data)
+  can never leave the car on a permanent spinner. Both guards are cancelled once
+  playback reaches READY/PLAYING. After `STATE_IDLE` (post-stop/error) `onPlay`
+  re-`prepare()`s the loaded item so "Play" resumes instead of silently
+  no-opping.
+- **Static cold-start fallback.** The JS catalog (in `SharedPreferences`) is
+  empty until `pushCarCatalog()` runs once. So a fresh install opened first
+  *from the car* would otherwise browse-blank and dead-end voice search. The
+  service ships a built-in `radiotedu-main` station (mirroring
+  `src/data/radioChannels.ts`): `onLoadChildren` synthesizes a Live Radio
+  category + station and `radioItems()`/`findItem` resolve it, so browse, tap,
+  and "Play RadioTEDU" all work before the app's first launch.
 - **Dynamic data stays in JS** (where the API client + auth live): JS pushes a
-  catalog via `setCatalog`; native only reads + renders it. No native
-  networking/auth.
+  catalog via `setCatalog`; native only reads + renders it (and now reads the
+  embedded `url`). No native networking/auth.
+- **Audio focus:** ExoPlayer is configured with `AudioAttributes`
+  (`USAGE_MEDIA` + `CONTENT_TYPE_MUSIC`) and `setAudioAttributes(attrs,
+  handleAudioFocus = true)`, so it ducks/pauses other audio (including the in-app
+  RNTP) instead of double-playing.
 - **Foreground-service safety (Android 14 / targetSdk 34):** the `mediaPlayback`
   foreground service is started **only when playback is actually active**
-  (`updateNowPlaying` reports `isPlaying = true`) and stopped on pause/stop. It
-  is **not** started in `onCreate`, which on Android 14 would throw
-  `ForegroundServiceStartNotAllowedException` (the "car stuck on loading" bug).
+  (driven by the `Player.Listener`) and stopped on pause/stop. It is **not**
+  started in `onCreate`, which on Android 14 would throw
+  `ForegroundServiceStartNotAllowedException`.
 - **Restrictions** handled natively via `CarUxRestrictionsManager` deciding
   which categories/items to include per `onLoadChildren` (planned).
 
-Trade-off accepted: two `MediaSession`s exist in the app (RNTP's, which owns the
-phone notification/lock screen, and the car service's, which the car controls).
-They are kept consistent because JS is the single driver of both — every car
-command goes through JS to RNTP, and RNTP's state is mirrored back into the car
-session via `updateNowPlaying`.
+Trade-off accepted: two players exist in the app (RNTP, which owns the phone
+notification/lock screen for the in-app experience, and the car service's
+ExoPlayer, which the car controls). They are **independent** rather than mirrored
+— previously kept in sync via the JS relay — and cooperate via Android **audio
+focus** (`handleAudioFocus = true`) so only one plays at a time. The car player
+is the single source of truth for the **car** session's state.
 
 MediaIds:
 | Node             | mediaId                  |
@@ -217,11 +256,14 @@ its playback session — it is **not** a second browser.
 1. **Catalog bridge (JS):** write `browse_catalog.json` (channels always;
    podcasts, rankings top-3, jukebox now-playing best-effort) on startup + on
    refresh. Small native module or RNFS-style file write.
-2. **Custom browser (native):** `RadioTeduCarBrowserService` — root grid, 4
-   categories, leaves from the catalog; content-style hints; forwards RNTP
-   session token.
-3. **Playback bridge:** ensure selecting any leaf reaches `RemotePlayId`
-   (extend `playbackQueue` for `jukebox:now`).
+2. **Custom browser (native):** `RadioTeduCarService` — root grid, 4
+   categories, leaves from the catalog; content-style hints; owns its own
+   `MediaSessionCompat`.
+3. **Native playback:** the service plays the tapped leaf's embedded stream `url`
+   on media3 ExoPlayer, headlessly (no JS). `playFromMediaId`/`search`/skip and
+   the buffering/playing/error `PlaybackState` are all native. Buffering always
+   resolves (data-source timeouts + watchdog → STATE_ERROR), and a static
+   built-in station covers the pre-first-launch empty-catalog case.
 4. **Restrictions:** gate Sıralamalar + Jukebox extras on `CarUxRestrictions`.
 5. **Voice:** extend `onPlayFromSearch` matching.
 6. **Verify on the Automotive OS emulator** (grid, lists, play, restriction

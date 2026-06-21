@@ -16,6 +16,9 @@ jest.mock('../src/services/api', () => ({
 describe('podcastService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // The RadioTEDU RSS feeds are unreachable under tests, so fetchPodcasts
+    // falls back to the backend registry that the cases below assert.
+    (global as any).fetch = jest.fn(() => Promise.reject(new Error('no network')));
   });
 
   it('fetchPodcasts calls the shared api client and maps backend records', async () => {

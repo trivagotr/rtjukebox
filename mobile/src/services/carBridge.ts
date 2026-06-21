@@ -20,6 +20,7 @@ import {RADIO_CHANNELS} from '../data/radioChannels';
 import {DEFAULT_STREAM_QUALITY, JUKEBOX_STREAM_URL} from './config';
 import type {Podcast} from './podcastService';
 import {
+  buildChannelTrack,
   channelArtwork,
   ensureBrowsableQueue,
   findChannelByQuery,
@@ -54,9 +55,29 @@ type CarItem = {
   subtitle: string;
   artwork: string;
   playable: boolean;
+  // Direct stream/audio URL the NATIVE car service plays headlessly with
+  // ExoPlayer (no dependency on the RN JS runtime). Empty for non-playable
+  // items (e.g. jukebox:none). channelStreamUrl(...) is not exported from
+  // playbackQueue, so we derive radio URLs via buildChannelTrack(...).url,
+  // which is exactly channel.streams?.[quality] || channel.streamUrl.
+  url: string;
 };
 
 const t = () => i18n.t.bind(i18n);
+
+/** Stream URL for a channel id at the default quality, via the exported helper. */
+function channelUrlById(channelId: string): string {
+  const channel = RADIO_CHANNELS.find(c => c.id === channelId);
+  if (!channel) {
+    return '';
+  }
+  return buildChannelTrack(channel, DEFAULT_STREAM_QUALITY).url;
+}
+
+/** Stream URL of the main RadioTEDU channel (fallback for derived items). */
+function mainChannelUrl(): string {
+  return channelUrlById(MAIN_CHANNEL);
+}
 
 // --- Destination data (best-effort; empty on failure, never throws) ---
 
@@ -67,6 +88,7 @@ function radioItems(): CarItem[] {
     subtitle: c.description,
     artwork: channelArtwork(c),
     playable: true,
+    url: buildChannelTrack(c, DEFAULT_STREAM_QUALITY).url,
   }));
 }
 
@@ -80,6 +102,8 @@ function podcastItems(): CarItem[] {
       subtitle: p.feedTitle ?? '',
       artwork: p.imageUrl ?? '',
       playable: true,
+      // filtered above on !!p.audioUrl, so this is always a real URL.
+      url: p.audioUrl ?? '',
     }));
 }
 
@@ -92,6 +116,7 @@ async function rankingItems(): Promise<CarItem[]> {
     const list: any[] = Array.isArray(payload)
       ? payload
       : payload.items ?? payload.leaderboard ?? [];
+    const mainUrl = mainChannelUrl();
     return list.slice(0, 5).map((u, i) => ({
       // Tapping a chart row tunes in to the main RadioTEDU channel.
       id: `rank:${i + 1}`,
@@ -99,6 +124,7 @@ async function rankingItems(): Promise<CarItem[]> {
       subtitle: String(u.points ?? u.lifetime_points ?? u.score ?? ''),
       artwork: u.avatar_url ?? u.avatar ?? '',
       playable: true,
+      url: mainUrl,
     }));
   } catch {
     return [];
@@ -119,7 +145,9 @@ async function jukeboxItems(): Promise<CarItem[]> {
     const now = data.now_playing ?? data.queue?.now_playing ?? null;
     const upNext: any[] = data.queue?.queue ?? data.queue ?? [];
     const items: CarItem[] = [];
-    // All Jukebox rows are LISTEN-ONLY: tapping plays the communal stream.
+    // All Jukebox rows are LISTEN-ONLY: tapping plays the communal stream
+    // (the configured Jukebox feed when set, else the main channel).
+    const jukeboxUrl = JUKEBOX_STREAM_URL || mainChannelUrl();
     if (now) {
       items.push({
         id: 'jukebox:now',
@@ -127,6 +155,7 @@ async function jukeboxItems(): Promise<CarItem[]> {
         subtitle: now.artist ?? '',
         artwork: now.cover_url ?? now.image_url ?? '',
         playable: true,
+        url: jukeboxUrl,
       });
     }
     (Array.isArray(upNext) ? upNext : []).slice(0, 5).forEach((s, i) =>
@@ -136,6 +165,7 @@ async function jukeboxItems(): Promise<CarItem[]> {
         subtitle: s.artist ?? '',
         artwork: s.cover_url ?? s.image_url ?? '',
         playable: true,
+        url: jukeboxUrl,
       }),
     );
     return items;
@@ -146,13 +176,20 @@ async function jukeboxItems(): Promise<CarItem[]> {
 
 async function recentItems(): Promise<CarItem[]> {
   const recents = await getRecentItems();
-  const source = recents.length
+  const source: Array<{
+    id: string;
+    title: string;
+    artist: string;
+    artwork: string;
+    url?: string;
+  }> = recents.length
     ? recents
     : RADIO_CHANNELS.slice(0, 3).map(c => ({
         id: c.id,
         title: c.name,
         artist: c.description,
         artwork: channelArtwork(c),
+        url: buildChannelTrack(c, DEFAULT_STREAM_QUALITY).url,
       }));
   return source.map(r => ({
     id: r.id,
@@ -160,6 +197,9 @@ async function recentItems(): Promise<CarItem[]> {
     subtitle: r.artist,
     artwork: r.artwork,
     playable: true,
+    // Carry the recent item's own url; if it has none (older recents predate
+    // the url field), resolve by channel id, falling back to the main channel.
+    url: r.url || channelUrlById(r.id) || mainChannelUrl(),
   }));
 }
 
@@ -216,6 +256,7 @@ export async function pushCarCatalog(podcasts?: Podcast[]): Promise<void> {
               subtitle: '',
               artwork: '',
               playable: false,
+              url: '',
             },
           ],
     },

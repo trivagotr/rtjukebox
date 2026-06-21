@@ -262,7 +262,7 @@ const MiniPlayer = () => {
 
         <TouchableOpacity
           style={styles.infoContainer}
-          onPress={() => navigation.navigate('Radio')}>
+          onPress={() => navigation.navigate('Player')}>
           <Text style={styles.title} numberOfLines={1}>
             {displayTitle}
           </Text>

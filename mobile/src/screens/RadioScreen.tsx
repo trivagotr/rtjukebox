@@ -18,6 +18,7 @@ import TrackPlayer, {
   usePlaybackState,
 } from 'react-native-track-player';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import {useNavigation} from '@react-navigation/native';
 import {COLORS, SPACING} from '../theme/theme';
 import api from '../services/api';
 import {RADIO_CHANNELS, RadioChannel} from '../data/radioChannels';
@@ -38,6 +39,7 @@ import {
 } from '../services/radioFavorites';
 
 const RadioScreen = () => {
+  const navigation = useNavigation<any>();
   const playbackState = usePlaybackState();
   const activeTrack = useActiveTrack();
   const {metadata, clearMetadata} = useMetadata();
@@ -67,6 +69,13 @@ const RadioScreen = () => {
       .then(setFavoriteIds)
       .catch((error) => console.log('Failed to load radio favorites:', error));
   }, []);
+
+  // Reset the per-track up/down vote whenever the station or the playing song
+  // changes, so a previous "like"/"dislike" doesn't stay highlighted on a new
+  // channel or a new song.
+  useEffect(() => {
+    setCurrentVote(null);
+  }, [selectedChannel.id, activeTrack?.id, metadata?.title]);
 
   useEffect(() => {
     if (!isChecking && activeChannels.length > 0) {
@@ -126,6 +135,12 @@ const RadioScreen = () => {
     await replaceChannelTrack(channel, quality);
     await playTrackById(channel.id);
     setCurrentPlayingId(channel.id);
+  };
+
+  // Tapping a station plays it AND opens the full-screen player.
+  const openChannel = (channel: RadioChannel) => {
+    playChannel(channel);
+    navigation.navigate('Player');
   };
 
   const togglePlayback = async () => {
@@ -206,7 +221,12 @@ const RadioScreen = () => {
           <GlobalHeader />
 
           <View style={styles.nowPlayingCard}>
-            <Image source={{uri: displayArtwork}} style={styles.nowArtwork} />
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Player')}
+              activeOpacity={0.85}
+              accessibilityLabel="Tam ekran oynatıcıyı aç">
+              <Image source={{uri: displayArtwork}} style={styles.nowArtwork} />
+            </TouchableOpacity>
             <View style={styles.nowBody}>
               <View style={styles.liveRow}>
                 <View style={styles.liveBadge}>
@@ -270,7 +290,7 @@ const RadioScreen = () => {
                     channel={channel}
                     isActive={selectedChannel.id === channel.id}
                     isPlaying={currentPlayingId === channel.id && state === State.Playing}
-                    onPress={() => playChannel(channel)}
+                    onPress={() => openChannel(channel)}
                     onToggleFavorite={() => toggleFavorite(channel.id)}
                   />
                 ))}
@@ -295,7 +315,7 @@ const RadioScreen = () => {
                   isFavorite={favoriteIds.includes(channel.id)}
                   isActive={selectedChannel.id === channel.id}
                   isPlaying={currentPlayingId === channel.id && state === State.Playing}
-                  onPress={() => playChannel(channel)}
+                  onPress={() => openChannel(channel)}
                   onToggleFavorite={() => toggleFavorite(channel.id)}
                 />
               ))}

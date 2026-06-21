@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,13 +10,27 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import TrackPlayer, {
+  State,
+  useActiveTrack,
+  usePlaybackState,
+} from 'react-native-track-player';
 import { COLORS, SPACING } from '../theme/theme';
 import {
   fetchPodcasts,
   resolvePodcastLaunchUrl,
   Podcast,
 } from '../services/podcastService';
+import {
+  PODCAST_ID_PREFIX,
+  buildPodcastTrack,
+  ensureBrowsableQueue,
+  playTrackById,
+  setCachedPodcasts,
+} from '../services/playbackQueue';
+import { DEFAULT_STREAM_QUALITY } from '../services/config';
 import GlobalHeader from '../components/GlobalHeader';
 import PageTransition from '../components/PageTransition';
 
@@ -27,23 +41,41 @@ const PodcastScreen = () => {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const activeTrack = useActiveTrack();
+  const playbackState = usePlaybackState();
 
-  useEffect(() => {
-    loadPodcasts(1);
-  }, []);
+  const hasLoadedRef = useRef(false);
 
-  const loadPodcasts = async (pageToLoad: number, append: boolean = false) => {
-    if (pageToLoad === 1) setLoading(true);
-    else setLoadingMore(true);
+  // Re-pull the RSS feeds every time the Podcasts tab gains focus so newly
+  // uploaded episodes show up without restarting the app. The first load shows
+  // the spinner; later focuses refresh silently in the background.
+  useFocusEffect(
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useCallback(() => {
+      loadPodcasts(1, false, hasLoadedRef.current);
+      hasLoadedRef.current = true;
+    }, []),
+  );
+
+  const loadPodcasts = async (
+    pageToLoad: number,
+    append: boolean = false,
+    silent: boolean = false,
+  ) => {
+    if (pageToLoad === 1 && !silent) setLoading(true);
+    else if (pageToLoad !== 1) setLoadingMore(true);
 
     try {
       const { items, totalPages } = await fetchPodcasts(pageToLoad);
       setHasMore(totalPages > 0 && pageToLoad < totalPages);
 
-      if (append) {
-        setPodcasts(prev => [...prev, ...items]);
-      } else {
-        setPodcasts(items);
+      setPodcasts(prev => (append ? [...prev, ...items] : items));
+      // Keep the shared playback queue's podcast cache in sync so episodes are
+      // playable in-app (and appear in the Android Auto browse tree). The
+      // first page is enough to seed the car catalog; later pages still play
+      // via the add-and-play fallback in handlePodcastPress.
+      if (!append) {
+        setCachedPodcasts(items);
       }
       setPage(pageToLoad);
     } catch (e) {
@@ -71,32 +103,51 @@ const PodcastScreen = () => {
   };
 
   const handlePodcastPress = async (podcast: Podcast) => {
-    if (playingId === podcast.id) {
+    const trackId = `${PODCAST_ID_PREFIX}${podcast.id}`;
+
+    // Already the active episode -> just toggle play/pause.
+    if (activeTrack?.id === trackId) {
+      const {state} = await TrackPlayer.getPlaybackState();
+      if (state === State.Playing) {
+        await TrackPlayer.pause();
+      } else {
+        await TrackPlayer.play();
+      }
+      return;
+    }
+
+    const track = buildPodcastTrack(podcast);
+
+    // No playable audio (external-only episode): open the source as a fallback.
+    if (!track) {
+      const url = resolvePodcastLaunchUrl(podcast);
+      if (url && /^https?:\/\//i.test(url.trim())) {
+        try {
+          await Linking.openURL(url);
+        } catch {
+          Alert.alert('Hata', 'Bölüm açılamadı.');
+        }
+      } else {
+        Alert.alert('Bilgi', 'Bu bölüm için oynatılabilir ses bulunamadı.');
+      }
       return;
     }
 
     setPlayingId(podcast.id);
-
     try {
-      const url = resolvePodcastLaunchUrl(podcast);
-
-      // Podcast URLs come from external RSS/WordPress feeds. Only open http(s)
-      // links — never feed-controlled schemes like javascript:/file:/intent:.
-      const isSafeUrl = !!url && /^https?:\/\//i.test(url.trim());
-
-      if (isSafeUrl) {
-        const supported = await Linking.canOpenURL(url as string);
-        if (supported) {
-          await Linking.openURL(url as string);
-        } else {
-          Alert.alert('Hata', 'Bu bağlantı açılamıyor: ' + url);
-        }
-      } else if (url) {
-        Alert.alert('Hata', 'Güvenli olmayan bağlantı engellendi.');
+      // Play the episode in-app. ExoPlayer follows the anchor.fm / RSS enclosure
+      // redirect to the actual audio file, so these links play instead of
+      // throwing the "this link can't be opened" dialog.
+      await ensureBrowsableQueue(DEFAULT_STREAM_QUALITY);
+      const played = await playTrackById(trackId);
+      if (!played) {
+        await TrackPlayer.add(track);
+        await playTrackById(trackId);
       }
+      await TrackPlayer.play();
     } catch (error) {
-      console.error('Error opening podcast:', error);
-      Alert.alert('Hata', 'Podcast açılırken bir sorun oluştu.');
+      console.error('Error playing podcast:', error);
+      Alert.alert('Hata', 'Podcast oynatılamadı.');
     } finally {
       setPlayingId(null);
     }
@@ -140,6 +191,9 @@ const PodcastScreen = () => {
       <View style={styles.actionIcon}>
         {playingId === item.id ? (
           <ActivityIndicator size="small" color={COLORS.primary} />
+        ) : activeTrack?.id === `${PODCAST_ID_PREFIX}${item.id}` &&
+          playbackState?.state === State.Playing ? (
+          <Icon name="pause-circle" size={28} color={COLORS.primary} />
         ) : (
           <Icon name="play-circle-outline" size={28} color={COLORS.primary} />
         )}

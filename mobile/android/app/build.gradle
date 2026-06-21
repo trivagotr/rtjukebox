@@ -170,6 +170,19 @@ dependencies {
     // removed — this app uses the standard media-browser template, not the Car App
     // Library, so no androidx.car.app/CarAppService/Screen/Session symbols exist.
     implementation("androidx.media:media:1.7.0")
+
+    // media3 ExoPlayer lets RadioTeduCarService play the radio stream NATIVELY and
+    // HEADLESSLY, with no dependency on the RN JS runtime. This fixes the cold-start
+    // "stuck on loading" bug: on a cold start from the car the JS bridge listener is
+    // not registered, so the old "relay transport to JS" path never started playback.
+    // Pinned to 1.3.1 for compileSdk 34 compatibility.
+    implementation("androidx.media3:media3-exoplayer:1.3.1")
+    implementation("androidx.media3:media3-common:1.3.1")
+    // media3-datasource provides DefaultHttpDataSource, used to give the car
+    // stream finite connect/read timeouts so a half-open stream surfaces as an
+    // error instead of buffering forever. It is a transitive dep of
+    // media3-exoplayer, but pinned explicitly so the import always resolves.
+    implementation("androidx.media3:media3-datasource:1.3.1")
 }
 
 apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")

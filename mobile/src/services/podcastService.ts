@@ -1,3 +1,5 @@
+import * as rssParser from 'react-native-rss-parser';
+
 import api from './api';
 
 export interface Podcast {
@@ -31,8 +33,140 @@ interface PodcastApiResponse {
 
 const PODCAST_DATE_LOCALE = 'tr-TR';
 const PODCAST_DESCRIPTION_LIMIT = 180;
+const PODCAST_PAGE_SIZE = 15;
+
+// The real RadioTEDU podcast shows, hosted on Spotify for Podcasters (anchor.fm)
+// and surfaced on radiotedu.com. Their RSS feeds carry direct MP3 enclosures, so
+// episodes play in-app (the anchor URL redirects to the CloudFront audio, which
+// react-native-track-player / ExoPlayer follows).
+const RADIOTEDU_PODCAST_FEEDS = [
+  'https://anchor.fm/s/1115478bc/podcast/rss', // Keşke Biri Bana Söyleseydi!
+  'https://anchor.fm/s/fb73f70c/podcast/rss', // hemen bi'şey söyle
+  'https://anchor.fm/s/101050774/podcast/rss', // Zıt Kutuplar
+];
+
+// Cached, date-sorted merge of all RadioTEDU episodes (refreshed on page 1).
+let cachedFeedEpisodes: Podcast[] | null = null;
 
 export async function fetchPodcasts(page: number = 1): Promise<{
+  items: Podcast[];
+  total: number;
+  totalPages: number;
+}> {
+  // Primary source: the real RadioTEDU shows from radiotedu.com (anchor.fm RSS).
+  if (page <= 1 || !cachedFeedEpisodes) {
+    const episodes = await fetchRadioteduFeedEpisodes();
+    if (episodes.length > 0) {
+      cachedFeedEpisodes = episodes;
+    }
+  }
+
+  if (cachedFeedEpisodes && cachedFeedEpisodes.length > 0) {
+    return paginatePodcasts(cachedFeedEpisodes, page);
+  }
+
+  // Fallback: backend-managed podcast registry.
+  return fetchPodcastsFromBackend(page);
+}
+
+export function resolvePodcastLaunchUrl(
+  podcast: Pick<Podcast, 'audioUrl' | 'externalUrl'> & { url?: string },
+): string | null {
+  return podcast.audioUrl || podcast.externalUrl || podcast.url || null;
+}
+
+function paginatePodcasts(
+  all: Podcast[],
+  page: number,
+): {items: Podcast[]; total: number; totalPages: number} {
+  const safePage = Math.max(1, page);
+  const start = (safePage - 1) * PODCAST_PAGE_SIZE;
+  return {
+    items: all.slice(start, start + PODCAST_PAGE_SIZE),
+    total: all.length,
+    totalPages: Math.max(1, Math.ceil(all.length / PODCAST_PAGE_SIZE)),
+  };
+}
+
+async function fetchRadioteduFeedEpisodes(): Promise<Podcast[]> {
+  try {
+    const perFeed = await Promise.all(RADIOTEDU_PODCAST_FEEDS.map(fetchFeedEpisodes));
+    return perFeed
+      .flat()
+      .sort((a, b) => b.ts - a.ts)
+      .map(entry => entry.podcast);
+  } catch {
+    return [];
+  }
+}
+
+async function fetchFeedEpisodes(
+  url: string,
+): Promise<Array<{podcast: Podcast; ts: number}>> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      return [];
+    }
+    const xml = await response.text();
+    const feed = await rssParser.parse(xml);
+    const showImage = feed.image?.url || feed.itunes?.image || '';
+    const showTitle = feed.title || '';
+
+    return (feed.items || [])
+      .map(item => {
+        const podcast = mapFeedItem(item, showTitle, showImage);
+        if (!podcast) {
+          return null;
+        }
+        return {podcast, ts: Date.parse(item.published || '') || 0};
+      })
+      .filter((entry): entry is {podcast: Podcast; ts: number} => entry !== null);
+  } catch {
+    return [];
+  }
+}
+
+function mapFeedItem(
+  item: rssParser.RSSItem,
+  showTitle: string,
+  showImage: string,
+): Podcast | null {
+  const enclosures = item.enclosures || [];
+  const audio =
+    enclosures.find(e => (e.mimeType || '').startsWith('audio'))?.url ||
+    enclosures[0]?.url;
+
+  if (!audio) {
+    return null; // episode without playable audio
+  }
+
+  const podcast: Podcast = {
+    id: item.id || audio,
+    title: normalizePodcastTitle(item.title),
+    date: formatPodcastDate(item.published),
+    description: shapePodcastDescription(item.itunes?.summary || item.description),
+    audioUrl: audio,
+  };
+
+  if (showTitle) {
+    podcast.feedTitle = showTitle;
+  }
+
+  const image = item.itunes?.image || showImage;
+  if (image) {
+    podcast.imageUrl = image;
+  }
+
+  const link = item.links?.find(l => !!l.url)?.url;
+  if (link) {
+    podcast.externalUrl = link;
+  }
+
+  return podcast;
+}
+
+async function fetchPodcastsFromBackend(page: number): Promise<{
   items: Podcast[];
   total: number;
   totalPages: number;
@@ -52,12 +186,6 @@ export async function fetchPodcasts(page: number = 1): Promise<{
     total: payload.total ?? 0,
     totalPages: payload.total_pages ?? 0,
   };
-}
-
-export function resolvePodcastLaunchUrl(
-  podcast: Pick<Podcast, 'audioUrl' | 'externalUrl'> & { url?: string },
-): string | null {
-  return podcast.audioUrl || podcast.externalUrl || podcast.url || null;
 }
 
 function mapPodcastRecord(record: PodcastApiRecord): Podcast {

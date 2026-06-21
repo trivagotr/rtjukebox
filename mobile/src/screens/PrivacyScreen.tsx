@@ -65,6 +65,8 @@ const PrivacyScreen = ({navigation}: any) => {
             value={consent.analytics}
             onValueChange={v => update({analytics: v})}
             trackColor={{true: COLORS.primary, false: '#555'}}
+            thumbColor={consent.analytics ? '#FFFFFF' : '#f4f3f4'}
+            ios_backgroundColor="#555"
             accessibilityLabel={t('privacy.analyticsLabel')}
           />
         </View>
@@ -78,6 +80,8 @@ const PrivacyScreen = ({navigation}: any) => {
             value={consent.demographics}
             onValueChange={v => update({demographics: v})}
             trackColor={{true: COLORS.primary, false: '#555'}}
+            thumbColor={consent.demographics ? '#FFFFFF' : '#f4f3f4'}
+            ios_backgroundColor="#555"
             accessibilityLabel={t('privacy.demographicsLabel')}
           />
         </View>
