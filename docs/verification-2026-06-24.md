@@ -80,3 +80,17 @@ Before the v1.0 archive commit, package verification was rerun through a PowerSh
 - Docker/Postgres live smoke: passed after waiting for Postgres readiness plus a short stabilization delay. Verified database migration, backend boot, `POST /api/v1/auth/register`, `GET /api/v1/auth/me`, `POST /api/v1/auth/guest`, `GET /api/v1/gamification/games`, and `GET /api/v1/jukebox/songs?search=verify%20song&page=1`.
 
 Android APK artifacts from the earlier successful build remain present under `mobile/android/app/build/outputs/apk/`. A fresh pre-push Gradle rerun could not start from the current shell because neither `JAVA_HOME` nor `java` is available on `PATH`; `winget` reports Microsoft OpenJDK 17 as installed, but a repair/install attempt required an administrator prompt and was not completed non-interactively.
+
+## Goal Continuation Verification
+
+After the v1.0 push, the broader mobile-backend-jukebox goal was rechecked and extended:
+
+- Deep live smoke against disposable Docker/Postgres passed for register, jukebox connect, jukebox search, queue add, supervote, games list, game score submission, QR reward claim, leaderboard, and podcast listing.
+- Mobile QR reward links now support `radiotedu://events/qr/<code>` and matching `radiotedu.com` deep links in addition to manual code entry.
+- Automatic backend podcast startup sync passed in non-test mode: a fresh database seeded 3 known Radio TEDU RSS feeds and fetched 55 podcast episodes.
+- External RSS reachability check passed for the 3 known Radio TEDU podcast feeds currently used by mobile.
+- `npm audit --json` passed with zero vulnerabilities in backend, web controller, kiosk, and mobile.
+- `npx --yes audit-ci --moderate` passed in backend, web controller, kiosk, and mobile.
+- Source-level security checks passed for Helmet, rate limiting, production CORS allowlist, JWT secret fail-fast, sanitized auth responses, auth-protected gamification routes, admin-only podcast feed routes, RSS dependency replacement, and default podcast feed seeding.
+
+Remaining product limitation: native in-app camera scanning is not included; QR rewards use OS-level QR deep links or manual code entry.

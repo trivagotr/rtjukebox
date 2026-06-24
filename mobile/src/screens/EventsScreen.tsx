@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import {useNavigation} from '@react-navigation/native';
+import {useNavigation, useRoute} from '@react-navigation/native';
 import {COLORS, SPACING} from '../theme/theme';
 import {useAuth} from '../context/AuthContext';
 import {
@@ -23,10 +23,13 @@ import {
   fetchMarketItems,
   registerEvent,
 } from '../services/gamificationService';
+import {getQrRewardCodeFromRouteParams} from '../services/qrLinking';
 
 const EventsScreen = () => {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
   const {user} = useAuth();
+  const autoClaimedQrCodeRef = useRef<string | null>(null);
   const [events, setEvents] = useState<AppEvent[]>([]);
   const [market, setMarket] = useState<MarketItem[]>([]);
   const [qrCode, setQrCode] = useState('');
@@ -73,10 +76,15 @@ const EventsScreen = () => {
     }
   };
 
-  const handleQrClaim = async () => {
-    const code = qrCode.trim();
+  const claimQrCode = useCallback(async (rawCode?: string) => {
+    const code = (rawCode ?? qrCode).trim();
     if (!code) {
       Alert.alert('Kod gerekli', 'QR kodunu veya görev kodunu gir.');
+      return;
+    }
+
+    if (isAccountRequired) {
+      Alert.alert('Hesap gerekli', 'QR puanı için giriş yapmalısın.');
       return;
     }
 
@@ -91,6 +99,21 @@ const EventsScreen = () => {
     } finally {
       setClaiming(false);
     }
+  }, [isAccountRequired, qrCode]);
+
+  useEffect(() => {
+    const linkedQrCode = getQrRewardCodeFromRouteParams(route.params);
+    if (!linkedQrCode || autoClaimedQrCodeRef.current === linkedQrCode) {
+      return;
+    }
+
+    autoClaimedQrCodeRef.current = linkedQrCode;
+    setQrCode(linkedQrCode);
+    void claimQrCode(linkedQrCode);
+  }, [claimQrCode, route.params]);
+
+  const handleQrClaim = () => {
+    void claimQrCode();
   };
 
   return (
@@ -119,7 +142,7 @@ const EventsScreen = () => {
           </View>
           <View style={styles.qrBody}>
             <Text style={styles.cardTitle}>QR görev kodu</Text>
-            <Text style={styles.cardText}>Şimdilik kamera yerine kod girişi var; sunucudaki QR kodu buraya yazılacak.</Text>
+              <Text style={styles.cardText}>QR kodunu okut ya da görev kodunu gir.</Text>
             <TextInput
               value={qrCode}
               onChangeText={setQrCode}

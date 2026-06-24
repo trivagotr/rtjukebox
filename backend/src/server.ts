@@ -22,6 +22,7 @@ import { setupSocketHandlers } from './sockets';
 import { registerUtilityRoutes } from './utilityRoutes';
 import { startRadioHistoryWatcher } from './services/radioHistory';
 import { syncPodcastFeed } from './services/podcastFeeds';
+import { ensureDefaultPodcastFeeds, getDefaultPodcastFeeds } from './services/defaultPodcastFeeds';
 import { db } from './db';
 import { resolveCorsOrigins } from './config/cors';
 
@@ -164,6 +165,7 @@ function startBackgroundTasks() {
 
     async function runPodcastSync() {
         try {
+            await ensureDefaultPodcastFeeds(db, getDefaultPodcastFeeds(process.env.DEFAULT_PODCAST_FEEDS));
             const result = await db.query(
                 'SELECT id, feed_url, title FROM podcast_feeds WHERE is_active = true'
             );

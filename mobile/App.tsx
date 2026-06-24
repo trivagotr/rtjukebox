@@ -32,6 +32,7 @@ const linking: any = {
           Jukebox: 'jukebox/:deviceCode',
         },
       },
+      Events: 'events/qr/:qrCode',
       Profile: 'profile',
       Focus: 'focus',
       Language: 'language',
