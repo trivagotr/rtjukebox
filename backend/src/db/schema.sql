@@ -17,7 +17,10 @@ CREATE TABLE IF NOT EXISTS users (
     total_songs_added INTEGER DEFAULT 0,
     total_upvotes_received INTEGER DEFAULT 0,
     total_downvotes_received INTEGER DEFAULT 0,
+    last_super_vote_at TIMESTAMP,
     is_banned BOOLEAN DEFAULT FALSE,
+    last_ip INET,
+    user_agent TEXT,
     fcm_token VARCHAR(500),
     push_preferences JSONB DEFAULT '{"podcast": true, "radio": true, "jukebox": true}',
     created_at TIMESTAMP DEFAULT NOW(),
@@ -25,6 +28,9 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE INDEX IF NOT EXISTS idx_users_rank ON users(rank_score DESC);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_ip INET;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS user_agent TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_super_vote_at TIMESTAMP;
 
 -- User Monthly Rank Scores Table
 CREATE TABLE IF NOT EXISTS user_monthly_rank_scores (

@@ -192,12 +192,16 @@ describe('kiosk spotify helpers', () => {
 
     const root = createMockRoot();
     const playerInstances = [];
+    const playerCalls = [];
+    function MockSpotifyPlayer(config) {
+      playerCalls.push(config);
+      const instance = new FakePlayer(config);
+      playerInstances.push(instance);
+      return instance;
+    }
+
     root.Spotify = {
-      Player: vi.fn().mockImplementation((config) => {
-        const instance = new FakePlayer(config);
-        playerInstances.push(instance);
-        return instance;
-      }),
+      Player: MockSpotifyPlayer,
     };
 
     const wrapper = createSpotifyPlayer({
@@ -209,7 +213,7 @@ describe('kiosk spotify helpers', () => {
       onNotReady: notReadyHandler,
     });
 
-    expect(root.Spotify.Player).toHaveBeenCalledTimes(1);
+    expect(playerCalls).toHaveLength(1);
     expect(playerInstances[0].config.name).toBe('Kiosk Browser');
 
     const tokenCallback = vi.fn();
@@ -271,12 +275,14 @@ describe('kiosk spotify helpers', () => {
 
     const root = createMockRoot();
     const playerInstances = [];
+    function MockSpotifyPlayer(config) {
+      const instance = new FakePlayer(config);
+      playerInstances.push(instance);
+      return instance;
+    }
+
     root.Spotify = {
-      Player: vi.fn().mockImplementation((config) => {
-        const instance = new FakePlayer(config);
-        playerInstances.push(instance);
-        return instance;
-      }),
+      Player: MockSpotifyPlayer,
     };
     const authError = new Error('Spotify authorization expired for device. Please reconnect Spotify for this kiosk.');
     const errorHandler = vi.fn();

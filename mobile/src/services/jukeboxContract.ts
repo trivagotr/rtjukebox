@@ -48,6 +48,11 @@ export function getCatalogSongKey(song: CatalogSongLike) {
   return `fallback:${song.title ?? 'unknown'}:${song.artist ?? 'unknown'}`;
 }
 
+export function buildJukeboxSongSearchParams(search: string) {
+  const normalizedSearch = search.trim();
+  return normalizedSearch ? {search: normalizedSearch} : null;
+}
+
 export function canUseSupervoteToday(params: {
   isGuest: boolean;
   lastSuperVoteAt?: string | Date | null;

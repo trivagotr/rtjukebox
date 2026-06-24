@@ -45,6 +45,17 @@ describe('db migration helper', () => {
         expect(schemaSql).toContain('CREATE INDEX IF NOT EXISTS idx_guest_daily_song_limits_day_key');
     });
 
+    it('includes user session metadata columns used by auth routes', () => {
+        const schemaSql = loadSchemaSql();
+
+        expect(schemaSql).toContain('last_ip INET');
+        expect(schemaSql).toContain('user_agent TEXT');
+        expect(schemaSql).toContain('last_super_vote_at TIMESTAMP');
+        expect(schemaSql).toContain('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_ip INET');
+        expect(schemaSql).toContain('ALTER TABLE users ADD COLUMN IF NOT EXISTS user_agent TEXT');
+        expect(schemaSql).toContain('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_super_vote_at TIMESTAMP');
+    });
+
     it('includes podcast feed registry tables in the schema', () => {
         const schemaSql = loadSchemaSql();
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import {
+  buildJukeboxSongSearchParams,
   buildQueueSongSelectionPayload,
   canUseSupervoteToday,
   getCatalogSongKey,
@@ -49,5 +50,12 @@ describe('mobile jukebox contract', () => {
         now: new Date('2026-04-05T18:30:00.000Z'),
       })
     ).toBe(false);
+  });
+
+  it('normalizes jukebox song search params without URL interpolation', () => {
+    expect(buildJukeboxSongSearchParams('  muse & radio?  ')).toEqual({
+      search: 'muse & radio?',
+    });
+    expect(buildJukeboxSongSearchParams('   ')).toBeNull();
   });
 });

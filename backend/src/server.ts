@@ -23,6 +23,7 @@ import { registerUtilityRoutes } from './utilityRoutes';
 import { startRadioHistoryWatcher } from './services/radioHistory';
 import { syncPodcastFeed } from './services/podcastFeeds';
 import { db } from './db';
+import { resolveCorsOrigins } from './config/cors';
 
 const IS_TEST_ENV = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
 
@@ -41,6 +42,10 @@ if (!IS_TEST_ENV) {
 }
 
 const app = express();
+const corsOrigin = resolveCorsOrigins(process.env.CORS_ORIGINS, {
+    isProduction: process.env.NODE_ENV === 'production' && !IS_TEST_ENV,
+});
+
 function normalizePublicBasePath(value?: string) {
     const trimmed = (value || '').trim();
     if (!trimmed || trimmed === '/') {
@@ -55,7 +60,7 @@ function normalizePublicBasePath(value?: string) {
 
 const publicBasePath = normalizePublicBasePath(process.env.PUBLIC_BASE_PATH);
 const httpServer = createServer(app);
-const io = initIO(httpServer);
+const io = initIO(httpServer, { corsOrigin });
 
 function mountWithOptionalPublicBase(routePath: string, handler: express.RequestHandler | express.Router) {
     app.use(routePath, handler);
@@ -76,11 +81,6 @@ app.use(helmet({
     contentSecurityPolicy: false,
     crossOriginResourcePolicy: { policy: 'cross-origin' }
 }));
-
-const corsOriginsEnv = (process.env.CORS_ORIGINS || '').trim();
-const corsOrigin = corsOriginsEnv
-    ? corsOriginsEnv.split(',').map((origin) => origin.trim()).filter(Boolean)
-    : '*';
 
 app.use(cors({
     origin: corsOrigin,

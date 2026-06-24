@@ -1,4 +1,4 @@
-import admin from 'firebase-admin';
+import { getMessaging } from 'firebase-admin/messaging';
 
 // Initialize Firebase Admin (requires serviceAccountKey.json)
 // admin.initializeApp({
@@ -6,11 +6,11 @@ import admin from 'firebase-admin';
 // });
 
 export const pushService = {
-    async sendToUser(fcmToken: string, title: string, body: string, data?: any) {
+    async sendToUser(fcmToken: string, title: string, body: string, data?: Record<string, string>) {
         if (!fcmToken) return;
 
         try {
-            await admin.messaging().send({
+            await getMessaging().send({
                 token: fcmToken,
                 notification: { title, body },
                 data,
@@ -20,9 +20,9 @@ export const pushService = {
         }
     },
 
-    async sendToTopic(topic: string, title: string, body: string, data?: any) {
+    async sendToTopic(topic: string, title: string, body: string, data?: Record<string, string>) {
         try {
-            await admin.messaging().send({
+            await getMessaging().send({
                 topic,
                 notification: { title, body },
                 data,

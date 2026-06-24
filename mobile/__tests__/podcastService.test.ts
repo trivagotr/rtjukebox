@@ -95,4 +95,55 @@ describe('podcastService', () => {
       }),
     ).toBe('https://cdn.example.com/audio-1.mp3');
   });
+
+  it('fetchPodcasts maps playable episodes from RSS feeds', async () => {
+    const rss = `<?xml version="1.0" encoding="UTF-8"?>
+      <rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+        <channel>
+          <title>RadioTEDU Show</title>
+          <image><url>https://cdn.example.com/show.jpg</url></image>
+          <item>
+            <guid>episode-guid</guid>
+            <title>Feed Episode</title>
+            <pubDate>Wed, 01 Apr 2026 10:00:00 GMT</pubDate>
+            <description><![CDATA[<p>Feed <strong>summary</strong></p>]]></description>
+            <link>https://example.com/feed-episode</link>
+            <itunes:image href="https://cdn.example.com/episode.jpg" />
+            <enclosure url="https://cdn.example.com/feed.mp3" type="audio/mpeg" />
+          </item>
+          <item>
+            <guid>text-only</guid>
+            <title>Text Only</title>
+            <description>No audio</description>
+          </item>
+        </channel>
+      </rss>`;
+    (global as any).fetch = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(rss),
+      })
+      .mockResolvedValue({
+        ok: false,
+        text: () => Promise.resolve(''),
+      });
+
+    await expect(fetchPodcasts()).resolves.toEqual({
+      items: [
+        {
+          id: 'episode-guid',
+          title: 'Feed Episode',
+          date: '01.04.2026',
+          description: 'Feed summary',
+          audioUrl: 'https://cdn.example.com/feed.mp3',
+          externalUrl: 'https://example.com/feed-episode',
+          imageUrl: 'https://cdn.example.com/episode.jpg',
+          feedTitle: 'RadioTEDU Show',
+        },
+      ],
+      total: 1,
+      totalPages: 1,
+    });
+  });
 });

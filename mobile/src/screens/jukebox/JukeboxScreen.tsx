@@ -22,6 +22,7 @@ import api from '../../services/api';
 import { buildGuestQueueHeaders } from '../../services/guestFingerprint';
 import { SOCKET_ORIGIN, SOCKET_PATH, STORAGE_API } from '../../services/config';
 import {
+  buildJukeboxSongSearchParams,
   buildQueueSongSelectionPayload,
   canUseSupervoteToday,
   getCatalogSongKey,
@@ -176,7 +177,13 @@ const JukeboxScreen = ({ route }: any) => {
   const performSearch = async () => {
     try {
       setIsSearching(true);
-      const response = await api.get(`/jukebox/songs?search=${search}`);
+      const searchParams = buildJukeboxSongSearchParams(search);
+      if (!searchParams) {
+        setSearchResults([]);
+        return;
+      }
+
+      const response = await api.get('/jukebox/songs', { params: searchParams });
       setSearchResults(response.data.data.items);
     } catch (error: any) {
       console.error('Search failed:', error);

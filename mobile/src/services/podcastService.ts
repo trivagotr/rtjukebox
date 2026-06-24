@@ -1,4 +1,4 @@
-import * as rssParser from 'react-native-rss-parser';
+import {XMLParser} from 'fast-xml-parser';
 
 import api from './api';
 
@@ -31,9 +31,32 @@ interface PodcastApiResponse {
   total_pages?: number;
 }
 
+type ParsedRssItem = Record<string, unknown>;
+
+interface ParsedRssChannel extends Record<string, unknown> {
+  title?: unknown;
+  image?: unknown;
+  item?: ParsedRssItem | ParsedRssItem[];
+}
+
+interface ParsedRssDocument {
+  rss?: {
+    channel?: ParsedRssChannel;
+  };
+  channel?: ParsedRssChannel;
+}
+
 const PODCAST_DATE_LOCALE = 'tr-TR';
 const PODCAST_DESCRIPTION_LIMIT = 180;
 const PODCAST_PAGE_SIZE = 15;
+const RSS_XML_PARSER = new XMLParser({
+  attributeNamePrefix: '@_',
+  ignoreAttributes: false,
+  parseAttributeValue: false,
+  parseTagValue: false,
+  textNodeName: '#text',
+  trimValues: true,
+});
 
 // The real RadioTEDU podcast shows, hosted on Spotify for Podcasters (anchor.fm)
 // and surfaced on radiotedu.com. Their RSS feeds carry direct MP3 enclosures, so
@@ -109,17 +132,22 @@ async function fetchFeedEpisodes(
       return [];
     }
     const xml = await response.text();
-    const feed = await rssParser.parse(xml);
-    const showImage = feed.image?.url || feed.itunes?.image || '';
-    const showTitle = feed.title || '';
+    const feed = RSS_XML_PARSER.parse(xml) as ParsedRssDocument;
+    const channel = resolveRssChannel(feed);
+    if (!channel) {
+      return [];
+    }
+    const showImage = readChannelImage(channel);
+    const showTitle = textValue(channel.title);
 
-    return (feed.items || [])
+    return toArray(channel.item)
       .map(item => {
-        const podcast = mapFeedItem(item, showTitle, showImage);
+        const published = readItemPublished(item);
+        const podcast = mapFeedItem(item, showTitle, showImage, published);
         if (!podcast) {
           return null;
         }
-        return {podcast, ts: Date.parse(item.published || '') || 0};
+        return {podcast, ts: Date.parse(published) || 0};
       })
       .filter((entry): entry is {podcast: Podcast; ts: number} => entry !== null);
   } catch {
@@ -128,24 +156,30 @@ async function fetchFeedEpisodes(
 }
 
 function mapFeedItem(
-  item: rssParser.RSSItem,
+  item: ParsedRssItem,
   showTitle: string,
   showImage: string,
+  published: string,
 ): Podcast | null {
-  const enclosures = item.enclosures || [];
-  const audio =
-    enclosures.find(e => (e.mimeType || '').startsWith('audio'))?.url ||
-    enclosures[0]?.url;
+  const enclosures = toArray(item.enclosure)
+    .map(asRecord)
+    .filter((entry): entry is Record<string, unknown> => entry !== null);
+  const audioEnclosure =
+    enclosures.find(entry => attributeValue(entry, 'type').startsWith('audio')) ||
+    enclosures[0];
+  const audio = attributeValue(audioEnclosure, 'url');
 
   if (!audio) {
     return null; // episode without playable audio
   }
 
   const podcast: Podcast = {
-    id: item.id || audio,
-    title: normalizePodcastTitle(item.title),
-    date: formatPodcastDate(item.published),
-    description: shapePodcastDescription(item.itunes?.summary || item.description),
+    id: textValue(item.guid) || audio,
+    title: normalizePodcastTitle(textValue(item.title)),
+    date: formatPodcastDate(published),
+    description: shapePodcastDescription(
+      textValue(item['itunes:summary']) || textValue(item.description),
+    ),
     audioUrl: audio,
   };
 
@@ -153,17 +187,91 @@ function mapFeedItem(
     podcast.feedTitle = showTitle;
   }
 
-  const image = item.itunes?.image || showImage;
+  const image = readItemImage(item) || showImage;
   if (image) {
     podcast.imageUrl = image;
   }
 
-  const link = item.links?.find(l => !!l.url)?.url;
+  const link = firstUrl(item.link);
   if (link) {
     podcast.externalUrl = link;
   }
 
   return podcast;
+}
+
+function resolveRssChannel(feed: ParsedRssDocument): ParsedRssChannel | null {
+  return (asRecord(feed.rss)?.channel as ParsedRssChannel | undefined) ?? feed.channel ?? null;
+}
+
+function readChannelImage(channel: ParsedRssChannel): string {
+  const image = asRecord(channel.image);
+  return (
+    textValue(image?.url) ||
+    attributeValue(channel['itunes:image'], 'href') ||
+    textValue(channel['itunes:image'])
+  );
+}
+
+function readItemImage(item: ParsedRssItem): string {
+  return attributeValue(item['itunes:image'], 'href') || textValue(item['itunes:image']);
+}
+
+function readItemPublished(item: ParsedRssItem): string {
+  return textValue(item.pubDate) || textValue(item.published) || textValue(item.isoDate);
+}
+
+function firstUrl(value: unknown): string {
+  for (const entry of toArray(value)) {
+    const direct = textValue(entry);
+    if (direct) {
+      return direct;
+    }
+
+    const href = attributeValue(entry, 'href') || attributeValue(entry, 'url');
+    if (href) {
+      return href;
+    }
+  }
+
+  return '';
+}
+
+function toArray<T>(value: T | T[] | null | undefined): T[] {
+  if (value == null) {
+    return [];
+  }
+
+  return Array.isArray(value) ? value : [value];
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function attributeValue(value: unknown, name: string): string {
+  return textValue(asRecord(value)?.[`@_${name}`]);
+}
+
+function textValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  const record = asRecord(value);
+  if (record) {
+    return textValue(record['#text']);
+  }
+
+  return '';
 }
 
 async function fetchPodcastsFromBackend(page: number): Promise<{

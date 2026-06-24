@@ -70,6 +70,22 @@ export function mapCurrentUserProfile(row: Record<string, unknown>) {
     };
 }
 
+export function mapAuthSessionUser(row: Record<string, unknown>) {
+    const isGuest = Boolean(row.is_guest);
+    return {
+        id: row.id,
+        email: row.email,
+        display_name: row.display_name,
+        avatar_url: row.avatar_url ?? null,
+        rank_score: Number(row.rank_score ?? 0),
+        is_guest: isGuest,
+        role: row.role ?? (isGuest ? ROLES.GUEST : ROLES.USER),
+        total_songs_added: Number(row.total_songs_added ?? 0),
+        total_upvotes_received: Number(row.total_upvotes_received ?? 0),
+        last_super_vote_at: row.last_super_vote_at ?? null,
+    };
+}
+
 // Helper to generate and store tokens
 async function createAuthSession(userId: string, email: string, role: string) {
     const accessToken = jwt.sign(
@@ -131,7 +147,7 @@ router.post('/register', async (req: Request, res: Response) => {
         const user = result.rows[0];
         const tokens = await createAuthSession(user.id, user.email, user.role);
 
-        return sendSuccess(res, { user, ...tokens }, 'Registration successful', null, 201);
+        return sendSuccess(res, { user: mapAuthSessionUser(user), ...tokens }, 'Registration successful', null, 201);
     } catch (error) {
         console.error('Registration failed:', error);
         return sendError(res, 'Registration failed', 400);
@@ -159,16 +175,7 @@ router.post('/login', async (req: Request, res: Response) => {
 
         const tokens = await createAuthSession(user.id, user.email, user.role);
         return sendSuccess(res, {
-            user: {
-                id: user.id,
-                email: user.email,
-                display_name: user.display_name,
-                avatar_url: user.avatar_url,
-                rank_score: user.rank_score,
-                is_guest: user.is_guest,
-                role: user.role,
-                last_super_vote_at: user.last_super_vote_at
-            },
+            user: mapAuthSessionUser(user),
             ...tokens
         }, 'Login successful');
     } catch (error) {
@@ -189,24 +196,16 @@ router.post('/guest', async (req: Request, res: Response) => {
         const email = `guest_${guestId}@radiotedu.internal`;
 
         const result = await db.query(
-            `INSERT INTO users (email, password_hash, display_name, is_guest, last_ip, user_agent) 
-             VALUES ($1, NULL, $2, TRUE, $3, $4) RETURNING *`,
-            [email, normalizedDisplayName, req.ip, req.headers['user-agent']]
+            `INSERT INTO users (email, password_hash, display_name, is_guest, role, last_ip, user_agent)
+             VALUES ($1, NULL, $2, TRUE, $3, $4, $5) RETURNING *`,
+            [email, normalizedDisplayName, ROLES.GUEST, req.ip, req.headers['user-agent']]
         );
 
         const user = result.rows[0];
         const tokens = await createAuthSession(user.id, user.email, ROLES.GUEST);
 
         return sendSuccess(res, {
-            user: {
-                id: user.id,
-                email: user.email,
-                display_name: user.display_name,
-                is_guest: true,
-                rank_score: 0,
-                role: ROLES.GUEST,
-                last_super_vote_at: null
-            },
+            user: mapAuthSessionUser(user),
             ...tokens
         }, 'Guest login successful', null, 201);
     } catch (error) {
