@@ -17,7 +17,7 @@ export interface FallbackGuestSession {
 }
 
 type GuestSessionStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
-type PostGuestSession = (apiRoot: string) => Promise<FallbackGuestSession>;
+type PostGuestSession = (apiRoot: string, displayName: string) => Promise<FallbackGuestSession>;
 
 function isFallbackGuestSession(value: unknown): value is FallbackGuestSession {
   if (!value || typeof value !== 'object') return false;
@@ -50,12 +50,28 @@ export function readStoredFallbackGuestSession(storage: GuestSessionStorage): Fa
   return null;
 }
 
-async function defaultPostGuestSession(apiRoot: string): Promise<FallbackGuestSession> {
+async function defaultPostGuestSession(apiRoot: string, displayName: string): Promise<FallbackGuestSession> {
   const response = await axios.post<{ data: FallbackGuestSession }>(`${apiRoot}/api/v1/auth/guest`, {
-    display_name: 'Jukebox Guest',
+    display_name: displayName,
   });
 
   return response.data.data;
+}
+
+export async function createFallbackGuestSession(
+  apiRoot: string,
+  displayName: string,
+  storage: GuestSessionStorage = window.localStorage,
+  postGuestSession: PostGuestSession = defaultPostGuestSession,
+): Promise<FallbackGuestSession> {
+  const normalizedName = displayName.trim();
+  if (!normalizedName) {
+    throw new Error('Guest name required');
+  }
+
+  const session = await postGuestSession(apiRoot, normalizedName);
+  storage.setItem(FALLBACK_GUEST_SESSION_STORAGE_KEY, JSON.stringify(session));
+  return session;
 }
 
 export async function ensureFallbackGuestSession(
@@ -66,7 +82,5 @@ export async function ensureFallbackGuestSession(
   const storedSession = readStoredFallbackGuestSession(storage);
   if (storedSession) return storedSession;
 
-  const session = await postGuestSession(apiRoot);
-  storage.setItem(FALLBACK_GUEST_SESSION_STORAGE_KEY, JSON.stringify(session));
-  return session;
+  return createFallbackGuestSession(apiRoot, 'Jukebox Guest', storage, postGuestSession);
 }

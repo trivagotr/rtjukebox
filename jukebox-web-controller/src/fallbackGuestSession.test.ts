@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createFallbackGuestSession,
   FALLBACK_GUEST_SESSION_STORAGE_KEY,
   ensureFallbackGuestSession,
   type FallbackGuestSession,
@@ -56,7 +57,24 @@ describe('fallback guest session', () => {
 
     await expect(ensureFallbackGuestSession('http://api.test', storage, postGuest)).resolves.toEqual(createdSession);
 
-    expect(postGuest).toHaveBeenCalledWith('http://api.test');
+    expect(postGuest).toHaveBeenCalledWith('http://api.test', 'Jukebox Guest');
     expect(storage.getItem(FALLBACK_GUEST_SESSION_STORAGE_KEY)).toBe(JSON.stringify(createdSession));
+  });
+
+  it('creates a named fallback guest session for QR visitors', async () => {
+    const storage = createStorage();
+    const namedSession = createSession({
+      access_token: 'ada-token',
+      user: {
+        ...createSession().user,
+        display_name: 'Ada',
+      },
+    });
+    const postGuest = vi.fn().mockResolvedValue(namedSession);
+
+    await expect(createFallbackGuestSession('http://api.test', '  Ada  ', storage, postGuest)).resolves.toEqual(namedSession);
+
+    expect(postGuest).toHaveBeenCalledWith('http://api.test', 'Ada');
+    expect(storage.getItem(FALLBACK_GUEST_SESSION_STORAGE_KEY)).toBe(JSON.stringify(namedSession));
   });
 });

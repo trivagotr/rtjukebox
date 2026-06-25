@@ -20,7 +20,7 @@ import {
   User,
 } from 'lucide-react';
 import { AdminDashboard, type DeviceSummary } from './AdminDashboard';
-import { ensureFallbackGuestSession } from './fallbackGuestSession';
+import { createFallbackGuestSession } from './fallbackGuestSession';
 import { buildQueueRequestPayload, getSearchResultKey, type CatalogSearchSong } from './jukeboxCatalog';
 import { buildGuestQueueHeaders } from './guestFingerprint';
 import {
@@ -367,6 +367,7 @@ const QueueItem = ({ item, idx, myVotes, handleVote, user }: QueueItemProps) => 
       <div className="row-main">
         <strong>{item.title}</strong>
         <span>{item.artist}</span>
+        {item.added_by_name && <small>İsteyen: {item.added_by_name}</small>}
       </div>
       <div className="vote-stack">
         <div className="score-pill">
@@ -777,6 +778,11 @@ function App() {
     if (savedUser && savedToken && savedUser !== 'undefined' && savedUser !== 'null') {
       try {
         const parsed = JSON.parse(savedUser) as AppUser;
+        if (parsed.is_guest && parsed.display_name === 'Jukebox Guest') {
+          localStorage.removeItem('user');
+          localStorage.removeItem('token');
+          return;
+        }
         setUser(parsed);
         if (code) void connectToDevice(code);
         return;
@@ -788,16 +794,7 @@ function App() {
       localStorage.removeItem('user');
     }
 
-    void ensureFallbackGuestSession(API_URL)
-      .then((session) => {
-        localStorage.setItem('token', session.access_token);
-        localStorage.setItem('user', JSON.stringify(session.user));
-        setUser(session.user);
-        if (code) void connectToDevice(code);
-      })
-      .catch(() => {
-        setMsg({ type: 'error', text: 'Misafir oturumu başlatılamadı. Lütfen sayfayı yenileyin.' });
-      });
+    setUser(null);
   }, [connectToDevice]);
 
   useEffect(() => {
@@ -901,16 +898,14 @@ function App() {
   }, [device?.id, fetchCurrentQueue]);
 
   const handleGuestLogin = async () => {
-    if (!guestName) return;
+    if (!guestName.trim()) return;
     try {
       setLoading(true);
-      const res = await axios.post<{ data: { user: AppUser; access_token: string } }>(`${API_URL}/api/v1/auth/guest`, {
-        display_name: guestName,
-      });
-      const userData = res.data.data.user;
+      const session = await createFallbackGuestSession(API_URL, guestName);
+      const userData = session.user;
       setUser(userData);
       localStorage.setItem('user', JSON.stringify(userData));
-      localStorage.setItem('token', res.data.data.access_token);
+      localStorage.setItem('token', session.access_token);
       if (deviceCode) void connectToDevice(deviceCode);
     } catch {
       setMsg({ type: 'error', text: 'Giriş yapılamadı.' });
