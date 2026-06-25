@@ -549,15 +549,30 @@ h2 {
   display: block;
 }
 
-.search-panel svg {
+.search-submit {
   position: absolute;
-  top: 16px;
-  left: 14px;
+  top: 50%;
+  right: 8px;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
   color: var(--amber);
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.search-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .search-panel .arcade-input {
-  padding-left: 42px;
+  padding-left: 16px;
+  padding-right: 54px;
 }
 
 .search-results {

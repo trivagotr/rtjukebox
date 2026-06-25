@@ -20,6 +20,7 @@ import {
   User,
 } from 'lucide-react';
 import { AdminDashboard, type DeviceSummary } from './AdminDashboard';
+import { ensureFallbackGuestSession } from './fallbackGuestSession';
 import { buildQueueRequestPayload, getSearchResultKey, type CatalogSearchSong } from './jukeboxCatalog';
 import { buildGuestQueueHeaders } from './guestFingerprint';
 import {
@@ -75,7 +76,7 @@ interface AppUser {
   rank_score?: number;
   monthly_rank_score?: number;
   role?: string;
-  last_super_vote_at?: string;
+  last_super_vote_at?: string | null;
 }
 
 interface LeaderboardUser {
@@ -357,7 +358,7 @@ interface QueueItemProps {
 
 const QueueItem = ({ item, idx, myVotes, handleVote, user }: QueueItemProps) => {
   const currentVote = resolveDisplayedVote(item, myVotes);
-  const supervoteAvailable = hasSupervoteAvailableToday(user.last_super_vote_at);
+  const supervoteAvailable = hasSupervoteAvailableToday(user.last_super_vote_at ?? undefined);
 
   return (
     <article className="queue-item">
@@ -446,7 +447,7 @@ const JukeboxView = ({
   const nowPlayingSongScore = nowPlaying ? getDisplayedSongScore(nowPlaying) : 0;
   const duration = progress?.duration || nowPlaying?.duration_seconds || 0;
   const progressPercent = duration ? Math.min(100, (interpolatedProgress / duration) * 100) : 0;
-  const supervoteAvailable = hasSupervoteAvailableToday(user.last_super_vote_at);
+  const supervoteAvailable = hasSupervoteAvailableToday(user.last_super_vote_at ?? undefined);
 
   return (
     <div className="jukebox-console">
@@ -470,8 +471,7 @@ const JukeboxView = ({
           </div>
         </div>
 
-        <label className="search-panel">
-          <Search size={16} />
+        <div className="search-panel">
           <input
             className="arcade-input"
             placeholder="Şarkı veya sanatçı ara..."
@@ -479,7 +479,10 @@ const JukeboxView = ({
             onChange={(event) => setSearch(event.target.value)}
             onKeyUp={(event) => event.key === 'Enter' && searchSongs()}
           />
-        </label>
+          <button className="search-submit" type="button" onClick={searchSongs} disabled={!search.trim()} aria-label="Ara">
+            <Search size={16} />
+          </button>
+        </div>
 
         <div className="search-results custom-scrollbar">
           {results.length > 0 ? (
@@ -660,6 +663,7 @@ function App() {
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<'total' | 'monthly'>('total');
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const deviceRef = useRef<DeviceSummary | null>(null);
+  const bootstrapStartedRef = useRef(false);
   const leaderboardRequestSeqRef = useRef(0);
   const leaderboardPeriodRef = useRef<'total' | 'monthly'>('total');
 
@@ -758,21 +762,42 @@ function App() {
   }, [progress]);
 
   useEffect(() => {
+    if (bootstrapStartedRef.current) return;
+    bootstrapStartedRef.current = true;
+
     const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    if (code) setDeviceCode(code);
+    const code = (params.get('device') || params.get('code') || '').trim().toUpperCase();
+    if (code) {
+      setDeviceCode(code);
+      setDeviceCodeInput(code);
+    }
 
     const savedUser = localStorage.getItem('user');
-    if (savedUser && savedUser !== 'undefined' && savedUser !== 'null') {
+    const savedToken = localStorage.getItem('token');
+    if (savedUser && savedToken && savedUser !== 'undefined' && savedUser !== 'null') {
       try {
         const parsed = JSON.parse(savedUser) as AppUser;
         setUser(parsed);
         if (code) void connectToDevice(code);
+        return;
       } catch {
         localStorage.removeItem('user');
         localStorage.removeItem('token');
       }
+    } else if (savedUser && !savedToken) {
+      localStorage.removeItem('user');
     }
+
+    void ensureFallbackGuestSession(API_URL)
+      .then((session) => {
+        localStorage.setItem('token', session.access_token);
+        localStorage.setItem('user', JSON.stringify(session.user));
+        setUser(session.user);
+        if (code) void connectToDevice(code);
+      })
+      .catch(() => {
+        setMsg({ type: 'error', text: 'Misafir oturumu başlatılamadı. Lütfen sayfayı yenileyin.' });
+      });
   }, [connectToDevice]);
 
   useEffect(() => {
