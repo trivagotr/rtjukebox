@@ -51,8 +51,8 @@ const CONFIG = {
     // QR kod için web URL formatı
     // Kullanıcı bu URL'yi tarayarak şarkı ekleyecek
     QR_LINK_FORMAT: IS_LOCAL_DEV
-        ? `${window.location.protocol}//${window.location.hostname}:5173/?code={DEVICE_CODE}`
-        : `${window.location.origin}${PUBLIC_BASE_PATH || ''}/?code={DEVICE_CODE}`,
+        ? `${window.location.protocol}//${window.location.hostname}:5173/jukebox?device={DEVICE_CODE}`
+        : `${window.location.origin}${PUBLIC_BASE_PATH || ''}/jukebox?device={DEVICE_CODE}`,
 
     // Yeniden bağlanma ayarları
     RECONNECT_INTERVAL: 5000, // 5 saniye

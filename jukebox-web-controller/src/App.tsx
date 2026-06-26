@@ -20,7 +20,7 @@ import {
   User,
 } from 'lucide-react';
 import { AdminDashboard, type DeviceSummary } from './AdminDashboard';
-import { createFallbackGuestSession } from './fallbackGuestSession';
+import { createFallbackGuestSession, FALLBACK_GUEST_SESSION_STORAGE_KEY, shouldPromptForQrGuestName } from './fallbackGuestSession';
 import { buildQueueRequestPayload, getSearchResultKey, type CatalogSearchSong } from './jukeboxCatalog';
 import { buildGuestQueueHeaders } from './guestFingerprint';
 import {
@@ -775,6 +775,14 @@ function App() {
 
     const savedUser = localStorage.getItem('user');
     const savedToken = localStorage.getItem('token');
+    if (shouldPromptForQrGuestName({ deviceCode: code, savedUser, savedToken })) {
+      localStorage.removeItem('user');
+      localStorage.removeItem('token');
+      localStorage.removeItem(FALLBACK_GUEST_SESSION_STORAGE_KEY);
+      setUser(null);
+      return;
+    }
+
     if (savedUser && savedToken && savedUser !== 'undefined' && savedUser !== 'null') {
       try {
         const parsed = JSON.parse(savedUser) as AppUser;

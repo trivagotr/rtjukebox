@@ -3,6 +3,7 @@ import {
   createFallbackGuestSession,
   FALLBACK_GUEST_SESSION_STORAGE_KEY,
   ensureFallbackGuestSession,
+  shouldPromptForQrGuestName,
   type FallbackGuestSession,
 } from './fallbackGuestSession';
 
@@ -76,5 +77,29 @@ describe('fallback guest session', () => {
 
     expect(postGuest).toHaveBeenCalledWith('http://api.test', 'Ada');
     expect(storage.getItem(FALLBACK_GUEST_SESSION_STORAGE_KEY)).toBe(JSON.stringify(namedSession));
+  });
+
+  it('prompts for a fresh name when a QR visitor has a stored guest session', () => {
+    expect(shouldPromptForQrGuestName({
+      deviceCode: 'FALLBACK1',
+      savedUser: JSON.stringify({
+        id: 'guest-1',
+        display_name: 'Previous Visitor',
+        is_guest: true,
+      }),
+      savedToken: 'guest-token',
+    })).toBe(true);
+  });
+
+  it('does not force the QR name prompt for signed-in users', () => {
+    expect(shouldPromptForQrGuestName({
+      deviceCode: 'FALLBACK1',
+      savedUser: JSON.stringify({
+        id: 'user-1',
+        display_name: 'Student',
+        is_guest: false,
+      }),
+      savedToken: 'user-token',
+    })).toBe(false);
   });
 });

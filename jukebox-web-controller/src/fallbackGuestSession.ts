@@ -19,6 +19,12 @@ export interface FallbackGuestSession {
 type GuestSessionStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 type PostGuestSession = (apiRoot: string, displayName: string) => Promise<FallbackGuestSession>;
 
+interface QrGuestPromptInput {
+  deviceCode: string;
+  savedUser: string | null;
+  savedToken: string | null;
+}
+
 function isFallbackGuestSession(value: unknown): value is FallbackGuestSession {
   if (!value || typeof value !== 'object') return false;
 
@@ -48,6 +54,19 @@ export function readStoredFallbackGuestSession(storage: GuestSessionStorage): Fa
 
   storage.removeItem(FALLBACK_GUEST_SESSION_STORAGE_KEY);
   return null;
+}
+
+export function shouldPromptForQrGuestName(input: QrGuestPromptInput) {
+  if (!input.deviceCode || !input.savedUser || !input.savedToken) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(input.savedUser) as Partial<FallbackGuestUser>;
+    return parsed.is_guest === true;
+  } catch {
+    return false;
+  }
 }
 
 async function defaultPostGuestSession(apiRoot: string, displayName: string): Promise<FallbackGuestSession> {

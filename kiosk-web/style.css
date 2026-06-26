@@ -581,7 +581,8 @@ p {
 }
 
 .queue-song-title,
-.queue-song-artist {
+.queue-song-artist,
+.queue-song-requester {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -592,9 +593,15 @@ p {
 }
 
 .queue-song-artist,
+.queue-song-requester,
 .empty-hint {
     color: var(--muted);
     font-weight: 700;
+}
+
+.queue-song-requester {
+    margin-top: 4px;
+    font-size: 0.78rem;
 }
 
 .queue-votes {

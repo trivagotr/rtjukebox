@@ -1474,6 +1474,7 @@ class KioskApp {
                     <div class="queue-song-info">
                         <div class="queue-song-title">${this.escapeHtml(song.title)}</div>
                         <div class="queue-song-artist">${this.escapeHtml(song.artist)}</div>
+                        ${song.added_by_name ? `<div class="queue-song-requester">İsteyen: ${this.escapeHtml(song.added_by_name)}</div>` : ''}
                     </div>
                     <div class="queue-votes ${voteClass}">
                         <span class="material-symbols-rounded">${voteIcon}</span>

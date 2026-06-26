@@ -67,6 +67,57 @@ describe('kiosk playback helpers', () => {
     })).toBe(false);
   });
 
+  it('renders requester names in the kiosk queue list', () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
+    const queueList = { innerHTML: '' };
+    const queueCount = { textContent: '' };
+    const documentStub = {
+      addEventListener: vi.fn(),
+      createElement: vi.fn(() => {
+        let value = '';
+        return {
+          set textContent(nextValue) {
+            value = String(nextValue || '');
+          },
+          get innerHTML() {
+            return value;
+          },
+        };
+      }),
+      getElementById: vi.fn((id) => {
+        if (id === 'queueList') return queueList;
+        if (id === 'queueCount') return queueCount;
+        return { classList: { add: vi.fn(), remove: vi.fn() }, style: {}, textContent: '', innerHTML: '' };
+      }),
+    };
+    const context = vm.createContext({
+      window: {},
+      document: documentStub,
+      console,
+      module: { exports: {} },
+      exports: {},
+      require,
+    });
+
+    vm.runInContext(appSource, context);
+    const app = Object.create(context.KioskApp.prototype);
+    app.queueData = {
+      queue: [{
+        title: 'Campus Morning',
+        artist: 'TEDU Sessions',
+        added_by_name: 'Ada Preview',
+        upvotes: 2,
+        downvotes: 1,
+      }],
+    };
+
+    app.renderQueue();
+
+    expect(queueCount.textContent).toBe(1);
+    expect(queueList.innerHTML).toContain('Campus Morning');
+    expect(queueList.innerHTML).toContain('Ada Preview');
+  });
+
   it('classifies expired kiosk spotify authorization as a reconnect-required player setup error', () => {
     const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
     const audioPlayer = {

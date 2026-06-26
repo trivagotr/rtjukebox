@@ -1,6 +1,6 @@
 # Codex Server Runbook
 
-This folder contains the backend API, Docker setup, database schema migration, and the production container that serves the fallback jukebox website. The public QR URL can be `/jukebox?device=DEVICE_CODE`; built assets remain under `/controller`.
+This folder contains the backend API, Docker setup, database schema migration, and the production container that serves both temporary jukebox surfaces. The physical kiosk display is `/kiosk/?code=DEVICE_CODE`; the QR on that screen sends phones to `/jukebox?device=DEVICE_CODE`. Phone page assets remain under `/controller`.
 
 ## What To Run On The Server
 
@@ -35,8 +35,8 @@ Edit `backend/.env` before starting:
 The Compose build context is the repo root because the backend container needs:
 
 - `backend/dist` for the API.
-- `jukebox-web-controller/dist` for `/controller`.
-- `kiosk-web` for `/kiosk`.
+- `jukebox-web-controller/dist` for `/controller` and the exact `/jukebox` phone-page alias.
+- `kiosk-web` for the physical `/kiosk` display.
 
 Start everything:
 
@@ -57,23 +57,33 @@ Expected response:
 {"status":"ok"}
 ```
 
-Open the fallback QR website:
+Open the physical kiosk display:
+
+```text
+http://SERVER_HOST:3000/kiosk/?code=DEVICE_CODE
+```
+
+That kiosk screen should show now-playing, queue, and a QR code only. It must not ask visitors for their names.
+
+The QR shown on the kiosk should point phones to:
 
 ```text
 http://SERVER_HOST:3000/jukebox?device=DEVICE_CODE
 ```
 
-Use that URL as the QR target on the jukebox screen. `DEVICE_CODE` must match an active row in the backend `devices` table. `/controller?device=DEVICE_CODE` also works for debugging.
+`DEVICE_CODE` must match an active row in the backend `devices` table. `/controller?device=DEVICE_CODE` also works for debugging the phone page.
 
 Important route detail: `/jukebox` is only an exact page alias. Do not configure a wildcard reverse proxy or rewrite for `/jukebox/*`, because the old no-auth jukebox API paths still use that namespace.
 
-The visitor flow is:
+The event flow is:
 
-1. Scan the QR code on the jukebox.
-2. Enter a name.
-3. Search for a song.
-4. Add the song to the queue.
-5. The queue shows the entered name as the requester.
+1. The physical jukebox opens `/kiosk/?code=DEVICE_CODE`.
+2. The kiosk shows QR, now-playing, and queue.
+3. A visitor scans the QR code.
+4. The visitor phone opens `/jukebox?device=DEVICE_CODE`.
+5. The phone page asks for the visitor name.
+6. The visitor searches for a song and adds it.
+7. The kiosk and phone queue show the entered name as the requester.
 
 ## Native Node Start
 
@@ -141,7 +151,13 @@ curl http://SERVER_HOST:3000/health
 Open:
 
 ```text
+http://SERVER_HOST:3000/kiosk/?code=DEVICE_CODE
+```
+
+Then scan or open the QR target:
+
+```text
 http://SERVER_HOST:3000/jukebox?device=DEVICE_CODE
 ```
 
-If the controller page loads but song search fails, check `CORS_ORIGINS`, `DATABASE_URL`, and the backend logs.
+If the kiosk loads but the QR points at the wrong place, check `kiosk-web/config.js`. If the phone page loads but song search fails, check `CORS_ORIGINS`, `DATABASE_URL`, and the backend logs.
