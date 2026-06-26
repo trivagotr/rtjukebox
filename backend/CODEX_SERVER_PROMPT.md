@@ -56,6 +56,13 @@ First steps:
 4. Start with Docker:
    `cd backend && docker compose up -d --build`
 
+Spotify setup rule:
+- Visitors must not log in to Spotify.
+- Use the private RadioTEDU Spotify Premium account only inside Spotify's OAuth login page during kiosk setup.
+- Never write the Spotify account email/password into `.env`, Git, Docker Compose, logs, or this prompt.
+- After OAuth callback, verify `spotify-device-auth/status` returns `connected: true`, `hasRefreshToken: true`, and `spotifyProduct: premium`.
+- Then verify `kiosk/spotify-token` returns HTTP 200 for the kiosk device.
+
 Required verification before claiming it works:
 1. `curl http://localhost:3000/health` returns `{"status":"ok"}`.
 2. `/kiosk/?code=DEVICE_CODE` shows the kiosk display with QR, now-playing, and queue; it must not ask for a name.

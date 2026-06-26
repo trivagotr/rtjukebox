@@ -30,6 +30,8 @@ Edit `backend/.env` before starting:
 - `CORS_ORIGINS`: include the public domain that people will use to open the QR website.
 - `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, and `SPOTIFY_REDIRECT_URI`: fill these only when Spotify kiosk playback is needed.
 
+Do not put the RadioTEDU Spotify account email or password in `.env`, Docker Compose, docs, Git, or logs. The account is only used once in Spotify's own login page to grant the kiosk playback scopes. The backend stores Spotify OAuth tokens in the database after the callback.
+
 ## Docker Start
 
 The Compose build context is the repo root because the backend container needs:
@@ -159,5 +161,49 @@ Then scan or open the QR target:
 ```text
 http://SERVER_HOST:3000/jukebox?device=DEVICE_CODE
 ```
+
+## Private RadioTEDU Spotify Setup
+
+Visitors scanning the QR must never need a Spotify account. Only the kiosk/backend needs one private Spotify Premium authorization.
+
+1. Confirm the Spotify app redirect URI in Spotify Developer Dashboard exactly matches:
+
+   ```text
+   http://SERVER_HOST:3000/api/v1/spotify/device-auth/callback
+   ```
+
+   If the server is behind `https://radiotedu.com`, use the public HTTPS URL instead, including any `PUBLIC_BASE_PATH`.
+
+2. Start the real backend with `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, and `SPOTIFY_REDIRECT_URI` set. `SPOTIFY_REDIRECT_URI` should point at the device callback above for kiosk playback.
+
+3. Open the physical kiosk page:
+
+   ```text
+   http://SERVER_HOST:3000/kiosk/?code=DEVICE_CODE
+   ```
+
+4. If the kiosk shows a Spotify connect/setup prompt, click it and log in with the private RadioTEDU Spotify Premium account in Spotify's login page. Do not save or paste that password into this repository.
+
+5. After the callback returns to the kiosk, verify the backend has a stored usable device authorization:
+
+   ```bash
+   curl -X POST http://SERVER_HOST:3000/api/v1/jukebox/kiosk/spotify-device-auth/status \
+     -H 'Content-Type: application/json' \
+     -d '{"device_id":"DEVICE_CODE"}'
+   ```
+
+   Expected result: `connected` is `true`, `hasRefreshToken` is `true`, and `spotifyProduct` is `premium`.
+
+6. Verify the kiosk token endpoint succeeds:
+
+   ```bash
+   curl -X POST http://SERVER_HOST:3000/api/v1/jukebox/kiosk/spotify-token \
+     -H 'Content-Type: application/json' \
+     -d '{"device_id":"DEVICE_CODE"}'
+   ```
+
+   Expected result: HTTP 200 with an access token payload. Do not copy that token into logs or docs.
+
+If Spotify asks for login again later, check whether `spotify_device_auth` still has a row for the device, whether the account is still Premium, and whether the Spotify app credentials changed. Changing the Spotify app client secret invalidates stored auth and requires reconnecting once.
 
 If the kiosk loads but the QR points at the wrong place, check `kiosk-web/config.js`. If the phone page loads but song search fails, check `CORS_ORIGINS`, `DATABASE_URL`, and the backend logs.
