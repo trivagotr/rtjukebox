@@ -1,0 +1,87 @@
+name: Deploy fallback jukebox to GitHub Pages
+
+on:
+  push:
+    branches:
+      - codex/fallback-jukebox-website
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Pages artifact
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            kiosk-web/package-lock.json
+            jukebox-web-controller/package-lock.json
+
+      - name: Install kiosk dependencies
+        run: npm ci
+        working-directory: kiosk-web
+
+      - name: Test kiosk
+        run: npm test
+        working-directory: kiosk-web
+
+      - name: Install phone page dependencies
+        run: npm ci
+        working-directory: jukebox-web-controller
+
+      - name: Test phone page
+        run: npm test
+        working-directory: jukebox-web-controller
+
+      - name: Build phone page for GitHub Pages
+        run: npm run build
+        working-directory: jukebox-web-controller
+        env:
+          VITE_APP_BASE_PATH: /rtjukebox/jukebox/
+          VITE_PUBLIC_BASE_PATH: ${{ vars.JUKEBOX_PUBLIC_BASE_PATH || '/jukebox/' }}
+          VITE_API_ORIGIN: ${{ vars.JUKEBOX_API_ORIGIN }}
+
+      - name: Test Pages artifact assembler
+        run: node --test scripts/github-pages-artifact.test.mjs
+
+      - name: Prepare Pages artifact
+        run: node scripts/github-pages-artifact.mjs
+        env:
+          JUKEBOX_API_BASE_URL: ${{ vars.JUKEBOX_API_BASE_URL }}
+          JUKEBOX_API_ORIGIN: ${{ vars.JUKEBOX_API_ORIGIN }}
+          JUKEBOX_PUBLIC_BASE_PATH: ${{ vars.JUKEBOX_PUBLIC_BASE_PATH || '/jukebox' }}
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/github-pages
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy GitHub Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@v4

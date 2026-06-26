@@ -448,7 +448,6 @@ describe('kiosk playback helpers', () => {
     const nowPlayingCall = fetchCalls.find(([url]) => String(url).includes('/api/v1/jukebox/kiosk/now-playing'));
     expect(JSON.parse(nowPlayingCall?.[1]?.body)).toEqual({
       device_id: 'device-1',
-      device_pwd: 'secret',
       song_id: 'song-spotify-1',
     });
     const spotifyTokenCall = fetchCalls.find(([url]) => String(url).includes('/api/v1/jukebox/kiosk/spotify-token'));
@@ -458,7 +457,6 @@ describe('kiosk playback helpers', () => {
     });
     expect(JSON.parse(spotifyTokenCall?.[1]?.body)).toEqual({
       device_id: 'device-1',
-      device_pwd: 'secret',
     });
   });
 
@@ -938,7 +936,6 @@ describe('kiosk playback helpers', () => {
     const autoplayCall = fetchCalls.find(([url]) => url === 'http://127.0.0.1:3000/api/v1/jukebox/autoplay/trigger');
     expect(JSON.parse(autoplayCall?.[1]?.body)).toEqual({
       device_id: 'device-1',
-      device_pwd: 'secret',
     });
   });
 
@@ -1887,52 +1884,6 @@ describe('kiosk playback helpers', () => {
 
     await socketHandlers.connect?.();
     expect(loadInitialQueue).toHaveBeenCalled();
-  });
-
-  it('persists device setup credentials by redirecting with code and password query params', () => {
-    const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
-    const locationStub = {
-      href: 'http://127.0.0.1:3000/kiosk/',
-      protocol: 'http:',
-      hostname: '127.0.0.1',
-      search: '',
-    };
-    const localStorageStub = {
-      getItem: vi.fn(() => null),
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
-    };
-    const context = vm.createContext({
-      window: {
-        location: locationStub,
-        localStorage: localStorageStub,
-        addEventListener: vi.fn(),
-      },
-      document: {
-        addEventListener: vi.fn(),
-        getElementById: vi.fn(() => null),
-      },
-      localStorage: localStorageStub,
-      console,
-      URL,
-      setTimeout,
-      clearTimeout,
-      setInterval,
-      clearInterval,
-      module: { exports: {} },
-      exports: {},
-      require,
-    });
-
-    vm.runInContext(appSource, context);
-    const app = Object.create(context.KioskApp.prototype);
-    app.log = vi.fn();
-
-    app.persistDeviceSetupCredentials('CHILL-IN', '1234');
-
-    expect(localStorageStub.setItem).toHaveBeenCalledWith('device_code', 'CHILL-IN');
-    expect(localStorageStub.setItem).toHaveBeenCalledWith('device_pwd', '1234');
-    expect(locationStub.href).toBe('http://127.0.0.1:3000/kiosk/?code=CHILL-IN&pwd=1234');
   });
 
   it('shows a visible spotify connect action in the startup overlay when device auth is missing', () => {

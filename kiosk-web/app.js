@@ -168,7 +168,7 @@ class KioskApp {
         this.spotifyDeviceAuthController = window.KioskDeviceSpotifyAuth.createSpotifyDeviceAuthController({
             apiBaseUrl: CONFIG.API_URL,
             deviceId: this.device?.id,
-            devicePassword: localStorage.getItem('device_pwd') || CONFIG.DEVICE_PWD || '',
+            devicePassword: '',
             deviceToken: this.kioskSessionToken || '',
             document,
             fetch,
@@ -273,13 +273,12 @@ class KioskApp {
     }
 
     getDevicePasswordForApi() {
-        return localStorage.getItem('device_pwd') || CONFIG.DEVICE_PWD || '';
+        return '';
     }
 
     getKioskAuthPayload(extra = {}) {
         return {
             ...extra,
-            ...(this.getDevicePasswordForApi() ? { device_pwd: this.getDevicePasswordForApi() } : {}),
             ...(this.kioskSessionToken ? { kiosk_token: this.kioskSessionToken } : {}),
         };
     }
@@ -339,44 +338,6 @@ class KioskApp {
         window.addEventListener('resize', () => this.setupWaveform());
     }
 
-    showDeviceSetupOverlay() {
-        const div = document.createElement('div');
-        div.id = 'deviceSetupOverlay';
-        div.style = 'position:fixed; inset:0; background:#1a1a2e; z-index:20000; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px; text-align:center;';
-        div.innerHTML = `
-            <div style="font-size:60px; margin-bottom:20px;">⚙️</div>
-            <h2 style="color:white; margin-bottom:10px;">Cihaz Kurulumu</h2>
-            <p style="color:rgba(255,255,255,0.6); margin-bottom:30px; max-width:400px;">Bu ekranın hangi Jukebox'u temsil ettiğini belirlemek için sistem panelindeki Cihaz Kodunu ve Şifresini girin.</p>
-            <div style="display:flex; flex-direction:column; gap:15px; width:100%; max-width:400px;">
-                <input type="text" id="setupDeviceCode" placeholder="Cihaz Kodu (Örn: KAFE-01)" style="width:100%; padding:15px; border-radius:12px; border:2px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-weight:bold; text-transform:uppercase;">
-                <input type="password" id="setupDevicePassword" placeholder="Cihaz Şifresi" style="width:100%; padding:15px; border-radius:12px; border:2px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-weight:bold;">
-                <button id="saveDeviceCode" style="padding:15px; border-radius:12px; background:var(--accent-red, #dc2626); color:white; font-weight:bold; border:none; cursor:pointer;">Kaydet ve Başlat</button>
-            </div>
-            <p style="color:rgba(255,255,255,0.4); margin-top:20px; font-size:12px;">Veya URL'ye <b>?code=KOD&pwd=SIFRE</b> ekleyerek açın.</p>
-        `;
-        document.body.appendChild(div);
-
-        const input = div.querySelector('#setupDeviceCode');
-        const pwdInput = div.querySelector('#setupDevicePassword');
-        const button = div.querySelector('#saveDeviceCode');
-
-        // Pre-fill if exists
-        input.value = localStorage.getItem('device_code') || '';
-        pwdInput.value = localStorage.getItem('device_pwd') || '';
-
-        const save = () => {
-            const code = input.value.trim().toUpperCase();
-            const pwd = pwdInput.value.trim();
-            if (code) {
-                this.persistDeviceSetupCredentials(code, pwd);
-            }
-        };
-
-        button.onclick = save;
-        input.onkeydown = (e) => { if (e.key === 'Enter') pwdInput.focus(); };
-        pwdInput.onkeydown = (e) => { if (e.key === 'Enter') save(); };
-    }
-
     showDeviceSetupOverlay(reason = '') {
         const existing = document.getElementById('deviceSetupOverlay');
         if (existing?.remove) {
@@ -393,25 +354,6 @@ class KioskApp {
             <p style="color:rgba(255,255,255,0.42); max-width:440px; font-size:13px;">${String(reason || 'Backend default kiosk cihazi bekleniyor.').replace(/[<>&"']/g, '')}</p>
         `;
         document.body.appendChild(div);
-    }
-
-    persistDeviceSetupCredentials(code, password) {
-        try {
-            localStorage.setItem('device_code', code);
-            localStorage.setItem('device_pwd', password);
-        } catch (error) {
-            this.log(`⚠️ Cihaz bilgileri localStorage'a yazılamadı: ${error.message}`, 'error');
-        }
-
-        const nextUrl = new URL(window.location.href);
-        nextUrl.searchParams.set('code', code);
-        if (password) {
-            nextUrl.searchParams.set('pwd', password);
-        } else {
-            nextUrl.searchParams.delete('pwd');
-        }
-
-        window.location.href = nextUrl.toString();
     }
 
     // ===== Logout Button =====
@@ -460,7 +402,6 @@ class KioskApp {
 
         // Clear stored credentials
         localStorage.removeItem('device_code');
-        localStorage.removeItem('device_pwd');
 
         // Show setup overlay again
         this.showDeviceSetupOverlay();
@@ -933,8 +874,7 @@ class KioskApp {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    ...(CONFIG.DEVICE_CODE ? { device_code: CONFIG.DEVICE_CODE } : {}),
-                    ...(CONFIG.DEVICE_PWD ? { password: CONFIG.DEVICE_PWD } : {})
+                    ...(CONFIG.DEVICE_CODE ? { device_code: CONFIG.DEVICE_CODE } : {})
                 })
             });
 
