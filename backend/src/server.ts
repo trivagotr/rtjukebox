@@ -6,7 +6,6 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
-import fs from 'fs';
 import authRoutes from './routes/auth';
 import podcastRoutes from './routes/podcasts';
 import podcastFeedRoutes from './routes/podcastFeeds';
@@ -25,6 +24,7 @@ import { syncPodcastFeed } from './services/podcastFeeds';
 import { ensureDefaultPodcastFeeds, getDefaultPodcastFeeds } from './services/defaultPodcastFeeds';
 import { db } from './db';
 import { resolveCorsOrigins } from './config/cors';
+import { registerControllerWebRoutes } from './controllerWebRoutes';
 
 const IS_TEST_ENV = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
 
@@ -108,16 +108,14 @@ mountWithOptionalPublicBase('/kiosk', express.static(path.join(__dirname, '../..
 }));
 mountWithOptionalPublicBase('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// Static: Jukebox Web Controller (built SPA). Mounted at /controller to avoid
-// colliding with the /jukebox API routes. Safe to start even when dist/ is absent.
+// Static: Jukebox Web Controller (built SPA). Assets stay under /controller.
+// The exact /jukebox page alias is for temporary QR links and does not capture
+// /jukebox/* API routes.
 const controllerDistPath = path.join(__dirname, '../../jukebox-web-controller/dist');
-const controllerIndexPath = path.join(controllerDistPath, 'index.html');
-mountWithOptionalPublicBase('/controller', express.static(controllerDistPath));
-registerGetWithOptionalPublicBase('/controller/*', (req, res, next) => {
-    if (!fs.existsSync(controllerIndexPath)) {
-        return next();
-    }
-    return res.sendFile(controllerIndexPath);
+registerControllerWebRoutes(app, {
+    controllerDistPath,
+    pageAliases: ['/jukebox'],
+    publicBasePath,
 });
 
 // Routes

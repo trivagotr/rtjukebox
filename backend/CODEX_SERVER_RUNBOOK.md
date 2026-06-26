@@ -1,6 +1,6 @@
 # Codex Server Runbook
 
-This folder contains the backend API, Docker setup, database schema migration, and the production container that also serves the fallback jukebox website at `/controller`.
+This folder contains the backend API, Docker setup, database schema migration, and the production container that serves the fallback jukebox website. The public QR URL can be `/jukebox?device=DEVICE_CODE`; built assets remain under `/controller`.
 
 ## What To Run On The Server
 
@@ -60,10 +60,12 @@ Expected response:
 Open the fallback QR website:
 
 ```text
-http://SERVER_HOST:3000/controller?device=DEVICE_CODE
+http://SERVER_HOST:3000/jukebox?device=DEVICE_CODE
 ```
 
-Use that URL as the QR target on the jukebox screen. `DEVICE_CODE` must match an active row in the backend `devices` table.
+Use that URL as the QR target on the jukebox screen. `DEVICE_CODE` must match an active row in the backend `devices` table. `/controller?device=DEVICE_CODE` also works for debugging.
+
+Important route detail: `/jukebox` is only an exact page alias. Do not configure a wildcard reverse proxy or rewrite for `/jukebox/*`, because the old no-auth jukebox API paths still use that namespace.
 
 The visitor flow is:
 
@@ -139,7 +141,7 @@ curl http://SERVER_HOST:3000/health
 Open:
 
 ```text
-http://SERVER_HOST:3000/controller?device=DEVICE_CODE
+http://SERVER_HOST:3000/jukebox?device=DEVICE_CODE
 ```
 
 If the controller page loads but song search fails, check `CORS_ORIGINS`, `DATABASE_URL`, and the backend logs.

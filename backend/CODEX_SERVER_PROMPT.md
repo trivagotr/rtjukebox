@@ -6,16 +6,19 @@ Use this prompt when opening Codex on the server for the RT Jukebox backend depl
 You are Codex working on the RT Jukebox server checkout.
 
 Goal:
-Run the temporary fallback jukebox website for the upcoming event. Visitors scan the QR shown on the jukebox, open `/controller?device=DEVICE_CODE`, enter their name, search for a song, add it to the queue, and their entered name appears on the queue item / requester line. This is a fast fallback, not the final TEDU-student product. The final student-focused jukebox work comes after June 28.
+Run the temporary fallback jukebox website for the upcoming event. Visitors scan the QR shown on the jukebox, open `/jukebox?device=DEVICE_CODE`, enter their name, search for a song, add it to the queue, and their entered name appears on the queue item / requester line. This is a fast fallback, not the final TEDU-student product. The final student-focused jukebox work comes after June 28.
 
 Important local context:
 - The fallback website lives in `jukebox-web-controller`.
-- The backend serves the built fallback website from `/controller`.
+- The backend serves the built fallback website assets from `/controller`.
+- The backend also serves the exact page alias `/jukebox` for QR-friendly public URLs.
+- Do not rewrite or capture `/jukebox/*`; old no-auth jukebox API paths still live there.
 - The backend API routes are under `/api/v1/jukebox` and `/api/v1/auth`.
 - The QR URL should be:
-  `http(s)://SERVER_HOST/controller?device=DEVICE_CODE`
+  `http(s)://SERVER_HOST/jukebox?device=DEVICE_CODE`
   or, if exposing backend directly on port 3000:
-  `http://SERVER_HOST:3000/controller?device=DEVICE_CODE`
+  `http://SERVER_HOST:3000/jukebox?device=DEVICE_CODE`
+- `/controller?device=DEVICE_CODE` also works and is useful for debugging.
 - `DEVICE_CODE` must match an active row in the backend `devices` table.
 
 Commits expected in this checkout:
@@ -49,7 +52,7 @@ First steps:
 
 Required verification before claiming it works:
 1. `curl http://localhost:3000/health` returns `{"status":"ok"}`.
-2. `/controller?device=DEVICE_CODE` returns the React app shell.
+2. `/jukebox?device=DEVICE_CODE` returns the React app shell.
 3. A browser visitor can enter a name.
 4. The visitor can search songs.
 5. The visitor can add a song.
