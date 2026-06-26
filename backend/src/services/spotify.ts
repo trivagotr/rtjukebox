@@ -141,6 +141,11 @@ function getSpotifyPlaybackCapabilityIssue(row: SpotifyDeviceAuthRow): string | 
 export function deriveSpotifyDeviceAuthRedirectUri(redirectUri: string): string {
   const url = new URL(redirectUri);
   const mainCallbackPath = '/api/v1/spotify/callback';
+  if (url.pathname.endsWith(DEVICE_SPOTIFY_CALLBACK_PATH)) {
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  }
   if (url.pathname.endsWith(mainCallbackPath)) {
     url.pathname = `${url.pathname.slice(0, -mainCallbackPath.length)}${DEVICE_SPOTIFY_CALLBACK_PATH}`;
   } else {

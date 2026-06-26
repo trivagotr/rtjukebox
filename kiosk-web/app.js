@@ -18,6 +18,7 @@ class KioskApp {
         this.spotifyDeviceAuthStatus = null;
         this.spotifyDeviceAuthReady = false;
         this.spotifyDeviceAuthSetupState = this.loadSpotifyDeviceAuthSetupState();
+        this.kioskSessionToken = null;
         this.spotifyTrackEnding = false;
         this.progressInterval = null;
         this.isPlaying = false;
@@ -168,6 +169,7 @@ class KioskApp {
             apiBaseUrl: CONFIG.API_URL,
             deviceId: this.device?.id,
             devicePassword: localStorage.getItem('device_pwd') || CONFIG.DEVICE_PWD || '',
+            deviceToken: this.kioskSessionToken || '',
             document,
             fetch,
             window,
@@ -274,21 +276,20 @@ class KioskApp {
         return localStorage.getItem('device_pwd') || CONFIG.DEVICE_PWD || '';
     }
 
+    getKioskAuthPayload(extra = {}) {
+        return {
+            ...extra,
+            ...(this.getDevicePasswordForApi() ? { device_pwd: this.getDevicePasswordForApi() } : {}),
+            ...(this.kioskSessionToken ? { kiosk_token: this.kioskSessionToken } : {}),
+        };
+    }
+
     // ===== Initialization =====
     async init() {
         console.log('🎵 RadioTEDU Kiosk başlatılıyor...');
 
-        // Check if device code exists
-        if (!CONFIG.DEVICE_CODE) {
-            this.showDeviceSetupOverlay();
-            return;
-        }
-
         // Setup canvas size
         this.setupWaveform();
-
-        // Generate QR Code
-        this.generateQRCode();
 
         // Setup audio player events
         this.setupAudioPlayer();
@@ -297,9 +298,12 @@ class KioskApp {
             await this.registerDevice();
         } catch (err) {
             this.log(`❌ Başlatma hatası: ${err.message}`, 'error');
-            this.showDeviceSetupOverlay();
+            this.showDeviceSetupOverlay(err.message);
             return;
         }
+
+        // Generate QR Code after the backend resolves the effective kiosk device.
+        this.generateQRCode();
 
         try {
             await this.setupSpotifyDeviceAuthFlow();
@@ -371,6 +375,24 @@ class KioskApp {
         button.onclick = save;
         input.onkeydown = (e) => { if (e.key === 'Enter') pwdInput.focus(); };
         pwdInput.onkeydown = (e) => { if (e.key === 'Enter') save(); };
+    }
+
+    showDeviceSetupOverlay(reason = '') {
+        const existing = document.getElementById('deviceSetupOverlay');
+        if (existing?.remove) {
+            existing.remove();
+        }
+
+        const div = document.createElement('div');
+        div.id = 'deviceSetupOverlay';
+        div.style = 'position:fixed; inset:0; background:#1a1a2e; z-index:20000; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px; text-align:center;';
+        div.innerHTML = `
+            <div style="font-size:60px; margin-bottom:20px;">...</div>
+            <h2 style="color:white; margin-bottom:10px;">Kiosk beklemede</h2>
+            <p style="color:rgba(255,255,255,0.65); margin-bottom:20px; max-width:440px;">Bu ekran otomatik olarak RadioTEDU jukebox cihazina baglanir. Ayarlar ve sarki ekleme telefon sayfasindan yapilir.</p>
+            <p style="color:rgba(255,255,255,0.42); max-width:440px; font-size:13px;">${String(reason || 'Backend default kiosk cihazi bekleniyor.').replace(/[<>&"']/g, '')}</p>
+        `;
+        document.body.appendChild(div);
     }
 
     persistDeviceSetupCredentials(code, password) {
@@ -524,7 +546,14 @@ class KioskApp {
     // ===== QR Code =====
     generateQRCode() {
         const qrContainer = document.getElementById('qrCode');
-        const qrLink = CONFIG.QR_LINK_FORMAT.replace('{DEVICE_CODE}', CONFIG.DEVICE_CODE);
+        const deviceCode = this.device?.device_code || CONFIG.DEVICE_CODE;
+
+        if (!deviceCode) {
+            qrContainer.innerHTML = '<div style="font-size:12px; color:gray">Kiosk cihazi bekleniyor</div>';
+            return;
+        }
+
+        const qrLink = CONFIG.QR_LINK_FORMAT.replace('{DEVICE_CODE}', encodeURIComponent(deviceCode));
 
         this.log(`🔗 QR Linki: ${qrLink}`);
 
@@ -612,10 +641,9 @@ class KioskApp {
                     const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/spotify-token`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
+                        body: JSON.stringify(this.getKioskAuthPayload({
                             device_id: this.device.id,
-                            device_pwd: this.getDevicePasswordForApi(),
-                        }),
+                        })),
                     });
                     if (!response.ok) {
                         const errData = await response.json().catch(() => ({}));
@@ -735,13 +763,12 @@ class KioskApp {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             keepalive: true,
-            body: JSON.stringify({
+            body: JSON.stringify(this.getKioskAuthPayload({
                 device_id: this.device.id,
-                device_pwd: this.getDevicePasswordForApi(),
                 spotify_device_id: spotifyDeviceId || null,
                 player_name: this.device.name || null,
                 is_active: isActive,
-            }),
+            })),
         }).catch((error) => {
             this.log(`âš ï¸ Spotify cihaz durumu bildirilemedi: ${error.message}`, 'error');
         });
@@ -759,7 +786,7 @@ class KioskApp {
                         playerName: payload.player_name || this.device.name || null,
                         state: payload.player_state || null,
                     }),
-                    device_pwd: this.getDevicePasswordForApi(),
+                    ...this.getKioskAuthPayload(),
                 }
             ),
         });
@@ -906,8 +933,8 @@ class KioskApp {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    device_code: CONFIG.DEVICE_CODE,
-                    password: CONFIG.DEVICE_PWD
+                    ...(CONFIG.DEVICE_CODE ? { device_code: CONFIG.DEVICE_CODE } : {}),
+                    ...(CONFIG.DEVICE_PWD ? { password: CONFIG.DEVICE_PWD } : {})
                 })
             });
 
@@ -926,6 +953,10 @@ class KioskApp {
             }
 
             this.device = deviceData;
+            this.kioskSessionToken = data.data?.kiosk_token || data.kiosk_token || null;
+            if (this.device.device_code) {
+                CONFIG.DEVICE_CODE = this.device.device_code;
+            }
 
             // Ensure we join the room if socket is already connected
             if (this.socket && this.socket.connected) {
@@ -1134,10 +1165,9 @@ class KioskApp {
         fetch(`${CONFIG.API_URL}/api/v1/jukebox/autoplay/trigger`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+            body: JSON.stringify(this.getKioskAuthPayload({
                 device_id: this.device.id,
-                device_pwd: this.getDevicePasswordForApi(),
-            })
+            }))
         }).then(r => r.json())
             .then(d => {
                 this.log(`🤖 Otomatik eklendi: ${d.data?.song_title || 'Şarkı'}`);
@@ -1167,21 +1197,19 @@ class KioskApp {
             await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/now-playing`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+                body: JSON.stringify(this.getKioskAuthPayload({
                     device_id: this.device.id,
-                    device_pwd: this.getDevicePasswordForApi(),
                     song_id: songId
-                })
+                }))
             });
 
             await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/now-playing`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+                body: JSON.stringify(this.getKioskAuthPayload({
                     device_id: this.device.id,
-                    device_pwd: this.getDevicePasswordForApi(),
                     song_id: null
-                })
+                }))
             });
 
             await this.loadInitialQueue();
@@ -1239,11 +1267,10 @@ class KioskApp {
                 fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/now-playing`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
+                    body: JSON.stringify(this.getKioskAuthPayload({
                         device_id: this.device.id,
-                        device_pwd: this.getDevicePasswordForApi(),
                         song_id: song.song_id || (song.id.includes('autoplay') ? song.id.split('autoplay-')[1] : song.id)
-                    })
+                    }))
                 }).catch(e => this.log(`⚠️ Sunucu bildirim hatası: ${e.message}`, 'error'));
             }
 
@@ -1281,11 +1308,10 @@ class KioskApp {
         const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/now-playing`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+            body: JSON.stringify(this.getKioskAuthPayload({
                 device_id: this.device.id,
-                device_pwd: this.getDevicePasswordForApi(),
                 song_id: songId
-            })
+            }))
         });
 
         if (!response.ok) {
@@ -1311,11 +1337,10 @@ class KioskApp {
             fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/now-playing`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+                body: JSON.stringify(this.getKioskAuthPayload({
                     device_id: this.device.id,
-                    device_pwd: this.getDevicePasswordForApi(),
                     song_id: null
-                })
+                }))
             });
         }
     }
@@ -1373,10 +1398,9 @@ class KioskApp {
                 fetch(`${CONFIG.API_URL}/api/v1/jukebox/autoplay/trigger`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
+                    body: JSON.stringify(this.getKioskAuthPayload({
                         device_id: this.device.id,
-                        device_pwd: this.getDevicePasswordForApi(),
-                    })
+                    }))
                 }).then(r => r.json())
                     .then(d => this.log(`🤖 Otomatik eklendi: ${d.data?.song_title || 'Şarkı'}`))
                     .catch(e => console.error(e));
@@ -1577,11 +1601,10 @@ KioskApp.prototype.playSong = async function (song) {
             fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/now-playing`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+                body: JSON.stringify(this.getKioskAuthPayload({
                     device_id: this.device.id,
-                    device_pwd: this.getDevicePasswordForApi(),
                     song_id: song.song_id || (song.id.includes('autoplay') ? song.id.split('autoplay-')[1] : song.id)
-                })
+                }))
             }).catch((error) => this.log(`âš ï¸ Sunucu bildirim hatasÄ±: ${error.message}`, 'error'));
         }
     } catch (error) {

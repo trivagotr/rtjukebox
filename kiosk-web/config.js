@@ -23,7 +23,7 @@ const getDeviceCode = () => {
         localStorage.setItem('device_code', codeFromURL);
         return codeFromURL;
     }
-    return localStorage.getItem('device_code') || '';
+    return '';
 };
 
 const getDevicePassword = () => {
@@ -33,7 +33,7 @@ const getDevicePassword = () => {
         localStorage.setItem('device_pwd', pwdFromURL);
         return pwdFromURL;
     }
-    return localStorage.getItem('device_pwd') || '';
+    return '';
 };
 
 const CONFIG = {

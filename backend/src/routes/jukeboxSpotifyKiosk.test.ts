@@ -55,6 +55,86 @@ beforeEach(() => {
 });
 
 describe('jukebox spotify kiosk routes', () => {
+  it('registers the configured default kiosk device when the screen opens /kiosk without a code', async () => {
+    const previousCode = process.env.KIOSK_DEFAULT_DEVICE_CODE;
+    const previousPassword = process.env.KIOSK_DEFAULT_DEVICE_PASSWORD;
+    process.env.KIOSK_DEFAULT_DEVICE_CODE = 'DENEME';
+    process.env.KIOSK_DEFAULT_DEVICE_PASSWORD = '1234';
+
+    const server = await createJukeboxRouterServer();
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', device_code: 'DENEME', password: '1234', is_active: true }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', device_code: 'DENEME', name: 'Kiosk', password: '1234' }] });
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.data.device.device_code).toBe('DENEME');
+      expect(payload.data.kiosk_token).toEqual(expect.any(String));
+      expect(mockDbQuery).toHaveBeenNthCalledWith(
+        1,
+        'SELECT * FROM devices WHERE UPPER(device_code) = $1 AND is_active = true',
+        ['DENEME'],
+      );
+      expect(mockDbQuery).toHaveBeenNthCalledWith(
+        2,
+        'UPDATE devices SET is_active = true, last_heartbeat = NOW() WHERE device_code = $1 RETURNING *',
+        ['DENEME'],
+      );
+    } finally {
+      if (previousCode === undefined) delete process.env.KIOSK_DEFAULT_DEVICE_CODE;
+      else process.env.KIOSK_DEFAULT_DEVICE_CODE = previousCode;
+      if (previousPassword === undefined) delete process.env.KIOSK_DEFAULT_DEVICE_PASSWORD;
+      else process.env.KIOSK_DEFAULT_DEVICE_PASSWORD = previousPassword;
+      await server.close();
+    }
+  });
+
+  it('uses the kiosk session token for protected kiosk device endpoints', async () => {
+    const server = await createJukeboxRouterServer();
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', device_code: 'DENEME', password: 'secret', is_active: true }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', device_code: 'DENEME', name: 'Kiosk', password: 'secret' }] });
+
+    try {
+      const registerResponse = await fetch(`${server.baseUrl}/kiosk/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ device_code: 'DENEME', password: 'secret' }),
+      });
+      const registerPayload = await registerResponse.json();
+
+      mockDbQuery.mockReset();
+      mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret' }] });
+      vi.spyOn(spotifyServiceModule.spotifyService, 'getDeviceAuthStatus').mockResolvedValue({
+        deviceId: 'device-1',
+        connected: true,
+        hasRefreshToken: true,
+        spotifyProduct: 'premium',
+      } as any);
+
+      const statusResponse = await fetch(`${server.baseUrl}/kiosk/spotify-device-auth/status`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          device_id: 'device-1',
+          kiosk_token: registerPayload.data.kiosk_token,
+        }),
+      });
+
+      expect(statusResponse.status).toBe(200);
+      expect(spotifyServiceModule.spotifyService.getDeviceAuthStatus).toHaveBeenCalledWith('device-1');
+    } finally {
+      await server.close();
+    }
+  });
+
   it('rejects missing device_id when requesting a kiosk spotify token', async () => {
     const res = createMockRes();
 

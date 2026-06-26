@@ -1,10 +1,12 @@
 // Jukebox Routes - Updated for Metadata Sync
 import { Router, Request, Response, NextFunction } from 'express';
 import fs from 'fs';
+import jwt from 'jsonwebtoken';
 import { db } from '../db';
 import { getIO } from '../socket';
 import { MetadataService } from '../services/metadata';
 import { authMiddleware, optionalAuth, AuthRequest } from '../middleware/auth';
+import { JWT_SECRET } from '../middleware/auth';
 import { sendSuccess, sendError } from '../utils/response';
 import { ROLES } from '../middleware/rbac';
 import { AudioService } from '../services/audio';
@@ -24,6 +26,8 @@ import {
 } from '../services/jukeboxScoring';
 
 const GUEST_QUEUE_FINGERPRINT_HEADER = 'x-guest-fingerprint';
+const KIOSK_SESSION_AUDIENCE = 'radiotedu:kiosk';
+const KIOSK_SESSION_ISSUER = 'radiotedu-backend';
 type QueueVoteKind = ReturnType<typeof normalizeVoteKind>;
 
 export function normalizeDeviceAdminInput(input: { name: string; location?: string | null }) {
@@ -779,7 +783,93 @@ function readSpotifyKioskDevicePassword(req: Request) {
     return (bodyPassword ?? queryPassword ?? '').trim();
 }
 
-async function loadValidatedSpotifyKioskDevice(deviceId: string, devicePassword: string) {
+function readSpotifyKioskSessionToken(req: Request) {
+    const bodyToken = typeof (req.body as { kiosk_token?: unknown } | undefined)?.kiosk_token === 'string'
+        ? ((req.body as { kiosk_token?: string }).kiosk_token || null)
+        : null;
+    const queryToken = typeof req.query?.kiosk_token === 'string' ? req.query.kiosk_token : null;
+    const headerToken = typeof req.headers?.['x-kiosk-token'] === 'string' ? req.headers['x-kiosk-token'] : null;
+
+    return (bodyToken ?? queryToken ?? headerToken ?? '').trim();
+}
+
+function signKioskSessionToken(deviceId: string) {
+    return jwt.sign(
+        { device_id: deviceId, purpose: 'kiosk' },
+        JWT_SECRET,
+        {
+            audience: KIOSK_SESSION_AUDIENCE,
+            issuer: KIOSK_SESSION_ISSUER,
+            expiresIn: '12h',
+        }
+    );
+}
+
+function isValidKioskSessionToken(deviceId: string, token: string) {
+    if (!token) {
+        return false;
+    }
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET, {
+            audience: KIOSK_SESSION_AUDIENCE,
+            issuer: KIOSK_SESSION_ISSUER,
+        }) as { device_id?: unknown; purpose?: unknown };
+
+        return decoded.device_id === deviceId && decoded.purpose === 'kiosk';
+    } catch {
+        return false;
+    }
+}
+
+function getConfiguredDefaultKioskDeviceCode() {
+    return (
+        process.env.KIOSK_DEFAULT_DEVICE_CODE ||
+        process.env.DEFAULT_KIOSK_DEVICE_CODE ||
+        process.env.KIOSK_DEVICE_CODE ||
+        ''
+    ).trim().toUpperCase();
+}
+
+function getConfiguredDefaultKioskDevicePassword() {
+    return (
+        process.env.KIOSK_DEFAULT_DEVICE_PASSWORD ||
+        process.env.DEFAULT_KIOSK_DEVICE_PASSWORD ||
+        process.env.KIOSK_DEVICE_PASSWORD ||
+        ''
+    ).trim();
+}
+
+async function loadKioskRegistrationDevice(deviceCode: string | null) {
+    const normalizedCode = deviceCode?.trim().toUpperCase() || null;
+    const configuredDefaultCode = getConfiguredDefaultKioskDeviceCode();
+
+    if (normalizedCode || configuredDefaultCode) {
+        const code = normalizedCode || configuredDefaultCode;
+        const result = await db.query(
+            'SELECT * FROM devices WHERE UPPER(device_code) = $1 AND is_active = true',
+            [code]
+        );
+
+        return result.rows[0] ?? null;
+    }
+
+    const result = await db.query(
+        `SELECT d.*
+         FROM devices d
+         LEFT JOIN spotify_device_auth sda ON sda.device_id = d.id
+         WHERE d.is_active = true
+         ORDER BY
+             CASE WHEN sda.refresh_token IS NOT NULL THEN 0 ELSE 1 END,
+             d.last_heartbeat DESC NULLS LAST,
+             d.created_at ASC
+         LIMIT 1`
+    );
+
+    return result.rows[0] ?? null;
+}
+
+async function loadValidatedSpotifyKioskDevice(deviceId: string, devicePassword: string, kioskToken = '') {
     const deviceResult = await db.query(
         'SELECT id, password FROM devices WHERE id = $1',
         [deviceId]
@@ -790,7 +880,7 @@ async function loadValidatedSpotifyKioskDevice(deviceId: string, devicePassword:
     }
 
     const device = deviceResult.rows[0];
-    if (device.password && device.password !== devicePassword) {
+    if (device.password && device.password !== devicePassword && !isValidKioskSessionToken(device.id, kioskToken)) {
         return { ok: false as const, statusCode: 403, error: 'Invalid device password' };
     }
 
@@ -878,7 +968,11 @@ export async function handleSpotifyKioskTokenRequest(req: Request, res: Response
         }
 
         const devicePassword = readSpotifyKioskDevicePassword(req);
-        const validation = await loadValidatedSpotifyKioskDevice(deviceId, devicePassword);
+        const validation = await loadValidatedSpotifyKioskDevice(
+            deviceId,
+            devicePassword,
+            readSpotifyKioskSessionToken(req)
+        );
         if (!validation.ok) {
             return sendError(res, validation.error, validation.statusCode);
         }
@@ -915,7 +1009,11 @@ export async function handleSpotifyKioskDeviceAuthStatusRequest(req: Request, re
             return sendError(res, 'Missing device_id', 400);
         }
 
-        const validation = await loadValidatedSpotifyKioskDevice(deviceId, devicePassword);
+        const validation = await loadValidatedSpotifyKioskDevice(
+            deviceId,
+            devicePassword,
+            readSpotifyKioskSessionToken(req)
+        );
         if (!validation.ok) {
             return sendError(res, validation.error, validation.statusCode);
         }
@@ -937,7 +1035,11 @@ export async function handleSpotifyKioskDeviceAuthStartRequest(req: Request, res
             return sendError(res, 'Missing device_id', 400);
         }
 
-        const validation = await loadValidatedSpotifyKioskDevice(deviceId, devicePassword);
+        const validation = await loadValidatedSpotifyKioskDevice(
+            deviceId,
+            devicePassword,
+            readSpotifyKioskSessionToken(req)
+        );
         if (!validation.ok) {
             return sendError(res, validation.error, validation.statusCode);
         }
@@ -964,7 +1066,11 @@ export async function handleSpotifyKioskDeviceRegistration(req: Request, res: Re
         });
 
         const devicePassword = readSpotifyKioskDevicePassword(req);
-        const validation = await loadValidatedSpotifyKioskDevice(normalized.deviceId, devicePassword);
+        const validation = await loadValidatedSpotifyKioskDevice(
+            normalized.deviceId,
+            devicePassword,
+            readSpotifyKioskSessionToken(req)
+        );
         if (!validation.ok) {
             return sendError(res, validation.error, validation.statusCode);
         }
@@ -2982,25 +3088,37 @@ router.post('/kiosk/register', async (req: Request, res: Response) => {
     try {
         const { device_code, password } = req.body;
 
-        const deviceCheck = await db.query('SELECT password FROM devices WHERE device_code = $1', [device_code]);
-        if (deviceCheck.rows.length === 0) {
-            console.log(`[KIOSK REGISTER] Device not found: ${device_code}`);
+        const device = await loadKioskRegistrationDevice(
+            typeof device_code === 'string' ? device_code : null
+        );
+        if (!device) {
+            console.log(`[KIOSK REGISTER] Device not found: ${device_code || '<default>'}`);
             return sendError(res, 'Device code invalid', 404);
         }
 
-        const device = deviceCheck.rows[0];
+        const suppliedPassword = typeof password === 'string' ? password : '';
+        const effectivePassword = suppliedPassword || (
+            device_code ? '' : getConfiguredDefaultKioskDevicePassword()
+        );
 
-        if (device.password && device.password !== password) {
-            console.log(`[KIOSK REGISTER] Password mismatch for device_code="${device_code}"`);
+        if (device.password && device.password !== effectivePassword) {
+            console.log(`[KIOSK REGISTER] Password mismatch for device_code="${device.device_code}"`);
             return sendError(res, 'Invalid device password for registration', 403, 'INVALID_PASSWORD');
         }
 
         const updatedDevice = await db.query(
             'UPDATE devices SET is_active = true, last_heartbeat = NOW() WHERE device_code = $1 RETURNING *',
-            [device_code]
+            [device.device_code]
         );
 
-        return sendSuccess(res, { device: updatedDevice.rows[0] }, 'Kiosk registered');
+        return sendSuccess(
+            res,
+            {
+                device: updatedDevice.rows[0],
+                kiosk_token: signKioskSessionToken(updatedDevice.rows[0].id),
+            },
+            'Kiosk registered'
+        );
     } catch (error) {
         console.error('Kiosk registration error:', error);
         return sendError(res, 'Internal server error during registration', 500);
@@ -3022,7 +3140,11 @@ router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
     const { device_id, song_id } = req.body;
 
     try {
-        const validation = await loadValidatedSpotifyKioskDevice(device_id, readSpotifyKioskDevicePassword(req));
+        const validation = await loadValidatedSpotifyKioskDevice(
+            device_id,
+            readSpotifyKioskDevicePassword(req),
+            readSpotifyKioskSessionToken(req)
+        );
         if (!validation.ok) {
             return sendError(res, validation.error, validation.statusCode);
         }
@@ -3132,7 +3254,11 @@ router.post('/autoplay/trigger', async (req: Request, res: Response) => {
     const { device_id } = req.body;
 
     try {
-        const validation = await loadValidatedSpotifyKioskDevice(device_id, readSpotifyKioskDevicePassword(req));
+        const validation = await loadValidatedSpotifyKioskDevice(
+            device_id,
+            readSpotifyKioskDevicePassword(req),
+            readSpotifyKioskSessionToken(req)
+        );
         if (!validation.ok) {
             return sendError(res, validation.error, validation.statusCode);
         }

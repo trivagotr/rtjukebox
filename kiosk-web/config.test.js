@@ -44,4 +44,17 @@ describe('kiosk configuration', () => {
 
     expect(config.QR_LINK_FORMAT).toBe('https://radiotedu.com/radio/jukebox?device={DEVICE_CODE}');
   });
+
+  it('does not require a device code when the kiosk screen opens a fixed /kiosk URL', () => {
+    const config = loadConfig({
+      hostname: 'radiotedu.com',
+      origin: 'https://radiotedu.com',
+      pathname: '/kiosk',
+      protocol: 'https:',
+      search: '',
+    });
+
+    expect(config.DEVICE_CODE).toBe('');
+    expect(config.QR_LINK_FORMAT).toBe('https://radiotedu.com/jukebox?device={DEVICE_CODE}');
+  });
 });
