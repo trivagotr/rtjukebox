@@ -26,12 +26,21 @@ Safety rules:
 
 Known current GitHub state:
 - Source repo/branch: https://github.com/trivagotr/rtjukebox, branch codex/fallback-jukebox-website
-- Latest relevant source commit: e0b45fc1 fix: remove fallback kiosk password transport
+- Latest relevant source commit: 436369a7 feat: add RadioTEDU logo to jukebox
 - Temporary GitHub Pages fallback is live at:
   - https://akgularda.github.io/kiosk/
   - https://akgularda.github.io/jukebox/
 - The GitHub Pages site is static only. It does not replace the backend.
 - The Pages deployment intentionally removed password transport from the kiosk bundle.
+- The Jukebox phone UI includes a small RadioTEDU logo/brand mark.
+
+Fresh external check from June 27, 2026:
+- https://radiotedu.com/jukebox/health returns HTTP 200 with {"status":"ok"}, so a backend is reachable under /jukebox.
+- https://radiotedu.com/kiosk/runtime-config.js currently returns 404, so the server is not serving the new runtime-config file yet.
+- https://radiotedu.com/kiosk/config.js and https://radiotedu.com/kiosk/app.js currently still contain old forbidden setup/password patterns, so the production kiosk static files are stale and must be replaced from this branch.
+- https://radiotedu.com/jukebox/ currently serves a Jukebox page, but its asset filenames do not match the latest current build, so the production phone static files are stale too.
+- GET https://radiotedu.com/jukebox/api/v1/jukebox/kiosk/spotify-token reaches the backend and returns "Missing device_id" without a device id. This endpoint is GET, not POST.
+- POST https://radiotedu.com/jukebox/api/v1/jukebox/kiosk/spotify-device-auth/status with a dummy device id reaches the backend but does not prove Spotify is connected. Verify with the real device id after deployment/OAuth.
 
 Important architecture:
 - GitHub Pages can serve only static files. It cannot run the Jukebox backend.
@@ -114,7 +123,7 @@ Step 6: Complete Spotify connection once
    - POST /api/v1/jukebox/kiosk/spotify-device-auth/status returns connected: true
    - hasRefreshToken: true
    - spotifyProduct: premium
-   - POST /api/v1/jukebox/kiosk/spotify-token returns HTTP 200
+   - GET /api/v1/jukebox/kiosk/spotify-token?device_id=DEVICE_ID returns HTTP 200
 7. If the connect prompt appears again after refresh, inspect backend/database state instead of storing passwords.
 
 Step 7: End-to-end event test
