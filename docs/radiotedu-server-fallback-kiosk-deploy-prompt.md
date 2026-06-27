@@ -36,7 +36,7 @@ Deployment strategy:
 
 Known current GitHub state:
 - Source repo/branch: https://github.com/trivagotr/rtjukebox, branch codex/fallback-jukebox-website
-- Latest relevant source state: commit be9127bb docs: record local jukebox verification, or newer.
+- Latest relevant source state: commit 8131b53e fix: ship radiotedu kiosk runtime config, or newer.
 - The static GitHub Pages fallback is no longer the target for this handoff. Ignore it unless explicitly asked later.
 - The current branch intentionally removed password transport from the kiosk bundle.
 - The Jukebox phone UI includes a small RadioTEDU logo/brand mark.
@@ -102,7 +102,7 @@ Step 2: Fetch the exact source branch
    git fetch origin codex/fallback-jukebox-website
    git checkout codex/fallback-jukebox-website
    git pull --ff-only origin codex/fallback-jukebox-website
-2. Verify the branch contains commit be9127bb or newer.
+2. Verify the branch contains commit 8131b53e or newer.
 3. Do not merge unrelated local work into this deploy.
 
 Step 3: Configure backend environment safely
