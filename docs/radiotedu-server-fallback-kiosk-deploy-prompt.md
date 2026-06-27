@@ -50,7 +50,7 @@ Fresh external check from June 27, 2026:
 - POST https://radiotedu.com/jukebox/api/v1/jukebox/kiosk/spotify-device-auth/status with a dummy device id reaches the backend but does not prove Spotify is connected. Verify with the real device id after deployment/OAuth.
 
 Fresh local verification from June 27, 2026:
-- kiosk-web tests passed: 6 files, 46 tests.
+- kiosk-web tests passed: 7 files, 47 tests, including runtime-config.js production endpoint coverage.
 - jukebox-web-controller tests passed: 9 files, 31 tests.
 - jukebox-web-controller production build passed.
 - backend focused Spotify/Jukebox tests passed: 3 files, 61 tests.
@@ -124,7 +124,7 @@ Step 4: Build and deploy static files
 1. Run the repo's tests/builds needed for kiosk and phone web.
 2. Build the phone/jukebox frontend with the correct public base path for https://radiotedu.com/jukebox/.
 3. Prepare kiosk files for https://radiotedu.com/kiosk/ in a staging folder first.
-4. Ensure kiosk/runtime-config.js exists at https://radiotedu.com/kiosk/runtime-config.js and contains only non-secret public config, for example:
+4. Ensure kiosk/runtime-config.js exists at https://radiotedu.com/kiosk/runtime-config.js and contains only non-secret public config. The branch source file kiosk-web/runtime-config.js already contains:
    window.RADIOTEDU_KIOSK_CONFIG = {
      API_BASE_URL: "https://radiotedu.com/jukebox",
      PUBLIC_SITE_BASE_URL: "https://radiotedu.com",
@@ -150,7 +150,7 @@ Static artifact overlay map:
   - index.html
   - app.js
   - config.js
-  - runtime-config.js, after replacing it with the radiotedu.com public config shown above
+  - runtime-config.js, verifying it contains the radiotedu.com public config shown above
   - style.css
   - branding.js
   - playback.js
