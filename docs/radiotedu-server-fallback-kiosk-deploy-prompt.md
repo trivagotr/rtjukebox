@@ -1,4 +1,4 @@
-# RadioTEDU Server Codex Prompt: Safe Fallback Jukebox Backend + Kiosk Deploy
+# RadioTEDU Server Codex Prompt: Safe Production Jukebox/Kiosk Deploy
 
 Paste this entire prompt into Codex running on the RadioTEDU server or in the server deployment workspace.
 
@@ -6,13 +6,14 @@ Paste this entire prompt into Codex running on the RadioTEDU server or in the se
 You are Codex operating on the RadioTEDU production server/deployment workspace.
 
 Goal:
-Make the temporary RT Jukebox experience work for tomorrow with minimal risk:
+Make the RT Jukebox experience work tomorrow on the real RadioTEDU production domain with minimal risk:
 - A kiosk browser opened at https://radiotedu.com/kiosk/ should work in fullscreen.
 - The kiosk should not require ?code=.
 - The kiosk should not ask for a jukebox device password.
 - The kiosk should not ask the kiosk operator for "Spotify Bagla" after setup is complete.
-- Visitors should scan the QR code, open the phone web page, enter their name, search/select music, and add songs to the queue.
+- Visitors should scan the QR code, open https://radiotedu.com/jukebox/ with the kiosk device selected automatically from the QR URL, enter their own name, search/select music, and add songs to the queue.
 - The kiosk should see the queue and play Spotify songs through the connected Spotify Premium account.
+- Do not use akgularda.github.io or any GitHub Pages fallback for the final event flow. Everything user-facing must run from radiotedu.com.
 
 Safety rules:
 - Back up before changing anything.
@@ -26,12 +27,9 @@ Safety rules:
 
 Known current GitHub state:
 - Source repo/branch: https://github.com/trivagotr/rtjukebox, branch codex/fallback-jukebox-website
-- Latest relevant source commit: 436369a7 feat: add RadioTEDU logo to jukebox
-- Temporary GitHub Pages fallback is live at:
-  - https://akgularda.github.io/kiosk/
-  - https://akgularda.github.io/jukebox/
-- The GitHub Pages site is static only. It does not replace the backend.
-- The Pages deployment intentionally removed password transport from the kiosk bundle.
+- Latest relevant source commit: 19f41bd8 docs: record spotify app secret handoff status, or newer.
+- The static GitHub Pages fallback is no longer the target for this handoff. Ignore it unless explicitly asked later.
+- The current branch intentionally removed password transport from the kiosk bundle.
 - The Jukebox phone UI includes a small RadioTEDU logo/brand mark.
 
 Fresh external check from June 27, 2026:
@@ -43,7 +41,6 @@ Fresh external check from June 27, 2026:
 - POST https://radiotedu.com/jukebox/api/v1/jukebox/kiosk/spotify-device-auth/status with a dummy device id reaches the backend but does not prove Spotify is connected. Verify with the real device id after deployment/OAuth.
 
 Important architecture:
-- GitHub Pages can serve only static files. It cannot run the Jukebox backend.
 - The working event setup needs:
   1. Backend API running on the RadioTEDU server.
   2. Database reachable by that backend.
@@ -56,14 +53,16 @@ Spotify Developer app status from the preparation branch:
 - Client ID: 3e614227cdc440d68b4578cefda1256b
 - Redirect URI already configured in Spotify Developer Dashboard:
   https://radiotedu.com/jukebox/api/v1/spotify/device-auth/callback
-- The following GitHub Actions secrets are already set on trivagotr/rtjukebox:
-  SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REDIRECT_URI
-- GitHub secrets are write-only. Do not commit or print SPOTIFY_CLIENT_SECRET. If the production server deploy is not driven by GitHub Actions, set the same values in the server environment through the secure server secret/config path.
+- SPOTIFY_CLIENT_SECRET was supplied by the owner in the private handoff. Do not print it, commit it, paste it into public docs, or place it in browser-visible static files. Put it only in the backend's secure server environment/config.
+- GitHub secrets are write-only. If the production server deploy is not driven by GitHub Actions, do not try to read them from GitHub; set the same values in the server environment through the secure server secret/config path.
 
 Expected production URLs:
 - Kiosk: https://radiotedu.com/kiosk/
 - Phone/guest jukebox: https://radiotedu.com/jukebox/
 - Backend API base: https://radiotedu.com/jukebox or the existing production API base if this deployment uses a different reverse-proxy path.
+- QR target from the kiosk must be:
+  https://radiotedu.com/jukebox?device=DEVICE_CODE
+  where DEVICE_CODE is filled automatically by the kiosk from the backend-selected kiosk device. Visitors should not have to type a code manually.
 - Spotify device callback should match the backend route, likely:
   https://radiotedu.com/jukebox/api/v1/spotify/device-auth/callback
   Confirm the exact path from the backend routes before configuring Spotify.
@@ -85,7 +84,7 @@ Step 2: Fetch the exact source branch
    git fetch origin codex/fallback-jukebox-website
    git checkout codex/fallback-jukebox-website
    git pull --ff-only origin codex/fallback-jukebox-website
-2. Verify the branch contains commit e3aef15c or newer.
+2. Verify the branch contains commit 19f41bd8 or newer.
 3. Do not merge unrelated local work into this deploy.
 
 Step 3: Configure backend environment safely
@@ -94,19 +93,25 @@ Step 3: Configure backend environment safely
    - DATABASE_URL or DB_HOST/DB_USER/DB_PASSWORD/DB_NAME as used by this backend
    - JWT_SECRET
    - JWT_REFRESH_SECRET
-   - CORS_ORIGINS including https://radiotedu.com and https://akgularda.github.io if the GitHub fallback will also call this backend
+   - CORS_ORIGINS including https://radiotedu.com
    - PUBLIC_BASE_PATH or equivalent if the backend is mounted under /jukebox
-   - SPOTIFY_CLIENT_ID
-   - SPOTIFY_CLIENT_SECRET
+   - SPOTIFY_CLIENT_ID=3e614227cdc440d68b4578cefda1256b
+   - SPOTIFY_CLIENT_SECRET set to the owner-provided Spotify app secret in secure backend env only
    - SPOTIFY_REDIRECT_URI=https://radiotedu.com/jukebox/api/v1/spotify/device-auth/callback, unless route inspection proves a different public callback
-3. Do not put the Spotify account email/password in env. Only Spotify app client id/secret belong in env.
+3. Do not put the Spotify account email/password in env. Only Spotify app client id/secret belong in backend env.
 4. Confirm Spotify Developer Dashboard has the exact redirect URI configured.
+5. Confirm these values are not present in kiosk-web, jukebox-web-controller/public, built browser assets, docs, logs, or any public web file.
 
 Step 4: Build and deploy static files
 1. Run the repo's tests/builds needed for kiosk and phone web.
 2. Build the phone/jukebox frontend with the correct public base path for https://radiotedu.com/jukebox/.
 3. Prepare/copy kiosk files for https://radiotedu.com/kiosk/.
-4. Ensure kiosk/runtime-config.js points to the production backend API base.
+4. Ensure kiosk/runtime-config.js exists at https://radiotedu.com/kiosk/runtime-config.js and contains only non-secret public config, for example:
+   window.RADIOTEDU_KIOSK_CONFIG = {
+     API_BASE_URL: "https://radiotedu.com/jukebox",
+     PUBLIC_SITE_BASE_URL: "https://radiotedu.com",
+     QR_LINK_BASE_URL: "https://radiotedu.com/jukebox"
+   };
 5. Preserve existing unrelated radiotedu.com files. Only update the RT Jukebox target paths.
 6. Verify the deployed kiosk static files do not contain:
    - device_pwd
@@ -114,6 +119,7 @@ Step 4: Build and deploy static files
    - setupDevicePassword
    - ?code= as a required setup hint
    - old device password setup UI text
+7. Verify the deployed kiosk QR link resolves to https://radiotedu.com/jukebox?device=DEVICE_CODE, not /radio/jukebox and not a GitHub Pages URL.
 
 Step 5: Start or restart backend
 1. Use the existing service manager for this server: IIS reverse proxy, PM2, Docker Compose, Windows service, or the current production method.
@@ -141,28 +147,18 @@ Step 7: End-to-end event test
 3. Confirm the kiosk does not ask for a visitor name.
 4. Confirm the kiosk does not ask for a jukebox/device password.
 5. Confirm the kiosk does not show "Spotify Bagla" after OAuth is complete.
-6. Confirm the QR code points to https://radiotedu.com/jukebox/ with the effective device identifier.
+6. Confirm the QR code points to https://radiotedu.com/jukebox?device=DEVICE_CODE with the effective device identifier.
 7. Scan the QR code from a phone.
-8. On the phone page, enter a test visitor name.
-9. Search for a Spotify track.
-10. Add the track to the queue.
-11. Confirm the kiosk queue updates.
-12. Confirm playback starts or can be started on the kiosk Spotify player.
-13. Confirm next-song/autoplay behavior if available.
-14. Test a browser refresh of both kiosk and phone pages.
+8. Confirm the phone page auto-selects the device from the QR URL and does not require manually entering a code.
+9. On the phone page, enter a test visitor name.
+10. Search for a Spotify track.
+11. Add the track to the queue.
+12. Confirm the kiosk queue updates and displays the requester name.
+13. Confirm playback starts or can be started on the kiosk Spotify player.
+14. Confirm next-song/autoplay behavior if available.
+15. Test a browser refresh of both kiosk and phone pages.
 
-Step 8: Optional GitHub fallback wiring
-If the event needs the fallback GitHub Pages URLs to use the same production backend:
-1. Update only akgularda.github.io/kiosk/runtime-config.js, or the source artifact config, so:
-   window.RADIOTEDU_KIOSK_CONFIG = {
-     API_BASE_URL: "https://radiotedu.com/jukebox",
-     PUBLIC_SITE_BASE_URL: "https://akgularda.github.io",
-     QR_LINK_BASE_URL: "https://akgularda.github.io/jukebox"
-   };
-2. Do not put secrets in GitHub Pages.
-3. Verify https://akgularda.github.io/kiosk/ can reach the backend if CORS allows it.
-
-Step 9: Final report
+Step 8: Final report
 Report only after fresh verification. Include:
 - Backup paths created.
 - Git branch/commit deployed.
