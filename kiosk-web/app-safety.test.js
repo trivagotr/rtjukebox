@@ -16,5 +16,6 @@ describe('temporary fallback kiosk safety', () => {
     expect(appSource).not.toContain('device_pwd');
     expect(configSource).not.toContain('pwdFromURL');
     expect(configSource).not.toContain('device_pwd');
+    expect(configSource).not.toContain('DEVICE_PWD');
   });
 });

@@ -80,7 +80,7 @@ describe('kiosk configuration', () => {
     });
 
     expect(config.DEVICE_CODE).toBe('FALLBACK1');
-    expect(config.DEVICE_PWD).toBe('');
+    expect(config).not.toHaveProperty('DEVICE_PWD');
   });
 
   it('supports GitHub Pages under the repository path without device code or password', () => {
@@ -96,7 +96,7 @@ describe('kiosk configuration', () => {
     });
 
     expect(config.DEVICE_CODE).toBe('');
-    expect(config.DEVICE_PWD).toBe('');
+    expect(config).not.toHaveProperty('DEVICE_PWD');
     expect(config.API_URL).toBe('https://api.example.com/jukebox');
     expect(config.WS_URL).toBe('https://api.example.com');
     expect(config.SOCKET_PATH).toBe('/jukebox/socket.io');

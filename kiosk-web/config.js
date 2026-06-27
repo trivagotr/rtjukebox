@@ -65,14 +65,9 @@ const getDeviceCode = () => {
     return '';
 };
 
-const getDevicePassword = () => {
-    return '';
-};
-
 const CONFIG = {
     // Cihaz kodu - dinamik olarak belirlenir
     DEVICE_CODE: getDeviceCode(),
-    DEVICE_PWD: getDevicePassword(),
 
     // Backend API URL
     API_URL: API_BASE,

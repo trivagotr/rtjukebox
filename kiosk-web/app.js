@@ -168,7 +168,6 @@ class KioskApp {
         this.spotifyDeviceAuthController = window.KioskDeviceSpotifyAuth.createSpotifyDeviceAuthController({
             apiBaseUrl: CONFIG.API_URL,
             deviceId: this.device?.id,
-            devicePassword: '',
             deviceToken: this.kioskSessionToken || '',
             document,
             fetch,

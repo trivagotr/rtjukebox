@@ -18,15 +18,12 @@
         };
     }
 
-    function buildSpotifyDeviceAuthStartUrl(baseUrl, deviceId, devicePassword, returnOrigin, deviceToken = '') {
+    function buildSpotifyDeviceAuthStartUrl(baseUrl, deviceId, returnOrigin, deviceToken = '') {
         const url = new URL(
             `${baseUrl}/api/v1/jukebox/kiosk/spotify-device-auth/start`,
             typeof globalThis?.location?.href === 'string' ? globalThis.location.href : undefined
         );
         url.searchParams.set('device_id', deviceId);
-        if (devicePassword) {
-            url.searchParams.set('device_pwd', devicePassword);
-        }
         if (deviceToken) {
             url.searchParams.set('kiosk_token', deviceToken);
         }
@@ -109,7 +106,6 @@
         const windowScope = options.window || (typeof globalThis !== 'undefined' ? globalThis : this);
         const apiBaseUrl = options.apiBaseUrl || '';
         const deviceId = options.deviceId;
-        const devicePassword = options.devicePassword || '';
         const deviceToken = options.deviceToken || '';
         const endpoints = buildSpotifyDeviceAuthEndpoints(apiBaseUrl);
 
@@ -184,7 +180,6 @@
                 method: 'POST',
                 body: JSON.stringify({
                     device_id: deviceId,
-                    device_pwd: devicePassword,
                     kiosk_token: deviceToken,
                 }),
             });
@@ -209,7 +204,7 @@
                         ? new URL(windowScope.location.href).origin
                         : null
                 );
-            const authUrl = buildSpotifyDeviceAuthStartUrl(apiBaseUrl, deviceId, devicePassword, returnOrigin, deviceToken);
+            const authUrl = buildSpotifyDeviceAuthStartUrl(apiBaseUrl, deviceId, returnOrigin, deviceToken);
             const popup = windowScope?.open?.('', '_blank');
 
             if (popup) {

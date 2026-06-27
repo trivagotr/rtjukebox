@@ -71,8 +71,12 @@ describe('kiosk device spotify auth helper', () => {
 
   it('shows a blocking setup state when device spotify auth is missing', async () => {
     const documentStub = createDocumentStub();
-    const fetch = vi.fn(async (url) => {
+    const fetch = vi.fn(async (url, options) => {
       expect(String(url)).toContain('/api/v1/jukebox/kiosk/spotify-device-auth/status');
+      expect(JSON.parse(options.body)).toEqual({
+        device_id: 'device-1',
+        kiosk_token: '',
+      });
       return {
         ok: true,
         json: async () => ({
@@ -96,7 +100,6 @@ describe('kiosk device spotify auth helper', () => {
     const controller = createSpotifyDeviceAuthController({
       apiBaseUrl: 'http://127.0.0.1:3000',
       deviceId: 'device-1',
-      devicePassword: 'secret',
       document: documentStub,
       fetch,
       window: {
@@ -132,7 +135,6 @@ describe('kiosk device spotify auth helper', () => {
     const controller = createSpotifyDeviceAuthController({
       apiBaseUrl: 'http://127.0.0.1:3000',
       deviceId: 'device-1',
-      devicePassword: 'secret',
       document: documentStub,
       fetch,
       window: {
@@ -152,7 +154,7 @@ describe('kiosk device spotify auth helper', () => {
 
     expect(open).toHaveBeenCalledWith('', '_blank');
     expect(fetch).not.toHaveBeenCalled();
-    expect(popup.location.href).toBe('http://127.0.0.1:3000/api/v1/jukebox/kiosk/spotify-device-auth/start?device_id=device-1&device_pwd=secret&return_origin=http%3A%2F%2F127.0.0.1%3A4180');
+    expect(popup.location.href).toBe('http://127.0.0.1:3000/api/v1/jukebox/kiosk/spotify-device-auth/start?device_id=device-1&return_origin=http%3A%2F%2F127.0.0.1%3A4180');
     expect(popup.focus).toHaveBeenCalledTimes(1);
   });
 
@@ -170,7 +172,6 @@ describe('kiosk device spotify auth helper', () => {
     const controller = createSpotifyDeviceAuthController({
       apiBaseUrl: 'http://127.0.0.1:3000',
       deviceId: 'device-1',
-      devicePassword: 'secret',
       document: documentStub,
       fetch,
       window: {
@@ -190,7 +191,7 @@ describe('kiosk device spotify auth helper', () => {
 
     expect(open).toHaveBeenCalledWith('', '_blank');
     expect(fetch).not.toHaveBeenCalled();
-    expect(popup.location.href).toBe('http://127.0.0.1:3000/api/v1/jukebox/kiosk/spotify-device-auth/start?device_id=device-1&device_pwd=secret&return_origin=http%3A%2F%2F127.0.0.1%3A4180');
+    expect(popup.location.href).toBe('http://127.0.0.1:3000/api/v1/jukebox/kiosk/spotify-device-auth/start?device_id=device-1&return_origin=http%3A%2F%2F127.0.0.1%3A4180');
   });
 
   it('refreshes and exits setup after a successful auth success message', async () => {
@@ -244,7 +245,6 @@ describe('kiosk device spotify auth helper', () => {
     const controller = createSpotifyDeviceAuthController({
       apiBaseUrl: 'http://127.0.0.1:3000',
       deviceId: 'device-1',
-      devicePassword: 'secret',
       document: documentStub,
       fetch,
       window: {
@@ -310,7 +310,6 @@ describe('kiosk device spotify auth helper', () => {
     const controller = createSpotifyDeviceAuthController({
       apiBaseUrl: 'http://127.0.0.1:3000',
       deviceId: 'device-1',
-      devicePassword: 'secret',
       document: documentStub,
       fetch,
       window: {
