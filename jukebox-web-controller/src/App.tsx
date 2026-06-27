@@ -20,6 +20,7 @@ import {
   User,
 } from 'lucide-react';
 import { AdminDashboard, type DeviceSummary } from './AdminDashboard';
+import { RadioTeduCornerLogo } from './BrandCorner';
 import { createFallbackGuestSession, FALLBACK_GUEST_SESSION_STORAGE_KEY, shouldPromptForQrGuestName } from './fallbackGuestSession';
 import { buildQueueRequestPayload, getSearchResultKey, type CatalogSearchSong } from './jukeboxCatalog';
 import { buildGuestQueueHeaders } from './guestFingerprint';
@@ -1051,6 +1052,7 @@ function App() {
 
   return (
     <div className="arcade-app-shell">
+      <RadioTeduCornerLogo />
       {!user || !device ? (
         <LoginView
           deviceCode={deviceCode}

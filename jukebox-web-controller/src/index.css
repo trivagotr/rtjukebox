@@ -161,6 +161,43 @@ button:disabled {
   border-radius: 13px;
 }
 
+.radiotedu-corner-logo {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 28;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  max-width: calc(100vw - 36px);
+  border: 1px solid rgba(255, 248, 239, 0.2);
+  border-radius: 999px;
+  padding: 7px 11px 7px 8px;
+  color: #fff8ef;
+  background: rgba(16, 10, 13, 0.72);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26);
+  text-decoration: none;
+  backdrop-filter: blur(12px);
+}
+
+.radiotedu-corner-logo img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.radiotedu-corner-logo span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .eyebrow {
   margin: 0 0 5px;
   color: var(--rt-red);
@@ -1301,6 +1338,29 @@ h2 {
 
   .guest-status {
     display: flex;
+  }
+
+  .radiotedu-corner-logo {
+    left: auto;
+    right: 14px;
+    top: 14px;
+    bottom: auto;
+    z-index: 24;
+    padding: 6px;
+  }
+
+  .radiotedu-corner-logo img {
+    width: 24px;
+    height: 24px;
+  }
+
+  .radiotedu-corner-logo span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 
   .toast {
