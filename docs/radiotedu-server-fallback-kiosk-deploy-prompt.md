@@ -25,9 +25,18 @@ Safety rules:
 - Do not store the Spotify account email/password in .env, GitHub secrets, source code, docs, logs, database notes, or browser-visible files.
 - Spotify account credentials may only be typed into Spotify's own OAuth login page if an interactive login is absolutely required. The durable server-side state must be OAuth refresh tokens stored by the backend, not the Spotify password.
 
+Deployment strategy:
+- Prefer a safe in-place overlay on top of the existing RT Jukebox production deployment, not a wipe/recreate deployment.
+- Treat the current radiotedu.com RT Jukebox install as the authority for service manager, reverse-proxy/IIS bindings, database connection, JWT secrets, uploads paths, logs paths, and any server-specific .env values.
+- Use the Git branch as the authority for the new kiosk/phone/backend code, but build it in a separate staging/source directory first.
+- After backups, copy only the enumerated RT Jukebox artifacts into the existing RT Jukebox target paths. Do not mirror-delete target folders.
+- For the event, it is acceptable to leave old hashed/static asset files in place as orphan files if the new HTML points at the new assets. Cleanups can wait until after the event.
+- If an existing file and a new file have the same target path, replacing that specific file is allowed only after the parent target directory has been backed up.
+- Preserve existing production .env/config secrets by editing or appending only the missing Spotify/Jukebox values. Do not replace .env wholesale.
+
 Known current GitHub state:
 - Source repo/branch: https://github.com/trivagotr/rtjukebox, branch codex/fallback-jukebox-website
-- Latest relevant source commit: 19f41bd8 docs: record spotify app secret handoff status, or newer.
+- Latest relevant source state: the branch HEAD after the "docs: prefer in-place radiotedu overlay deploy" update, or newer.
 - The static GitHub Pages fallback is no longer the target for this handoff. Ignore it unless explicitly asked later.
 - The current branch intentionally removed password transport from the kiosk bundle.
 - The Jukebox phone UI includes a small RadioTEDU logo/brand mark.
@@ -71,13 +80,14 @@ Step 1: Identify and back up
 1. Print the current working directory, git status, current branch, and remotes.
 2. Locate the current radiotedu.com web root and any existing RT Jukebox/backend deployment path.
 3. Locate backend .env/config files if they already exist.
-4. Create timestamped backups before changing anything:
+4. Identify which parts of the current install are static kiosk files, static phone/Jukebox files, backend code, backend env/config, uploads/logs, and database state.
+5. Create timestamped backups before changing anything:
    - static kiosk/jukebox target directories
    - backend deployment directory
    - backend .env/config files
    - database backup/dump if a Jukebox database already exists
-5. Store backups outside the web root if possible, or in a clearly named non-served backup directory.
-6. Verify backups exist before continuing.
+6. Store backups outside the web root if possible, or in a clearly named non-served backup directory.
+7. Verify backups exist before continuing.
 
 Step 2: Fetch the exact source branch
 1. In a safe source checkout, run:
@@ -105,21 +115,24 @@ Step 3: Configure backend environment safely
 Step 4: Build and deploy static files
 1. Run the repo's tests/builds needed for kiosk and phone web.
 2. Build the phone/jukebox frontend with the correct public base path for https://radiotedu.com/jukebox/.
-3. Prepare/copy kiosk files for https://radiotedu.com/kiosk/.
+3. Prepare kiosk files for https://radiotedu.com/kiosk/ in a staging folder first.
 4. Ensure kiosk/runtime-config.js exists at https://radiotedu.com/kiosk/runtime-config.js and contains only non-secret public config, for example:
    window.RADIOTEDU_KIOSK_CONFIG = {
      API_BASE_URL: "https://radiotedu.com/jukebox",
      PUBLIC_SITE_BASE_URL: "https://radiotedu.com",
      QR_LINK_BASE_URL: "https://radiotedu.com/jukebox"
    };
-5. Preserve existing unrelated radiotedu.com files. Only update the RT Jukebox target paths.
-6. Verify the deployed kiosk static files do not contain:
+5. Copy staged kiosk files over the existing kiosk target files only after the kiosk target directory backup exists.
+6. Copy staged phone/Jukebox build files over the existing phone/Jukebox static target only after the phone target directory backup exists.
+7. Do not overwrite backend API routes, reverse-proxy config, uploads, logs, or database files while deploying static assets. If static files and backend live in the same app directory, identify the exact static subdirectory before copying.
+8. Preserve existing unrelated radiotedu.com files. Only update the RT Jukebox target paths.
+9. Verify the deployed kiosk static files do not contain:
    - device_pwd
    - DEVICE_PWD
    - setupDevicePassword
    - ?code= as a required setup hint
    - old device password setup UI text
-7. Verify the deployed kiosk QR link resolves to https://radiotedu.com/jukebox?device=DEVICE_CODE, not /radio/jukebox and not a GitHub Pages URL.
+10. Verify the deployed kiosk QR link resolves to https://radiotedu.com/jukebox?device=DEVICE_CODE, not /radio/jukebox and not a GitHub Pages URL.
 
 Step 5: Start or restart backend
 1. Use the existing service manager for this server: IIS reverse proxy, PM2, Docker Compose, Windows service, or the current production method.
