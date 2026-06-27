@@ -51,6 +51,15 @@ Important architecture:
   4. Spotify OAuth app credentials configured on the backend.
   5. A completed kiosk Spotify device authorization stored in the backend database.
 
+Spotify Developer app status from the preparation branch:
+- App name: RadioTEDU Jukebox
+- Client ID: 3e614227cdc440d68b4578cefda1256b
+- Redirect URI already configured in Spotify Developer Dashboard:
+  https://radiotedu.com/jukebox/api/v1/spotify/device-auth/callback
+- The following GitHub Actions secrets are already set on trivagotr/rtjukebox:
+  SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REDIRECT_URI
+- GitHub secrets are write-only. Do not commit or print SPOTIFY_CLIENT_SECRET. If the production server deploy is not driven by GitHub Actions, set the same values in the server environment through the secure server secret/config path.
+
 Expected production URLs:
 - Kiosk: https://radiotedu.com/kiosk/
 - Phone/guest jukebox: https://radiotedu.com/jukebox/
@@ -76,7 +85,7 @@ Step 2: Fetch the exact source branch
    git fetch origin codex/fallback-jukebox-website
    git checkout codex/fallback-jukebox-website
    git pull --ff-only origin codex/fallback-jukebox-website
-2. Verify the branch contains commit e0b45fc1 or newer.
+2. Verify the branch contains commit e3aef15c or newer.
 3. Do not merge unrelated local work into this deploy.
 
 Step 3: Configure backend environment safely
