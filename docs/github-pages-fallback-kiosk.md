@@ -18,9 +18,9 @@ The workflow:
 - installs and tests `kiosk-web`
 - installs, tests, and builds `jukebox-web-controller`
 - assembles `dist/github-pages` with `/kiosk/` and `/jukebox/`
-- uploads and deploys that artifact with GitHub Pages Actions
+- publishes that artifact to the `gh-pages` branch
 
-Repository Pages must use **GitHub Actions** as its source.
+Repository Pages should use the `gh-pages` branch from `/ (root)` as its source. This branch-publish path works for maintainers with push access even when the repository has not yet enabled GitHub Pages through the Pages API.
 
 ## Backend URL
 

@@ -7,9 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: github-pages
@@ -66,24 +64,22 @@ jobs:
           JUKEBOX_API_ORIGIN: ${{ vars.JUKEBOX_API_ORIGIN }}
           JUKEBOX_PUBLIC_BASE_PATH: ${{ vars.JUKEBOX_PUBLIC_BASE_PATH || '/jukebox' }}
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
+      - name: Publish gh-pages branch
+        run: |
+          cd dist/github-pages
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b gh-pages
+          git add .
+          git commit -m "Deploy fallback jukebox to GitHub Pages"
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload GitHub Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist/github-pages
-
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy GitHub Pages artifact
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Deployment summary
+        run: |
+          echo "Published static fallback kiosk artifact to the gh-pages branch."
+          echo "Expected Pages URL after repository Pages is enabled from gh-pages/root:"
+          echo "https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/kiosk/"
