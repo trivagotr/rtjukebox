@@ -1,5 +1,20 @@
 # Temporary Fallback Kiosk Admin Deploy Prompt
 
+Current handoff note, June 27, 2026:
+
+For the current radiotedu.com event deployment, prefer:
+
+docs/radiotedu-server-fallback-kiosk-deploy-prompt.md
+
+That newer prompt is the authoritative production handoff for the real
+radiotedu.com/kiosk and radiotedu.com/jukebox flow. It includes the current
+Spotify app handoff, in-place overlay strategy, artifact map, fresh local
+verification, and production verification checks.
+
+Use this older prompt only if you are specifically continuing the earlier
+temporary fallback deployment layout described below. If anything conflicts,
+follow the newer radiotedu-server prompt.
+
 Paste this prompt into Codex running as Administrator on the RadioTEDU server.
 
 ```text
