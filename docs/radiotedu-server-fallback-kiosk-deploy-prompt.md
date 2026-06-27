@@ -49,6 +49,14 @@ Fresh external check from June 27, 2026:
 - GET https://radiotedu.com/jukebox/api/v1/jukebox/kiosk/spotify-token reaches the backend and returns "Missing device_id" without a device id. This endpoint is GET, not POST.
 - POST https://radiotedu.com/jukebox/api/v1/jukebox/kiosk/spotify-device-auth/status with a dummy device id reaches the backend but does not prove Spotify is connected. Verify with the real device id after deployment/OAuth.
 
+Fresh local verification from June 27, 2026:
+- kiosk-web tests passed: 6 files, 46 tests.
+- jukebox-web-controller tests passed: 9 files, 31 tests.
+- jukebox-web-controller production build passed.
+- backend focused Spotify/Jukebox tests passed: 3 files, 61 tests.
+- backend TypeScript build passed.
+- This local verification proves the branch builds and the focused wiring tests pass. It does not prove the production server has the new files or a completed real-device Spotify OAuth session; verify those on radiotedu.com after deployment.
+
 Important architecture:
 - The working event setup needs:
   1. Backend API running on the RadioTEDU server.
