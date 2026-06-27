@@ -36,7 +36,7 @@ Deployment strategy:
 
 Known current GitHub state:
 - Source repo/branch: https://github.com/trivagotr/rtjukebox, branch codex/fallback-jukebox-website
-- Latest relevant source state: the branch HEAD after the "docs: prefer in-place radiotedu overlay deploy" update, or newer.
+- Latest relevant source state: commit be9127bb docs: record local jukebox verification, or newer.
 - The static GitHub Pages fallback is no longer the target for this handoff. Ignore it unless explicitly asked later.
 - The current branch intentionally removed password transport from the kiosk bundle.
 - The Jukebox phone UI includes a small RadioTEDU logo/brand mark.
@@ -102,7 +102,7 @@ Step 2: Fetch the exact source branch
    git fetch origin codex/fallback-jukebox-website
    git checkout codex/fallback-jukebox-website
    git pull --ff-only origin codex/fallback-jukebox-website
-2. Verify the branch contains commit 19f41bd8 or newer.
+2. Verify the branch contains commit be9127bb or newer.
 3. Do not merge unrelated local work into this deploy.
 
 Step 3: Configure backend environment safely
@@ -141,6 +141,55 @@ Step 4: Build and deploy static files
    - ?code= as a required setup hint
    - old device password setup UI text
 10. Verify the deployed kiosk QR link resolves to https://radiotedu.com/jukebox?device=DEVICE_CODE, not /radio/jukebox and not a GitHub Pages URL.
+
+Static artifact overlay map:
+- Kiosk source directory: kiosk-web
+- Kiosk target URL: https://radiotedu.com/kiosk/
+- Kiosk target directory: use the existing production kiosk directory discovered in Step 1.
+- Copy these kiosk runtime files/directories only:
+  - index.html
+  - app.js
+  - config.js
+  - runtime-config.js, after replacing it with the radiotedu.com public config shown above
+  - style.css
+  - branding.js
+  - playback.js
+  - spotify-player.js
+  - device-spotify-auth.js
+  - assets/
+- Do not copy kiosk test files, package.json, package-lock.json, node_modules, or coverage into the public kiosk target.
+- Phone/Jukebox source directory after build: jukebox-web-controller/dist
+- Phone/Jukebox target URL: https://radiotedu.com/jukebox/
+- Phone/Jukebox target directory: use the existing production static directory discovered in Step 1.
+- Copy the contents of jukebox-web-controller/dist over the existing phone/Jukebox static target:
+  - index.html
+  - assets/
+  - radiotedu-logo.png
+  - vite.svg if present
+- Do not delete old hashed JS/CSS assets before the event. The new index.html must reference the new hashed assets; orphan files can remain.
+- If backend files also need deployment, do that separately using the existing backend service deployment method. Do not mix static overlay commands with backend service files. Preserve backend .env and existing runtime data.
+
+PowerShell-safe copy shape:
+- Use Copy-Item with explicit source files and directories. Do not use robocopy /MIR or any mirror-delete option.
+- Before copying, resolve both source and target paths and print them.
+- Refuse to copy if the resolved target path is not the discovered RT Jukebox kiosk or phone static directory.
+- Example shape only, adjust paths after discovery:
+  $KioskSource = "C:\path\to\rtjukebox\kiosk-web"
+  $KioskTarget = "C:\path\to\existing\radiotedu-kiosk-target"
+  $KioskFiles = @("index.html","app.js","config.js","runtime-config.js","style.css","branding.js","playback.js","spotify-player.js","device-spotify-auth.js")
+  foreach ($file in $KioskFiles) { Copy-Item -LiteralPath (Join-Path $KioskSource $file) -Destination (Join-Path $KioskTarget $file) -Force }
+  Copy-Item -LiteralPath (Join-Path $KioskSource "assets") -Destination $KioskTarget -Recurse -Force
+  $PhoneSource = "C:\path\to\rtjukebox\jukebox-web-controller\dist"
+  $PhoneTarget = "C:\path\to\existing\radiotedu-jukebox-static-target"
+  Get-ChildItem -LiteralPath $PhoneSource | Copy-Item -Destination $PhoneTarget -Recurse -Force
+
+PowerShell verification shape after copy:
+  $kioskApp = Invoke-WebRequest "https://radiotedu.com/kiosk/app.js" -UseBasicParsing
+  $kioskConfig = Invoke-WebRequest "https://radiotedu.com/kiosk/config.js" -UseBasicParsing
+  $runtime = Invoke-WebRequest "https://radiotedu.com/kiosk/runtime-config.js" -UseBasicParsing
+  @($kioskApp.Content, $kioskConfig.Content) -join "`n" | Select-String -Pattern "device_pwd|DEVICE_PWD|setupDevicePassword" -Quiet
+  The Select-String command above must return False.
+  $runtime.StatusCode must be 200, and $runtime.Content must mention https://radiotedu.com/jukebox.
 
 Step 5: Start or restart backend
 1. Use the existing service manager for this server: IIS reverse proxy, PM2, Docker Compose, Windows service, or the current production method.
