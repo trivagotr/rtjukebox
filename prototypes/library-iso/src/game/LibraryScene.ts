@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { ISO_CELL, type TileXY, tileToScreen } from '../model/iso';
+import { DEBUG_TINTS, ROOM_MAP, getAllTiles, getTileKind, isInRoom, sortByIsoDepth } from '../model/roomMap';
+import { ISO_CELL, depthForTile, type ScreenXY, type TileXY, tileToScreen } from '../model/iso';
 
 type RexBoardPlugin = {
   add: {
@@ -16,11 +17,6 @@ declare global {
   }
 }
 
-const BOARD_SIZE = {
-  width: 14,
-  height: 12,
-};
-
 const BOARD_ORIGIN = {
   x: 195,
   y: 120,
@@ -30,6 +26,8 @@ export class LibraryScene extends Phaser.Scene {
   private board?: {
     worldXYToTileXY(x: number, y: number): TileXY;
   };
+  private debugOverlay?: Phaser.GameObjects.Graphics;
+  private debugOverlayVisible = true;
 
   rexBoard!: RexBoardPlugin;
 
@@ -51,13 +49,20 @@ export class LibraryScene extends Phaser.Scene {
         cellHeight: ISO_CELL.height,
         type: 'isometric',
       },
-      width: BOARD_SIZE.width,
-      height: BOARD_SIZE.height,
+      width: ROOM_MAP.width,
+      height: ROOM_MAP.height,
     }) as typeof this.board;
 
-    this.drawBlankBoard();
+    this.drawWalls();
+    this.drawFloor();
+    this.drawDebugOverlay();
+    this.drawDepthProofSprites();
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       this.handlePointerDown(pointer.worldX, pointer.worldY);
+    });
+    this.input.keyboard?.on('keydown-D', () => {
+      this.debugOverlayVisible = !this.debugOverlayVisible;
+      this.debugOverlay?.setVisible(this.debugOverlayVisible);
     });
   }
 
@@ -67,7 +72,7 @@ export class LibraryScene extends Phaser.Scene {
     }
 
     const tile = this.board.worldXYToTileXY(worldX, worldY);
-    if (!isInBoard(tile)) {
+    if (!isInRoom(ROOM_MAP, tile)) {
       return;
     }
 
@@ -78,24 +83,56 @@ export class LibraryScene extends Phaser.Scene {
     console.log(`tile ${tile.x},${tile.y}`);
   }
 
-  private drawBlankBoard(): void {
+  private drawFloor(): void {
     const graphics = this.add.graphics();
-    graphics.lineStyle(1, 0x59758a, 0.65);
-    graphics.fillStyle(0x223848, 0.55);
+    graphics.lineStyle(1, 0x5f8794, 0.72);
+    graphics.fillStyle(0x243a47, 0.9);
 
-    for (let y = 0; y < BOARD_SIZE.height; y += 1) {
-      for (let x = 0; x < BOARD_SIZE.width; x += 1) {
-        drawIsoDiamond(graphics, tileToScreen({ x, y }, BOARD_ORIGIN));
-      }
+    for (const tile of getAllTiles(ROOM_MAP)) {
+      drawIsoDiamond(graphics, tileToScreen(tile, BOARD_ORIGIN));
+    }
+    graphics.setDepth(-10);
+  }
+
+  private drawDebugOverlay(): void {
+    this.debugOverlay = this.add.graphics();
+    for (const tile of getAllTiles(ROOM_MAP)) {
+      const kind = getTileKind(ROOM_MAP, tile);
+      this.debugOverlay.fillStyle(DEBUG_TINTS[kind], kind === 'blocked' ? 0.48 : 0.2);
+      this.debugOverlay.lineStyle(1, DEBUG_TINTS[kind], 0.38);
+      drawIsoDiamond(this.debugOverlay, tileToScreen(tile, BOARD_ORIGIN));
+    }
+    this.debugOverlay.setDepth(1);
+    this.debugOverlay.setVisible(this.debugOverlayVisible);
+  }
+
+  private drawWalls(): void {
+    const graphics = this.add.graphics();
+    const top = tileToScreen({ x: 0, y: 0 }, BOARD_ORIGIN);
+    const right = tileToScreen({ x: ROOM_MAP.width - 1, y: 0 }, BOARD_ORIGIN);
+    const left = tileToScreen({ x: 0, y: ROOM_MAP.height - 1 }, BOARD_ORIGIN);
+    drawWallPanel(graphics, [top, right], 0x263542, 0x182631);
+    drawWallPanel(graphics, [top, left], 0x1f3140, 0x16222d);
+    graphics.setDepth(-30);
+  }
+
+  private drawDepthProofSprites(): void {
+    const proofSprites = sortByIsoDepth([
+      { id: 'far', tile: { x: 6, y: 4 }, zBias: 80, color: 0xd7b46a },
+      { id: 'near', tile: { x: 6, y: 5 }, zBias: 80, color: 0x79b7c5 },
+    ]);
+
+    for (const proof of proofSprites) {
+      const screen = tileToScreen(proof.tile, BOARD_ORIGIN);
+      const marker = this.add.rectangle(screen.x, screen.y + 8, 30, 66, proof.color, 1);
+      marker.setOrigin(0.5, 1);
+      marker.setStrokeStyle(2, 0x10202a, 0.65);
+      marker.setDepth(depthForTile(proof.tile, proof.zBias));
     }
   }
 }
 
-function isInBoard(tile: TileXY): boolean {
-  return tile.x >= 0 && tile.y >= 0 && tile.x < BOARD_SIZE.width && tile.y < BOARD_SIZE.height;
-}
-
-function drawIsoDiamond(graphics: Phaser.GameObjects.Graphics, center: TileXY): void {
+function drawIsoDiamond(graphics: Phaser.GameObjects.Graphics, center: ScreenXY): void {
   const halfWidth = ISO_CELL.width / 2;
   const halfHeight = ISO_CELL.height / 2;
 
@@ -107,4 +144,28 @@ function drawIsoDiamond(graphics: Phaser.GameObjects.Graphics, center: TileXY): 
   graphics.closePath();
   graphics.fillPath();
   graphics.strokePath();
+}
+
+function drawWallPanel(
+  graphics: Phaser.GameObjects.Graphics,
+  floorEdge: [ScreenXY, ScreenXY],
+  topColor: number,
+  sideColor: number,
+): void {
+  const [start, end] = floorEdge;
+  const wallHeight = 94;
+
+  graphics.fillStyle(sideColor, 1);
+  graphics.beginPath();
+  graphics.moveTo(start.x, start.y);
+  graphics.lineTo(end.x, end.y);
+  graphics.lineTo(end.x, end.y - wallHeight);
+  graphics.lineTo(start.x, start.y - wallHeight);
+  graphics.closePath();
+  graphics.fillPath();
+
+  graphics.lineStyle(1, 0x547282, 0.45);
+  graphics.strokePath();
+  graphics.fillStyle(topColor, 0.58);
+  graphics.fillRect(Math.min(start.x, end.x), Math.min(start.y, end.y) - wallHeight, Math.abs(end.x - start.x) || 2, 8);
 }
