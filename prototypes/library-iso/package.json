@@ -1,0 +1,23 @@
+{
+  "name": "library-iso",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc && vite build",
+    "test": "vitest run",
+    "verify": "npm run test && npm run build && node verify-runtime.mjs"
+  },
+  "dependencies": {
+    "phaser": "latest",
+    "phaser3-rex-plugins": "latest"
+  },
+  "devDependencies": {
+    "@playwright/test": "latest",
+    "typescript": "latest",
+    "vite": "latest",
+    "vitest": "latest",
+    "playwright": "latest"
+  }
+}
