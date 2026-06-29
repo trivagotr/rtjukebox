@@ -29,6 +29,7 @@ import {
   directionBetweenTiles,
   isMovementBlocked,
 } from '../model/movement';
+import { getAvatarMotionSpec } from '../model/animation';
 import {
   NPC_STUDENTS,
   ROOM_USERS,
@@ -166,6 +167,7 @@ export class LibraryScene extends Phaser.Scene {
   private chatInput?: HTMLInputElement;
   private chatSubmitHandler?: (event: SubmitEvent) => void;
   private roomPresence = getRoomPresence(ROOM_USERS, 'local');
+  private avatarStepTween?: Phaser.Tweens.Tween;
 
   rexBoard!: RexBoardPlugin;
 
@@ -691,6 +693,31 @@ export class LibraryScene extends Phaser.Scene {
 
   private playAvatarAnimation(pose: 'idle' | 'walk' | 'sit', dir: AvatarDirection): void {
     this.avatar?.play(`avatar-${pose}-${dir}`, true);
+    this.applyLocalAvatarMotion(pose);
+  }
+
+  private applyLocalAvatarMotion(pose: AvatarState['pose']): void {
+    if (!this.avatar) {
+      return;
+    }
+
+    this.avatarStepTween?.stop();
+    this.avatarStepTween = undefined;
+    this.avatar.setScale(AVATAR_SCALE);
+    const spec = getAvatarMotionSpec(pose);
+    if (!spec.scalePulse) {
+      return;
+    }
+
+    this.avatarStepTween = this.tweens.add({
+      targets: this.avatar,
+      scaleX: AVATAR_SCALE * spec.scalePulse.scaleX,
+      scaleY: AVATAR_SCALE * spec.scalePulse.scaleY,
+      duration: spec.scalePulse.durationMs,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
   }
 
   private syncDebugState(): void {
@@ -782,19 +809,19 @@ export class LibraryScene extends Phaser.Scene {
       this.anims.create({
         key: `avatar-idle-${direction}`,
         frames: [{ key: `avatar-${direction}-idle` }],
-        frameRate: 1,
+        frameRate: getAvatarMotionSpec('idle').frameRate,
         repeat: -1,
       });
       this.anims.create({
         key: `avatar-walk-${direction}`,
         frames: [{ key: `avatar-${direction}-walk` }, { key: `avatar-${direction}-idle` }],
-        frameRate: 5,
+        frameRate: getAvatarMotionSpec('walk').frameRate,
         repeat: -1,
       });
       this.anims.create({
         key: `avatar-sit-${direction}`,
         frames: [{ key: `avatar-${direction}-sit` }],
-        frameRate: 1,
+        frameRate: getAvatarMotionSpec('sit').frameRate,
         repeat: -1,
       });
     }
