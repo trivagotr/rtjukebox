@@ -29,6 +29,17 @@ import {
   directionBetweenTiles,
   isMovementBlocked,
 } from '../model/movement';
+import {
+  NPC_STUDENTS,
+  ROOM_USERS,
+  createChatMessage,
+  getActiveChatMessages,
+  getRoomPresence,
+  type AmbientStudent,
+  type ChatMessage,
+  type RoomPresence,
+  type RoomUser,
+} from '../model/social';
 
 const generatedAssets = import.meta.glob(['../assets/generated/*.png', '!../assets/generated/*sheet*.png'], {
   eager: true,
@@ -79,6 +90,10 @@ declare global {
       sceneReady?: boolean;
       studySeconds?: number;
       tileToScreen?: (tile: TileXY) => ScreenXY;
+      chatMessages?: ChatMessage[];
+      localBubble?: { text: string; x: number; y: number; visible: boolean };
+      roomPresence?: RoomPresence;
+      npcStudents?: AmbientStudent[];
     };
   }
 }
@@ -95,6 +110,7 @@ const FURNITURE_TEXTURES: Record<FurnitureKind, string> = {
   bookshelf: 'bookshelf.png',
   plant: 'plant.png',
   'sofa-green': 'sofa-green.png',
+  'side-table': 'side-table.png',
 };
 
 const FURNITURE_SCALES: Record<FurnitureKind, number> = {
@@ -104,9 +120,26 @@ const FURNITURE_SCALES: Record<FurnitureKind, number> = {
   bookshelf: 0.42,
   plant: 0.34,
   'sofa-green': 0.46,
+  'side-table': 0.3,
 };
 
 const AVATAR_SCALE = 0.32;
+
+type AvatarVisual = {
+  user: RoomUser;
+  state: AvatarState;
+  sprite: Phaser.GameObjects.Sprite;
+  nameplate: Phaser.GameObjects.Text;
+  status: Phaser.GameObjects.Text;
+  bubble?: ChatBubbleVisual;
+};
+
+type ChatBubbleVisual = {
+  container: Phaser.GameObjects.Container;
+  background: Phaser.GameObjects.Graphics;
+  text: Phaser.GameObjects.Text;
+  expiresAtMs: number;
+};
 
 export class LibraryScene extends Phaser.Scene {
   private board?: RexBoard;
@@ -123,8 +156,16 @@ export class LibraryScene extends Phaser.Scene {
   private moveTo?: RexMoveTo;
   private routeToken = 0;
   private timerText?: Phaser.GameObjects.Text;
+  private presenceText?: Phaser.GameObjects.Text;
   private studyStartedAtMs = 0;
   private studiedBeforeMs = 0;
+  private avatarVisuals = new Map<string, AvatarVisual>();
+  private chatMessages: ChatMessage[] = [];
+  private chatCounter = 0;
+  private chatForm?: HTMLFormElement;
+  private chatInput?: HTMLInputElement;
+  private chatSubmitHandler?: (event: SubmitEvent) => void;
+  private roomPresence = getRoomPresence(ROOM_USERS, 'local');
 
   rexBoard!: RexBoardPlugin;
 
@@ -153,6 +194,9 @@ export class LibraryScene extends Phaser.Scene {
       sceneReady: true,
       avatar: this.avatarState,
       tileToScreen: (tile: TileXY) => tileToScreen(tile, BOARD_ORIGIN),
+      chatMessages: [],
+      roomPresence: this.roomPresence,
+      npcStudents: NPC_STUDENTS,
     };
 
     this.board = this.rexBoard.add.board({
@@ -175,13 +219,18 @@ export class LibraryScene extends Phaser.Scene {
     this.drawDebugOverlay();
     this.drawFurniture();
     this.createAvatar();
+    this.createNpcStudents();
     this.createHud();
+    this.createChatComposerBridge();
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       this.handlePointerDown(pointer.worldX, pointer.worldY);
     });
     this.input.keyboard?.on('keydown-D', () => {
       this.debugOverlayVisible = !this.debugOverlayVisible;
       this.debugOverlay?.setVisible(this.debugOverlayVisible);
+    });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.destroyChatComposerBridge();
     });
   }
 
@@ -192,7 +241,10 @@ export class LibraryScene extends Phaser.Scene {
 
     const tile = screenToTile({ x: this.avatar.x, y: this.avatar.y }, BOARD_ORIGIN);
     this.avatar.setDepth(depthForTile(tile, this.avatarDepthBias()));
+    this.updateAvatarOverlays();
+    this.updateChatMessages();
     this.updateStudyTimer();
+    this.syncDebugState();
   }
 
   private handlePointerDown(worldX: number, worldY: number): void {
@@ -337,8 +389,62 @@ export class LibraryScene extends Phaser.Scene {
       blockerTest: true,
       occupiedTest: true,
     });
+    this.avatarVisuals.set('local', this.createAvatarVisual('local', this.avatar, this.avatarState));
     this.playAvatarAnimation('idle', this.avatarState.dir);
     this.syncDebugState();
+  }
+
+  private createNpcStudents(): void {
+    if (!this.board) {
+      return;
+    }
+
+    for (const student of NPC_STUDENTS) {
+      const user = this.userById(student.userId);
+      const screen = this.screenForAvatarState(student);
+      const sprite = this.add.sprite(screen.x, screen.y, `avatar-${student.dir}-${student.pose}`);
+      sprite.setOrigin(0.5, 1);
+      sprite.setScale(AVATAR_SCALE);
+      sprite.setDepth(depthForTile(student.tile, this.avatarDepthBiasForPose(student.pose)));
+      this.board.addChess(sprite, student.tile.x, student.tile.y, `avatar-${student.userId}`, false);
+      this.avatarVisuals.set(student.userId, this.createAvatarVisual(user.id, sprite, student));
+      sprite.play(`avatar-${student.pose}-${student.dir}`, true);
+      if (student.bubbleText) {
+        this.showChatBubble(student.userId, student.bubbleText, Number.POSITIVE_INFINITY);
+      }
+    }
+
+    this.syncDebugState();
+  }
+
+  private createAvatarVisual(userId: string, sprite: Phaser.GameObjects.Sprite, state: AvatarState): AvatarVisual {
+    const user = this.userById(userId);
+    const nameplate = this.add.text(sprite.x, sprite.y, user.name, {
+      color: '#ffffff',
+      fontFamily: 'Verdana, Arial, sans-serif',
+      fontSize: '10px',
+      fontStyle: '700',
+      backgroundColor: 'rgba(7, 12, 16, 0.78)',
+      padding: { x: 5, y: 2 },
+    });
+    nameplate.setOrigin(0.5, 0);
+
+    const status = this.add.text(sprite.x, sprite.y, user.status, {
+      color: '#d9f1cc',
+      fontFamily: 'Verdana, Arial, sans-serif',
+      fontSize: '9px',
+      backgroundColor: 'rgba(28, 48, 36, 0.78)',
+      padding: { x: 4, y: 1 },
+    });
+    status.setOrigin(0.5, 0);
+
+    return {
+      user,
+      state: { ...state, tile: { ...state.tile } },
+      sprite,
+      nameplate,
+      status,
+    };
   }
 
   private walkTo(target: TileXY, onArrive?: (token: number) => void): void {
@@ -450,16 +556,166 @@ export class LibraryScene extends Phaser.Scene {
     this.board.addChess(this.avatar, tile.x, tile.y, 'avatar-local', false);
   }
 
+  private screenForAvatarState(state: AvatarState): ScreenXY {
+    const screen = tileToScreen(state.tile, BOARD_ORIGIN);
+    if (state.pose === 'sit' && state.seatId) {
+      const seat = getSeatById(ROOM_MAP, state.seatId);
+      if (seat) {
+        return {
+          x: screen.x + seat.sitOffset.x,
+          y: screen.y + seat.sitOffset.y,
+        };
+      }
+    }
+
+    return screen;
+  }
+
+  private createChatComposerBridge(): void {
+    this.chatForm = document.querySelector<HTMLFormElement>('#chat-form') ?? undefined;
+    this.chatInput = document.querySelector<HTMLInputElement>('#chat-input') ?? undefined;
+    if (!this.chatForm || !this.chatInput) {
+      return;
+    }
+
+    this.chatSubmitHandler = (event: SubmitEvent) => {
+      event.preventDefault();
+      if (!this.chatInput) {
+        return;
+      }
+
+      this.sendLocalChat(this.chatInput.value);
+      this.chatInput.value = '';
+      this.chatInput.blur();
+    };
+    this.chatForm.addEventListener('submit', this.chatSubmitHandler);
+  }
+
+  private destroyChatComposerBridge(): void {
+    if (this.chatForm && this.chatSubmitHandler) {
+      this.chatForm.removeEventListener('submit', this.chatSubmitHandler);
+    }
+  }
+
+  private sendLocalChat(text: string): void {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const now = Date.now();
+    const message = createChatMessage({
+      id: `local-${this.chatCounter + 1}`,
+      userId: 'local',
+      text: trimmed,
+      createdAtMs: now,
+    });
+    this.chatCounter += 1;
+    this.chatMessages = [...getActiveChatMessages(this.chatMessages, now), message];
+    this.showChatBubble('local', message.text, message.expiresAtMs);
+    this.syncDebugState();
+  }
+
+  private showChatBubble(userId: string, text: string, expiresAtMs: number): void {
+    const visual = this.avatarVisuals.get(userId);
+    if (!visual) {
+      return;
+    }
+
+    visual.bubble?.container.destroy(true);
+    const container = this.add.container(visual.sprite.x, visual.sprite.y - 92);
+    const background = this.add.graphics();
+    const label = this.add.text(0, 0, text, {
+      color: '#141414',
+      fontFamily: 'Verdana, Arial, sans-serif',
+      fontSize: '11px',
+      fontStyle: '700',
+      align: 'center',
+      wordWrap: { width: 154 },
+    });
+    label.setOrigin(0.5, 1);
+    container.add([background, label]);
+    visual.bubble = { container, background, text: label, expiresAtMs };
+    this.redrawChatBubble(visual.bubble);
+  }
+
+  private redrawChatBubble(bubble: ChatBubbleVisual): void {
+    const width = Math.max(78, Math.min(176, bubble.text.width + 22));
+    const height = bubble.text.height + 16;
+    bubble.background.clear();
+    bubble.background.fillStyle(0xffffff, 0.96);
+    bubble.background.lineStyle(2, 0x1a1a1a, 1);
+    bubble.background.fillRoundedRect(-width / 2, -height, width, height, 5);
+    bubble.background.strokeRoundedRect(-width / 2, -height, width, height, 5);
+    bubble.background.fillStyle(0xffffff, 0.96);
+    bubble.background.beginPath();
+    bubble.background.moveTo(-7, 0);
+    bubble.background.lineTo(7, 0);
+    bubble.background.lineTo(0, 9);
+    bubble.background.closePath();
+    bubble.background.fillPath();
+    bubble.background.lineStyle(2, 0x1a1a1a, 1);
+    bubble.background.strokePath();
+    bubble.text.setPosition(0, -8);
+  }
+
+  private updateChatMessages(): void {
+    const now = Date.now();
+    this.chatMessages = getActiveChatMessages(this.chatMessages, now);
+    for (const visual of this.avatarVisuals.values()) {
+      if (visual.bubble && visual.bubble.expiresAtMs <= now) {
+        visual.bubble.container.destroy(true);
+        visual.bubble = undefined;
+      }
+    }
+  }
+
+  private updateAvatarOverlays(): void {
+    for (const visual of this.avatarVisuals.values()) {
+      const spriteDepth = visual.sprite.depth;
+      visual.nameplate.setPosition(visual.sprite.x, visual.sprite.y + 5);
+      visual.status.setPosition(visual.sprite.x, visual.sprite.y + 20);
+      visual.nameplate.setDepth(80000 + spriteDepth);
+      visual.status.setDepth(80001 + spriteDepth);
+      if (visual.bubble) {
+        const bubbleX = Phaser.Math.Clamp(visual.sprite.x, 86, this.scale.width - 86);
+        visual.bubble.container.setPosition(bubbleX, visual.sprite.y - visual.sprite.displayHeight - 10);
+        visual.bubble.container.setDepth(90000 + spriteDepth);
+      }
+    }
+  }
+
+  private userById(userId: string): RoomUser {
+    return ROOM_USERS.find((user) => user.id === userId) ?? ROOM_USERS[0];
+  }
+
   private playAvatarAnimation(pose: 'idle' | 'walk' | 'sit', dir: AvatarDirection): void {
     this.avatar?.play(`avatar-${pose}-${dir}`, true);
   }
 
   private syncDebugState(): void {
+    const localVisual = this.avatarVisuals.get('local');
+    if (localVisual) {
+      localVisual.state = { ...this.avatarState, tile: { ...this.avatarState.tile } };
+    }
+    const localBubble = localVisual?.bubble
+      ? {
+          text: localVisual.bubble.text.text,
+          x: localVisual.bubble.container.x,
+          y: localVisual.bubble.container.y,
+          visible: localVisual.bubble.container.visible,
+        }
+      : undefined;
+
     window.__libraryIsoDebug = {
       ...window.__libraryIsoDebug,
       avatar: { ...this.avatarState, tile: { ...this.avatarState.tile } },
       isSeated: this.avatarState.pose === 'sit',
       studySeconds: Math.floor(this.getStudyElapsedMs() / 1000),
+      chatMessages: [...this.chatMessages],
+      localBubble,
+      roomPresence: this.roomPresence,
+      npcStudents: NPC_STUDENTS,
     };
   }
 
@@ -473,6 +729,16 @@ export class LibraryScene extends Phaser.Scene {
       padding: { x: 8, y: 5 },
     });
     this.timerText.setDepth(100000);
+
+    this.presenceText = this.add.text(14, 48, `${this.roomPresence.roomUserCount} in room | ${this.roomPresence.studyingCount} studying`, {
+      color: '#edf5f3',
+      fontFamily: 'Inter, system-ui, sans-serif',
+      fontSize: '12px',
+      fontStyle: '700',
+      backgroundColor: 'rgba(14, 21, 28, 0.68)',
+      padding: { x: 8, y: 4 },
+    });
+    this.presenceText.setDepth(100000);
   }
 
   private startStudyTimer(): void {
@@ -504,7 +770,11 @@ export class LibraryScene extends Phaser.Scene {
   }
 
   private avatarDepthBias(): number {
-    return this.avatarState.pose === 'sit' ? 2300 : 180;
+    return this.avatarDepthBiasForPose(this.avatarState.pose);
+  }
+
+  private avatarDepthBiasForPose(pose: AvatarState['pose']): number {
+    return pose === 'sit' ? 2300 : 180;
   }
 
   private createAvatarAnimations(): void {

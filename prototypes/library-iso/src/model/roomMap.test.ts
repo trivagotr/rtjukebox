@@ -52,4 +52,11 @@ describe('room map rendering contract', () => {
     expect(getSeatByTile(ROOM_MAP, { x: 5, y: 5 })?.id).toBe('front-left');
     expect(getSeatByTile(ROOM_MAP, { x: 5, y: 4 })).toBeUndefined();
   });
+
+  it('stages a dense study room with cozy non-desk objects', () => {
+    expect(ROOM_MAP.furniture.length).toBeGreaterThanOrEqual(12);
+    expect(ROOM_MAP.furniture.map((object) => object.kind)).toEqual(
+      expect.arrayContaining(['bookshelf', 'plant', 'sofa-green']),
+    );
+  });
 });

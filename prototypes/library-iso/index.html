@@ -6,7 +6,13 @@
     <title>RadioTEDU Library Iso</title>
   </head>
   <body>
-    <div id="app"></div>
+    <main id="room-shell" aria-label="Library study room">
+      <div id="app"></div>
+      <form id="chat-form" class="chat-composer" autocomplete="off">
+        <input id="chat-input" name="message" maxlength="72" placeholder="Say something..." aria-label="Chat message" />
+        <button type="submit" aria-label="Send chat message">Send</button>
+      </form>
+    </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

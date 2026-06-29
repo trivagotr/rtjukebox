@@ -8,6 +8,7 @@ const SCREENSHOTS = [
   'screenshots/m5-initial.png',
   'screenshots/m5-walking-to-seat.png',
   'screenshots/m5-seated.png',
+  'screenshots/m6-chat-bubble.png',
 ];
 
 const viteBin = join(process.cwd(), 'node_modules', 'vite', 'bin', 'vite.js');
@@ -61,6 +62,23 @@ try {
   assert(seated.avatar.pose === 'sit' && seated.avatar.seatId === 'front-left', 'Avatar did not enter seated pose');
   assert(seated.studySeconds >= 1, 'Study timer did not start after sitting');
 
+  await page.locator('#chat-input').fill('Deep work sprint?');
+  await page.locator('#chat-input').press('Enter');
+  await page.waitForFunction(() => {
+    const debug = window.__libraryIsoDebug;
+    return debug?.chatMessages?.some((message) => message.userId === 'local' && message.text === 'Deep work sprint?');
+  }, null, { timeout: 5000 });
+  await page.screenshot({ path: SCREENSHOTS[3], fullPage: true });
+  const chat = await page.evaluate(() => ({
+    messages: window.__libraryIsoDebug.chatMessages,
+    localBubble: window.__libraryIsoDebug.localBubble,
+    roomPresence: window.__libraryIsoDebug.roomPresence,
+    npcStudents: window.__libraryIsoDebug.npcStudents,
+  }));
+  assert(chat.localBubble?.text === 'Deep work sprint?', 'Local chat bubble did not attach to the avatar');
+  assert(chat.roomPresence?.roomUserCount >= 4, 'Room presence did not include ambient study users');
+  assert(chat.npcStudents?.length >= 3, 'Ambient NPC students were not created');
+
   const floor = await page.evaluate(() => window.__libraryIsoDebug.tileToScreen({ x: 3, y: 5 }));
   await page.mouse.click(floor.x, floor.y);
   await page.waitForFunction(() => {
@@ -83,6 +101,7 @@ try {
   console.log(`blocker proof: ${JSON.stringify(blockerProof)}`);
   console.log(`seated proof: ${JSON.stringify(seated)}`);
   console.log(`stand proof: ${JSON.stringify(stood)}`);
+  console.log(`chat proof: ${JSON.stringify(chat)}`);
   console.log(`screenshots: ${SCREENSHOTS.join(', ')}`);
 } finally {
   server.kill();

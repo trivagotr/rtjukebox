@@ -2,7 +2,7 @@ import { depthForTile, type TileXY } from './iso';
 
 export type TileKind = 'walkable' | 'blocked' | 'seat';
 
-export type FurnitureKind = 'desk-long' | 'chair' | 'desk-lamp' | 'bookshelf' | 'plant' | 'sofa-green';
+export type FurnitureKind = 'desk-long' | 'chair' | 'desk-lamp' | 'bookshelf' | 'plant' | 'sofa-green' | 'side-table';
 
 export type FurnitureObject = {
   id: string;
@@ -115,6 +115,14 @@ export const ROOM_MAP: RoomMap = {
       seatId: 'lower-left',
     },
     {
+      id: 'lower-lamp',
+      kind: 'desk-lamp',
+      anchor: { x: 5, y: 9 },
+      footprint: [],
+      depthBias: 380,
+      blocksMovement: false,
+    },
+    {
       id: 'back-bookshelf',
       kind: 'bookshelf',
       anchor: { x: 2, y: 1 },
@@ -126,6 +134,17 @@ export const ROOM_MAP: RoomMap = {
       depthBias: 210,
     },
     {
+      id: 'back-right-bookshelf',
+      kind: 'bookshelf',
+      anchor: { x: 11, y: 1 },
+      footprint: [
+        { x: 11, y: 1 },
+        { x: 12, y: 1 },
+        { x: 12, y: 2 },
+      ],
+      depthBias: 210,
+    },
+    {
       id: 'reading-plant',
       kind: 'plant',
       anchor: { x: 12, y: 2 },
@@ -133,6 +152,30 @@ export const ROOM_MAP: RoomMap = {
         { x: 12, y: 1 },
         { x: 12, y: 2 },
       ],
+      depthBias: 190,
+    },
+    {
+      id: 'window-plant',
+      kind: 'plant',
+      anchor: { x: 9, y: 2 },
+      footprint: [{ x: 9, y: 2 }],
+      depthBias: 190,
+    },
+    {
+      id: 'quiet-sofa',
+      kind: 'sofa-green',
+      anchor: { x: 10, y: 5 },
+      footprint: [
+        { x: 10, y: 5 },
+        { x: 11, y: 5 },
+      ],
+      depthBias: 180,
+    },
+    {
+      id: 'sofa-side-table',
+      kind: 'side-table',
+      anchor: { x: 9, y: 5 },
+      footprint: [{ x: 9, y: 5 }],
       depthBias: 190,
     },
   ],
