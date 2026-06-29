@@ -6,6 +6,7 @@ const assetDir = join(process.cwd(), 'src/assets/generated');
 
 const requiredPngs = [
   'desk-long.png',
+  'desk-long-occluder.png',
   'chair.png',
   'desk-lamp.png',
   'bookshelf.png',

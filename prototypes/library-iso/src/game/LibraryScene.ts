@@ -4,8 +4,11 @@ import {
   ROOM_MAP,
   type FurnitureObject,
   type FurnitureKind,
+  type SeatDefinition,
   getAllTiles,
   getBlockedTiles,
+  getSeatById,
+  getSeatByTile,
   getTileKind,
   isInRoom,
   sortByIsoDepth,
@@ -22,6 +25,7 @@ import {
   AVATAR_DIRECTIONS,
   type AvatarDirection,
   type AvatarState,
+  avatarStateForSeat,
   directionBetweenTiles,
   isMovementBlocked,
 } from '../model/movement';
@@ -70,8 +74,10 @@ declare global {
       lastPathCrossedBlocker?: boolean;
       lastPathTargetBlocked?: boolean;
       rexBlockers?: Array<TileXY & { contains: boolean; hasBlocker: boolean }>;
+      isSeated?: boolean;
       lastClickedTile?: TileXY;
       sceneReady?: boolean;
+      studySeconds?: number;
       tileToScreen?: (tile: TileXY) => ScreenXY;
     };
   }
@@ -116,6 +122,9 @@ export class LibraryScene extends Phaser.Scene {
   private pathFinder?: RexPathFinder;
   private moveTo?: RexMoveTo;
   private routeToken = 0;
+  private timerText?: Phaser.GameObjects.Text;
+  private studyStartedAtMs = 0;
+  private studiedBeforeMs = 0;
 
   rexBoard!: RexBoardPlugin;
 
@@ -127,6 +136,7 @@ export class LibraryScene extends Phaser.Scene {
     for (const [kind, filename] of Object.entries(FURNITURE_TEXTURES)) {
       this.load.image(`furniture-${kind}`, assetUrl(filename));
     }
+    this.load.image('furniture-desk-long-occluder', assetUrl('desk-long-occluder.png'));
     this.load.image('room-window', assetUrl('window.png'));
     this.load.image('room-wall-left', assetUrl('wall-left.png'));
     this.load.image('room-stair', assetUrl('stair.png'));
@@ -165,6 +175,7 @@ export class LibraryScene extends Phaser.Scene {
     this.drawDebugOverlay();
     this.drawFurniture();
     this.createAvatar();
+    this.createHud();
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       this.handlePointerDown(pointer.worldX, pointer.worldY);
     });
@@ -180,7 +191,8 @@ export class LibraryScene extends Phaser.Scene {
     }
 
     const tile = screenToTile({ x: this.avatar.x, y: this.avatar.y }, BOARD_ORIGIN);
-    this.avatar.setDepth(depthForTile(tile, 180));
+    this.avatar.setDepth(depthForTile(tile, this.avatarDepthBias()));
+    this.updateStudyTimer();
   }
 
   private handlePointerDown(worldX: number, worldY: number): void {
@@ -198,6 +210,15 @@ export class LibraryScene extends Phaser.Scene {
       lastClickedTile: tile,
     };
     console.log(`tile ${tile.x},${tile.y}`);
+    const seat = getSeatByTile(ROOM_MAP, tile);
+    if (seat) {
+      this.sitAtSeat(seat);
+      return;
+    }
+
+    if (this.avatarState.pose === 'sit') {
+      this.standUpFromSeat();
+    }
     this.walkTo(tile);
   }
 
@@ -282,6 +303,14 @@ export class LibraryScene extends Phaser.Scene {
       sprite.setData('roomObjectId', object.id);
       sprite.setData('kind', object.kind);
       this.board.addChess(sprite, object.anchor.x, object.anchor.y, `visual-${object.id}`, false);
+
+      if (object.kind === 'desk-long') {
+        const occluder = this.add.image(screen.x, screen.y + ISO_CELL.height / 2, 'furniture-desk-long-occluder');
+        occluder.setOrigin(0.5, 1);
+        occluder.setScale(FURNITURE_SCALES[object.kind]);
+        occluder.setDepth(depthForTile(object.anchor, object.depthBias + 120));
+        occluder.setData('roomObjectId', `${object.id}-occluder`);
+      }
     }
   }
 
@@ -294,7 +323,7 @@ export class LibraryScene extends Phaser.Scene {
     this.avatar = this.add.sprite(start.x, start.y, 'avatar-north-east-idle');
     this.avatar.setOrigin(0.5, 1);
     this.avatar.setScale(AVATAR_SCALE);
-    this.avatar.setDepth(depthForTile(this.avatarState.tile, 180));
+    this.avatar.setDepth(depthForTile(this.avatarState.tile, this.avatarDepthBias()));
     this.board.addChess(this.avatar, this.avatarState.tile.x, this.avatarState.tile.y, 'avatar-local', false);
     this.pathFinder = this.rexBoard.add.pathFinder({
       pathMode: 'A*',
@@ -312,13 +341,18 @@ export class LibraryScene extends Phaser.Scene {
     this.syncDebugState();
   }
 
-  private walkTo(target: TileXY): void {
+  private walkTo(target: TileXY, onArrive?: (token: number) => void): void {
     if (!this.avatar || !this.pathFinder || !this.moveTo || !this.board) {
       return;
     }
 
     const token = this.routeToken + 1;
     this.routeToken = token;
+    if (sameTile(this.avatarState.tile, target)) {
+      onArrive?.(token);
+      return;
+    }
+
     const path = this.pathFinder.findPath(target).map((node) => ({ x: node.x, y: node.y }));
     const pathCrossedBlocker = path.some((tile) => this.board?.hasBlocker(tile.x, tile.y) ?? false);
     const targetBlocked = isMovementBlocked(ROOM_MAP, target);
@@ -339,10 +373,10 @@ export class LibraryScene extends Phaser.Scene {
       return;
     }
 
-    this.followPath(path, token);
+    this.followPath(path, token, onArrive);
   }
 
-  private followPath(path: TileXY[], token: number): void {
+  private followPath(path: TileXY[], token: number, onArrive?: (token: number) => void): void {
     if (!this.moveTo || path.length === 0 || token !== this.routeToken) {
       this.avatarState = {
         ...this.avatarState,
@@ -350,6 +384,9 @@ export class LibraryScene extends Phaser.Scene {
       };
       this.playAvatarAnimation('idle', this.avatarState.dir);
       this.syncDebugState();
+      if (token === this.routeToken) {
+        onArrive?.(token);
+      }
       return;
     }
 
@@ -368,8 +405,49 @@ export class LibraryScene extends Phaser.Scene {
       if (token !== this.routeToken) {
         return;
       }
-      this.followPath(rest, token);
+      this.followPath(rest, token, onArrive);
     });
+  }
+
+  private sitAtSeat(seat: SeatDefinition): void {
+    this.walkTo(seat.entryTile, (token) => {
+      if (token !== this.routeToken) {
+        return;
+      }
+      this.placeAvatarAt(seat.tile, seat.sitOffset);
+      this.avatarState = avatarStateForSeat(seat);
+      this.playAvatarAnimation('sit', seat.sitDir);
+      this.startStudyTimer();
+      this.syncDebugState();
+    });
+  }
+
+  private standUpFromSeat(): void {
+    const seat = this.avatarState.seatId ? getSeatById(ROOM_MAP, this.avatarState.seatId) : undefined;
+    if (!seat) {
+      return;
+    }
+
+    this.stopStudyTimer();
+    this.placeAvatarAt(seat.entryTile);
+    this.avatarState = {
+      ...this.avatarState,
+      tile: seat.entryTile,
+      pose: 'idle',
+      seatId: null,
+    };
+    this.playAvatarAnimation('idle', this.avatarState.dir);
+    this.syncDebugState();
+  }
+
+  private placeAvatarAt(tile: TileXY, offset: ScreenXY = { x: 0, y: 0 }): void {
+    if (!this.avatar || !this.board) {
+      return;
+    }
+
+    const screen = tileToScreen(tile, BOARD_ORIGIN);
+    this.avatar.setPosition(screen.x + offset.x, screen.y + offset.y);
+    this.board.addChess(this.avatar, tile.x, tile.y, 'avatar-local', false);
   }
 
   private playAvatarAnimation(pose: 'idle' | 'walk' | 'sit', dir: AvatarDirection): void {
@@ -380,7 +458,53 @@ export class LibraryScene extends Phaser.Scene {
     window.__libraryIsoDebug = {
       ...window.__libraryIsoDebug,
       avatar: { ...this.avatarState, tile: { ...this.avatarState.tile } },
+      isSeated: this.avatarState.pose === 'sit',
+      studySeconds: Math.floor(this.getStudyElapsedMs() / 1000),
     };
+  }
+
+  private createHud(): void {
+    this.timerText = this.add.text(14, 12, 'NOW 00:00', {
+      color: '#edf5f3',
+      fontFamily: 'Inter, system-ui, sans-serif',
+      fontSize: '15px',
+      fontStyle: '700',
+      backgroundColor: 'rgba(14, 21, 28, 0.72)',
+      padding: { x: 8, y: 5 },
+    });
+    this.timerText.setDepth(100000);
+  }
+
+  private startStudyTimer(): void {
+    if (this.studyStartedAtMs === 0) {
+      this.studyStartedAtMs = Date.now();
+    }
+  }
+
+  private stopStudyTimer(): void {
+    if (this.studyStartedAtMs !== 0) {
+      this.studiedBeforeMs += Date.now() - this.studyStartedAtMs;
+      this.studyStartedAtMs = 0;
+    }
+  }
+
+  private updateStudyTimer(): void {
+    const elapsedSeconds = Math.floor(this.getStudyElapsedMs() / 1000);
+    const minutes = Math.floor(elapsedSeconds / 60).toString().padStart(2, '0');
+    const seconds = (elapsedSeconds % 60).toString().padStart(2, '0');
+    this.timerText?.setText(`NOW ${minutes}:${seconds}`);
+    if (window.__libraryIsoDebug) {
+      window.__libraryIsoDebug.studySeconds = elapsedSeconds;
+    }
+  }
+
+  private getStudyElapsedMs(): number {
+    const activeMs = this.studyStartedAtMs === 0 ? 0 : Date.now() - this.studyStartedAtMs;
+    return this.studiedBeforeMs + activeMs;
+  }
+
+  private avatarDepthBias(): number {
+    return this.avatarState.pose === 'sit' ? 2300 : 180;
   }
 
   private createAvatarAnimations(): void {
@@ -417,6 +541,10 @@ function assetUrl(filename: string): string {
     throw new Error(`Missing generated asset: ${filename}`);
   }
   return url;
+}
+
+function sameTile(left: TileXY, right: TileXY): boolean {
+  return left.x === right.x && left.y === right.y;
 }
 
 function drawIsoDiamond(graphics: Phaser.GameObjects.Graphics, center: ScreenXY): void {

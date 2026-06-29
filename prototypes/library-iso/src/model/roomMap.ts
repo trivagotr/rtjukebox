@@ -20,6 +20,7 @@ export type SeatDefinition = {
   tile: TileXY;
   entryTile: TileXY;
   deskTile: TileXY;
+  sitOffset: { x: number; y: number };
   sitDir: 'north' | 'north-east' | 'east' | 'south-east' | 'south' | 'south-west' | 'west' | 'north-west';
 };
 
@@ -142,6 +143,7 @@ export const ROOM_MAP: RoomMap = {
       tile: { x: 5, y: 5 },
       entryTile: { x: 5, y: 4 },
       deskTile: { x: 5, y: 6 },
+      sitOffset: { x: -112, y: 24 },
       sitDir: 'south',
     },
     {
@@ -150,6 +152,7 @@ export const ROOM_MAP: RoomMap = {
       tile: { x: 7, y: 5 },
       entryTile: { x: 7, y: 4 },
       deskTile: { x: 7, y: 6 },
+      sitOffset: { x: 58, y: 30 },
       sitDir: 'south',
     },
     {
@@ -158,6 +161,7 @@ export const ROOM_MAP: RoomMap = {
       tile: { x: 4, y: 8 },
       entryTile: { x: 4, y: 7 },
       deskTile: { x: 4, y: 9 },
+      sitOffset: { x: -64, y: 30 },
       sitDir: 'south',
     },
   ],
@@ -214,6 +218,10 @@ export function getFurnitureById(map: RoomMap, id: string): FurnitureObject | un
 
 export function getSeatById(map: RoomMap, id: string): SeatDefinition | undefined {
   return map.seats.find((seat) => seat.id === id);
+}
+
+export function getSeatByTile(map: RoomMap, tile: TileXY): SeatDefinition | undefined {
+  return map.seats.find((seat) => tileKey(seat.tile) === tileKey(tile));
 }
 
 export function isInRoom(map: RoomMap, tile: TileXY): boolean {

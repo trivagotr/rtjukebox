@@ -5,6 +5,7 @@ import {
   getBlockedTiles,
   getFurnitureById,
   getSeatById,
+  getSeatByTile,
   getTileKind,
   sortByIsoDepth,
 } from './roomMap';
@@ -45,5 +46,10 @@ describe('room map rendering contract', () => {
     });
     expect(getTileKind(ROOM_MAP, { x: 5, y: 5 })).toBe('seat');
     expect(DEBUG_TINTS.seat).toBe(0xa88944);
+  });
+
+  it('finds a seat by its real chair tile', () => {
+    expect(getSeatByTile(ROOM_MAP, { x: 5, y: 5 })?.id).toBe('front-left');
+    expect(getSeatByTile(ROOM_MAP, { x: 5, y: 4 })).toBeUndefined();
   });
 });
