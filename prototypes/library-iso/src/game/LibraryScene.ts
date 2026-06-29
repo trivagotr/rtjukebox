@@ -3,30 +3,76 @@ import {
   DEBUG_TINTS,
   ROOM_MAP,
   type FurnitureObject,
+  type FurnitureKind,
   getAllTiles,
   getBlockedTiles,
   getTileKind,
   isInRoom,
   sortByIsoDepth,
 } from '../model/roomMap';
-import { ISO_CELL, depthForTile, type ScreenXY, type TileXY, tileToScreen } from '../model/iso';
+import {
+  ISO_CELL,
+  depthForTile,
+  screenToTile,
+  type ScreenXY,
+  type TileXY,
+  tileToScreen,
+} from '../model/iso';
+import {
+  AVATAR_DIRECTIONS,
+  type AvatarDirection,
+  type AvatarState,
+  directionBetweenTiles,
+  isMovementBlocked,
+} from '../model/movement';
+
+const generatedAssets = import.meta.glob(['../assets/generated/*.png', '!../assets/generated/*sheet*.png'], {
+  eager: true,
+  query: '?url',
+  import: 'default',
+}) as Record<string, string>;
 
 type RexBoardPlugin = {
   add: {
     board(config: unknown): unknown;
+    pathFinder(config: unknown): RexPathFinder;
+    moveTo(chess: Phaser.GameObjects.GameObject, config: unknown): RexMoveTo;
   };
 };
 
 type RexBoard = {
   addChess(chess: Phaser.GameObjects.GameObject, tileX: number, tileY: number, tileZ: string | number, align?: boolean): void;
+  contains(tileX: number, tileY: number, tileZ?: string | number): boolean;
+  getChessData(chess: Phaser.GameObjects.GameObject): { setBlocker(value?: boolean): void };
+  hasBlocker(tileX: number, tileY: number, tileZ?: string | number): boolean;
   worldXYToTileXY(x: number, y: number): TileXY;
+};
+
+type RexPathNode = TileXY & {
+  pathCost?: number;
+};
+
+type RexPathFinder = {
+  setChess(chess: Phaser.GameObjects.GameObject): RexPathFinder;
+  findPath(endTileXY: TileXY): RexPathNode[];
+};
+
+type RexMoveTo = {
+  moveTo(tileXY: TileXY): RexMoveTo;
+  once(event: 'complete', callback: () => void): RexMoveTo;
 };
 
 declare global {
   interface Window {
     __libraryIsoDebug?: {
+      avatar?: AvatarState;
+      lastPath?: TileXY[];
+      lastPathCrossedBlocker?: boolean;
+      lastPathTargetBlocked?: boolean;
+      rexBlockers?: Array<TileXY & { contains: boolean; hasBlocker: boolean }>;
       lastClickedTile?: TileXY;
       sceneReady?: boolean;
+      tileToScreen?: (tile: TileXY) => ScreenXY;
     };
   }
 }
@@ -36,10 +82,40 @@ const BOARD_ORIGIN = {
   y: 120,
 };
 
+const FURNITURE_TEXTURES: Record<FurnitureKind, string> = {
+  'desk-long': 'desk-long.png',
+  chair: 'chair.png',
+  'desk-lamp': 'desk-lamp.png',
+  bookshelf: 'bookshelf.png',
+  plant: 'plant.png',
+  'sofa-green': 'sofa-green.png',
+};
+
+const FURNITURE_SCALES: Record<FurnitureKind, number> = {
+  'desk-long': 0.74,
+  chair: 0.31,
+  'desk-lamp': 0.34,
+  bookshelf: 0.42,
+  plant: 0.34,
+  'sofa-green': 0.46,
+};
+
+const AVATAR_SCALE = 0.32;
+
 export class LibraryScene extends Phaser.Scene {
   private board?: RexBoard;
   private debugOverlay?: Phaser.GameObjects.Graphics;
   private debugOverlayVisible = true;
+  private avatar?: Phaser.GameObjects.Sprite;
+  private avatarState: AvatarState = {
+    tile: { x: 2, y: 10 },
+    dir: 'north-east',
+    pose: 'idle',
+    seatId: null,
+  };
+  private pathFinder?: RexPathFinder;
+  private moveTo?: RexMoveTo;
+  private routeToken = 0;
 
   rexBoard!: RexBoardPlugin;
 
@@ -47,9 +123,26 @@ export class LibraryScene extends Phaser.Scene {
     super('library-scene');
   }
 
+  preload(): void {
+    for (const [kind, filename] of Object.entries(FURNITURE_TEXTURES)) {
+      this.load.image(`furniture-${kind}`, assetUrl(filename));
+    }
+    this.load.image('room-window', assetUrl('window.png'));
+    this.load.image('room-wall-left', assetUrl('wall-left.png'));
+    this.load.image('room-stair', assetUrl('stair.png'));
+
+    for (const direction of AVATAR_DIRECTIONS) {
+      for (const pose of ['idle', 'walk', 'sit'] as const) {
+        this.load.image(`avatar-${direction}-${pose}`, assetUrl(`avatar-${direction}-${pose}.png`));
+      }
+    }
+  }
+
   create(): void {
     window.__libraryIsoDebug = {
       sceneReady: true,
+      avatar: this.avatarState,
+      tileToScreen: (tile: TileXY) => tileToScreen(tile, BOARD_ORIGIN),
     };
 
     this.board = this.rexBoard.add.board({
@@ -65,12 +158,13 @@ export class LibraryScene extends Phaser.Scene {
       height: ROOM_MAP.height,
     }) as RexBoard;
 
-    this.createFurnitureTextures();
+    this.createAvatarAnimations();
     this.drawWalls();
     this.drawFloor();
     this.placeFurnitureBlockers();
     this.drawDebugOverlay();
     this.drawFurniture();
+    this.createAvatar();
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       this.handlePointerDown(pointer.worldX, pointer.worldY);
     });
@@ -78,6 +172,15 @@ export class LibraryScene extends Phaser.Scene {
       this.debugOverlayVisible = !this.debugOverlayVisible;
       this.debugOverlay?.setVisible(this.debugOverlayVisible);
     });
+  }
+
+  update(): void {
+    if (!this.avatar) {
+      return;
+    }
+
+    const tile = screenToTile({ x: this.avatar.x, y: this.avatar.y }, BOARD_ORIGIN);
+    this.avatar.setDepth(depthForTile(tile, 180));
   }
 
   private handlePointerDown(worldX: number, worldY: number): void {
@@ -95,6 +198,7 @@ export class LibraryScene extends Phaser.Scene {
       lastClickedTile: tile,
     };
     console.log(`tile ${tile.x},${tile.y}`);
+    this.walkTo(tile);
   }
 
   private drawFloor(): void {
@@ -128,6 +232,16 @@ export class LibraryScene extends Phaser.Scene {
     drawWallPanel(graphics, [top, right], 0x263542, 0x182631);
     drawWallPanel(graphics, [top, left], 0x1f3140, 0x16222d);
     graphics.setDepth(-30);
+
+    const windowSprite = this.add.image(236, 78, 'room-window');
+    windowSprite.setOrigin(0.5, 0.9);
+    windowSprite.setScale(0.44);
+    windowSprite.setDepth(-28);
+
+    const wallSprite = this.add.image(102, 98, 'room-wall-left');
+    wallSprite.setOrigin(0.5, 0.9);
+    wallSprite.setScale(0.4);
+    wallSprite.setDepth(-27);
   }
 
   private placeFurnitureBlockers(): void {
@@ -135,14 +249,23 @@ export class LibraryScene extends Phaser.Scene {
       return;
     }
 
+    const rexBlockers: Array<TileXY & { contains: boolean; hasBlocker: boolean }> = [];
     for (const tile of getBlockedTiles(ROOM_MAP)) {
       const screen = tileToScreen(tile, BOARD_ORIGIN);
       const blocker = this.add.zone(screen.x, screen.y, ISO_CELL.width, ISO_CELL.height);
       blocker.setVisible(false);
       this.board.addChess(blocker, tile.x, tile.y, `blocker-${tile.x}-${tile.y}`, false);
-      const rexChess = (blocker as Phaser.GameObjects.Zone & { rexChess?: { setBlocker(value?: boolean): void } }).rexChess;
-      rexChess?.setBlocker();
+      this.board.getChessData(blocker).setBlocker();
+      rexBlockers.push({
+        ...tile,
+        contains: this.board.contains(tile.x, tile.y),
+        hasBlocker: this.board.hasBlocker(tile.x, tile.y),
+      });
     }
+    window.__libraryIsoDebug = {
+      ...window.__libraryIsoDebug,
+      rexBlockers,
+    };
   }
 
   private drawFurniture(): void {
@@ -154,6 +277,7 @@ export class LibraryScene extends Phaser.Scene {
       const screen = tileToScreen(object.anchor, BOARD_ORIGIN);
       const sprite = this.add.image(screen.x, screen.y + ISO_CELL.height / 2, textureKeyFor(object));
       sprite.setOrigin(0.5, 1);
+      sprite.setScale(FURNITURE_SCALES[object.kind]);
       sprite.setDepth(depthForTile(object.anchor, object.depthBias));
       sprite.setData('roomObjectId', object.id);
       sprite.setData('kind', object.kind);
@@ -161,113 +285,138 @@ export class LibraryScene extends Phaser.Scene {
     }
   }
 
-  private createFurnitureTextures(): void {
-    this.createDeskTexture();
-    this.createChairTexture();
-    this.createLampTexture();
-    this.createBookshelfTexture();
-    this.createPlantTexture();
-  }
-
-  private createDeskTexture(): void {
-    if (this.textures.exists('furniture-desk-long')) {
+  private createAvatar(): void {
+    if (!this.board) {
       return;
     }
 
-    const graphics = this.make.graphics({ x: 0, y: 0 }, false);
-    graphics.fillStyle(0x3f2b22, 1);
-    graphics.fillRect(28, 42, 168, 26);
-    graphics.fillStyle(0x7b5738, 1);
-    graphics.fillTriangle(20, 42, 112, 10, 204, 42);
-    graphics.fillStyle(0x936a42, 1);
-    graphics.fillTriangle(20, 42, 204, 42, 112, 68);
-    graphics.fillStyle(0x231814, 0.7);
-    graphics.fillRect(44, 66, 12, 24);
-    graphics.fillRect(170, 66, 12, 24);
-    graphics.lineStyle(2, 0x221611, 0.7);
-    graphics.strokeTriangle(20, 42, 112, 10, 204, 42);
-    graphics.generateTexture('furniture-desk-long', 224, 96);
-    graphics.destroy();
+    const start = tileToScreen(this.avatarState.tile, BOARD_ORIGIN);
+    this.avatar = this.add.sprite(start.x, start.y, 'avatar-north-east-idle');
+    this.avatar.setOrigin(0.5, 1);
+    this.avatar.setScale(AVATAR_SCALE);
+    this.avatar.setDepth(depthForTile(this.avatarState.tile, 180));
+    this.board.addChess(this.avatar, this.avatarState.tile.x, this.avatarState.tile.y, 'avatar-local', false);
+    this.pathFinder = this.rexBoard.add.pathFinder({
+      pathMode: 'A*',
+      blockerTest: true,
+      occupiedTest: true,
+      cost: 1,
+    }).setChess(this.avatar);
+    this.moveTo = this.rexBoard.add.moveTo(this.avatar, {
+      speed: 190,
+      rotateToTarget: false,
+      blockerTest: true,
+      occupiedTest: true,
+    });
+    this.playAvatarAnimation('idle', this.avatarState.dir);
+    this.syncDebugState();
   }
 
-  private createChairTexture(): void {
-    if (this.textures.exists('furniture-chair')) {
+  private walkTo(target: TileXY): void {
+    if (!this.avatar || !this.pathFinder || !this.moveTo || !this.board) {
       return;
     }
 
-    const graphics = this.make.graphics({ x: 0, y: 0 }, false);
-    graphics.fillStyle(0xd4b98a, 1);
-    graphics.fillRect(18, 8, 28, 38);
-    graphics.fillStyle(0xb9935e, 1);
-    graphics.fillTriangle(12, 50, 32, 36, 52, 50);
-    graphics.fillStyle(0xead4a5, 1);
-    graphics.fillTriangle(12, 50, 52, 50, 32, 64);
-    graphics.fillStyle(0x6b4a31, 1);
-    graphics.fillRect(18, 62, 6, 20);
-    graphics.fillRect(40, 62, 6, 20);
-    graphics.lineStyle(2, 0x60462f, 0.75);
-    graphics.strokeRect(18, 8, 28, 38);
-    graphics.generateTexture('furniture-chair', 64, 88);
-    graphics.destroy();
-  }
+    const token = this.routeToken + 1;
+    this.routeToken = token;
+    const path = this.pathFinder.findPath(target).map((node) => ({ x: node.x, y: node.y }));
+    const pathCrossedBlocker = path.some((tile) => this.board?.hasBlocker(tile.x, tile.y) ?? false);
+    const targetBlocked = isMovementBlocked(ROOM_MAP, target);
+    window.__libraryIsoDebug = {
+      ...window.__libraryIsoDebug,
+      lastPath: path,
+      lastPathCrossedBlocker: pathCrossedBlocker,
+      lastPathTargetBlocked: targetBlocked,
+    };
 
-  private createLampTexture(): void {
-    if (this.textures.exists('furniture-desk-lamp')) {
+    if (targetBlocked || path.length === 0 || pathCrossedBlocker) {
+      this.avatarState = {
+        ...this.avatarState,
+        pose: 'idle',
+      };
+      this.playAvatarAnimation('idle', this.avatarState.dir);
+      this.syncDebugState();
       return;
     }
 
-    const graphics = this.make.graphics({ x: 0, y: 0 }, false);
-    graphics.fillStyle(0xb99749, 1);
-    graphics.fillRect(17, 28, 4, 38);
-    graphics.fillStyle(0xf2d46f, 1);
-    graphics.fillTriangle(4, 30, 19, 4, 34, 30);
-    graphics.fillStyle(0x72562a, 1);
-    graphics.fillEllipse(19, 70, 24, 8);
-    graphics.generateTexture('furniture-desk-lamp', 38, 78);
-    graphics.destroy();
+    this.followPath(path, token);
   }
 
-  private createBookshelfTexture(): void {
-    if (this.textures.exists('furniture-bookshelf')) {
+  private followPath(path: TileXY[], token: number): void {
+    if (!this.moveTo || path.length === 0 || token !== this.routeToken) {
+      this.avatarState = {
+        ...this.avatarState,
+        pose: 'idle',
+      };
+      this.playAvatarAnimation('idle', this.avatarState.dir);
+      this.syncDebugState();
       return;
     }
 
-    const graphics = this.make.graphics({ x: 0, y: 0 }, false);
-    graphics.fillStyle(0x5b3a28, 1);
-    graphics.fillRect(12, 10, 72, 92);
-    graphics.fillStyle(0x8f5d34, 1);
-    graphics.fillRect(18, 18, 60, 10);
-    graphics.fillRect(18, 48, 60, 10);
-    graphics.fillRect(18, 78, 60, 10);
-    for (let i = 0; i < 12; i += 1) {
-      graphics.fillStyle([0x9db6b7, 0xc28d62, 0xdbc37a, 0x7fa574][i % 4], 1);
-      graphics.fillRect(20 + (i % 6) * 9, 30 + Math.floor(i / 6) * 30, 6, 18);
-    }
-    graphics.generateTexture('furniture-bookshelf', 96, 112);
-    graphics.destroy();
+    const [next, ...rest] = path;
+    const dir = directionBetweenTiles(this.avatarState.tile, next);
+    this.avatarState = {
+      ...this.avatarState,
+      tile: next,
+      dir,
+      pose: 'walk',
+      seatId: null,
+    };
+    this.playAvatarAnimation('walk', dir);
+    this.syncDebugState();
+    this.moveTo.moveTo(next).once('complete', () => {
+      if (token !== this.routeToken) {
+        return;
+      }
+      this.followPath(rest, token);
+    });
   }
 
-  private createPlantTexture(): void {
-    if (this.textures.exists('furniture-plant')) {
-      return;
-    }
+  private playAvatarAnimation(pose: 'idle' | 'walk' | 'sit', dir: AvatarDirection): void {
+    this.avatar?.play(`avatar-${pose}-${dir}`, true);
+  }
 
-    const graphics = this.make.graphics({ x: 0, y: 0 }, false);
-    graphics.fillStyle(0x315a3f, 1);
-    graphics.fillEllipse(28, 24, 40, 22);
-    graphics.fillEllipse(18, 38, 32, 18);
-    graphics.fillEllipse(38, 42, 34, 20);
-    graphics.fillStyle(0x8d6240, 1);
-    graphics.fillTriangle(14, 56, 42, 56, 34, 86);
-    graphics.fillStyle(0x6f472f, 1);
-    graphics.fillTriangle(14, 56, 34, 86, 22, 86);
-    graphics.generateTexture('furniture-plant', 56, 90);
-    graphics.destroy();
+  private syncDebugState(): void {
+    window.__libraryIsoDebug = {
+      ...window.__libraryIsoDebug,
+      avatar: { ...this.avatarState, tile: { ...this.avatarState.tile } },
+    };
+  }
+
+  private createAvatarAnimations(): void {
+    for (const direction of AVATAR_DIRECTIONS) {
+      this.anims.create({
+        key: `avatar-idle-${direction}`,
+        frames: [{ key: `avatar-${direction}-idle` }],
+        frameRate: 1,
+        repeat: -1,
+      });
+      this.anims.create({
+        key: `avatar-walk-${direction}`,
+        frames: [{ key: `avatar-${direction}-walk` }, { key: `avatar-${direction}-idle` }],
+        frameRate: 5,
+        repeat: -1,
+      });
+      this.anims.create({
+        key: `avatar-sit-${direction}`,
+        frames: [{ key: `avatar-${direction}-sit` }],
+        frameRate: 1,
+        repeat: -1,
+      });
+    }
   }
 }
 
 function textureKeyFor(object: FurnitureObject): string {
   return `furniture-${object.kind}`;
+}
+
+function assetUrl(filename: string): string {
+  const url = generatedAssets[`../assets/generated/${filename}`];
+  if (!url) {
+    throw new Error(`Missing generated asset: ${filename}`);
+  }
+  return url;
 }
 
 function drawIsoDiamond(graphics: Phaser.GameObjects.Graphics, center: ScreenXY): void {

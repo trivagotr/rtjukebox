@@ -2,7 +2,7 @@ import { depthForTile, type TileXY } from './iso';
 
 export type TileKind = 'walkable' | 'blocked' | 'seat';
 
-export type FurnitureKind = 'desk-long' | 'chair' | 'desk-lamp' | 'bookshelf' | 'plant';
+export type FurnitureKind = 'desk-long' | 'chair' | 'desk-lamp' | 'bookshelf' | 'plant' | 'sofa-green';
 
 export type FurnitureObject = {
   id: string;

@@ -15,9 +15,10 @@
   },
   "devDependencies": {
     "@playwright/test": "latest",
+    "@types/node": "^26.0.1",
+    "playwright": "latest",
     "typescript": "latest",
     "vite": "latest",
-    "vitest": "latest",
-    "playwright": "latest"
+    "vitest": "latest"
   }
 }
