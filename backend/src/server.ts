@@ -28,7 +28,7 @@ app.use(helmet({
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-client-id', 'x-agent-token', 'x-next-song-voting-agent-token']
 }));
 app.use(express.json());
 
