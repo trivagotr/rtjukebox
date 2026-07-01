@@ -1,12 +1,19 @@
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { createApp } from './app';
-import type { CatalogSong } from '../agent/types';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { CatalogSong, JingleTrack } from '../agent/types';
 
 const songs: CatalogSong[] = [
   { id: 'song-1', title: 'One', artist: 'Artist', filePath: 'C:/Music/one.mp3' },
   { id: 'song-2', title: 'Two', artist: 'Artist', filePath: 'C:/Music/two.mp3' },
   { id: 'song-3', title: 'Three', artist: 'Artist', filePath: 'C:/Music/three.mp3' },
+];
+
+const jingles: JingleTrack[] = [
+  { id: 'jingle-1', title: 'Station ID', filePath: 'C:/Jingles/station-id.wav', enabled: true },
 ];
 
 describe('local voting API', () => {
@@ -61,5 +68,44 @@ describe('local voting API', () => {
     expect(resolved.body.round.resolutionMode).toBe('no-vote-fallback');
     expect(resolved.body.attribution).toBeNull();
     expect(JSON.stringify(resolved.body)).not.toMatch(/randomly selected|rastgele seçildi/i);
+  });
+
+  it('serves album art by song id without exposing local image paths in the URL', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'radiotedu-art-route-'));
+    const artPath = join(root, 'cover.jpg');
+    writeFileSync(artPath, 'fake jpg');
+    const app = createApp({
+      songs: [{ id: 'song-art', title: 'Art', artist: 'Artist', filePath: join(root, 'art.mp3'), albumArtPath: artPath }],
+      rng: () => 0,
+    });
+
+    const response = await request(app).get('/album-art/song-art');
+
+    expect(response.status).toBe(200);
+    expect(response.body.toString()).toBe('fake jpg');
+  });
+
+  it('returns a jingle and winner playback plan after resolving a round', async () => {
+    const app = createApp({ songs, jingles, jingleBeforeWinner: true, rng: () => 0 });
+    const roundResponse = await request(app).post('/api/rounds/start').send({ candidateCount: 2 });
+    const roundId = roundResponse.body.round.id;
+
+    const resolved = await request(app).post(`/api/rounds/${roundId}/resolve`).send();
+
+    expect(resolved.status).toBe(200);
+    expect(resolved.body.playbackPlanPreview.entries.map((entry: { kind: string }) => entry.kind)).toEqual([
+      'jingle',
+      'winner',
+    ]);
+    expect(resolved.body.playbackCommandPreview).toEqual([
+      '-hide_banner',
+      '-nostdin',
+      '-re',
+      '-i',
+      'C:/Music/one.mp3',
+      '-f',
+      'null',
+      '-',
+    ]);
   });
 });

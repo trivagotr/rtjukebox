@@ -29,6 +29,7 @@ import {
 } from '../../services/jukeboxContract';
 import GlobalHeader from '../../components/GlobalHeader';
 import PageTransition from '../../components/PageTransition';
+import NextSongVotePanel from './NextSongVotePanel';
 
 const JukeboxScreen = ({ route }: any) => {
   const { user, guestLogin, logout } = useAuth();
@@ -557,6 +558,7 @@ const JukeboxScreen = ({ route }: any) => {
             ListHeaderComponent={
               <>
                 <NowPlayingHero song={nowPlaying} />
+                <NextSongVotePanel deviceId={device?.id ?? null} />
                 <View style={styles.queueHeader}>
                   <Text style={styles.sectionTitle}>Müzik Kuyruğu</Text>
                   <View style={styles.queueCountBadge}>

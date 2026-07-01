@@ -6,11 +6,21 @@ export interface AgentConfig {
   candidateCount: CandidateCount;
   catalogPath: string;
   musicRoots: string[];
+  jingleRoots: string[];
+  jingleBeforeWinner: boolean;
   artCacheDir: string;
   ffmpegPath: string;
   ffprobePath: string;
   playbackMode: PlaybackMode;
   serverPort: number;
+  backend: AgentBackendConfig;
+}
+
+export interface AgentBackendConfig {
+  apiBaseUrl: string;
+  agentToken: string;
+  deviceId: string;
+  enabled: boolean;
 }
 
 export interface CatalogSong {
@@ -21,6 +31,13 @@ export interface CatalogSong {
   albumArtPath?: string | null;
   enabled?: boolean;
   durationSeconds?: number;
+}
+
+export interface JingleTrack {
+  id: string;
+  title: string;
+  filePath: string;
+  enabled?: boolean;
 }
 
 export interface VotingCandidate {
@@ -54,4 +71,18 @@ export interface VotingRound {
   votes: VoteRecord[];
   winnerCandidateId: string | null;
   resolutionMode: RoundResolutionMode | null;
+}
+
+export type PlaybackPlanEntryKind = 'jingle' | 'winner';
+
+export interface PlaybackPlanEntry {
+  kind: PlaybackPlanEntryKind;
+  title: string;
+  filePath: string;
+  ffmpegArgs: string[];
+}
+
+export interface PlaybackPlan {
+  mode: PlaybackMode;
+  entries: PlaybackPlanEntry[];
 }
