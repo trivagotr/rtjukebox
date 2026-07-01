@@ -12,6 +12,12 @@ This tool is intentionally separate from the mobile app. It is meant to run on t
 
 The current MVP is local/mock-backed. It does not yet connect to the real RadioTEDU backend or the live mobile app. The next job is to inspect the existing backend/mobile contracts and design the safest integration path.
 
+Important operational update:
+
+- The broadcast computer "database" is a plain folder tree of audio files, not SQL.
+- Jingles must be supported as separate local audio assets.
+- This local Codex session cannot connect to the production/server environment. Run the backend/server work from the server-side Codex session using this prompt.
+
 ## What Has Already Been Built
 
 The MVP under `tools/local-voting-agent` includes:
@@ -19,7 +25,7 @@ The MVP under `tools/local-voting-agent` includes:
 - Node.js + TypeScript + Express + React/Vite app.
 - Browser control panel at local dev port `5174`.
 - Local API at `4317`.
-- JSON local song catalog loading.
+- JSON local song catalog loading for MVP/dev mode.
 - Safe local path validation so songs must live inside configured music roots.
 - Random 2 or 3 candidate selection, default 3.
 - FFmpeg/ffprobe helper functions for command construction and metadata parsing.
@@ -57,9 +63,12 @@ Keep these rules unless the project owner explicitly changes them:
 - The local voting agent stays separate from the mobile app.
 - Do not put the local agent under `mobile/`.
 - Candidate songs come from the broadcast computer local song database/catalog.
+- Treat that local database as a plain folder tree when implementing the production path.
 - Candidate songs are randomly selected.
 - 2 or 3 candidates are supported, default 3.
 - Album art should be shown when available.
+- Jingles are separate assets, not voting candidates.
+- The first production jingle behavior should support an optional jingle before the resolved winner.
 - If users vote, the UI may show who selected/voted for the winning song.
 - If nobody votes and the winner is chosen by fallback, do not show "randomly selected" or equivalent user-facing copy.
 - Backend/server timing is authoritative. Client countdowns are display only.
@@ -115,6 +124,27 @@ Recommended round lifecycle:
    - no-vote fallback chooses a candidate without user-facing fallback copy
 9. Backend sends winner command to the local agent.
 10. Agent plays or queues the chosen local song through FFmpeg/broadcast pipeline.
+
+Folder database model:
+
+- The agent receives a `MUSIC_LIBRARY_DIR`, for example `D:\RadioTEDU\Music`.
+- It recursively scans supported audio files such as `.mp3`, `.wav`, `.flac`, `.m4a`, `.aac`, and `.ogg`.
+- It should derive title/artist from ffprobe metadata when available.
+- If metadata is absent, parse filename as `Artist - Title.ext`; otherwise use the filename as title and `Unknown Artist`.
+- It should ignore non-audio files.
+- It should apply path safety checks so playback and album-art extraction stay inside configured roots.
+- It must not return local filesystem paths to mobile clients or public backend responses.
+
+Jingle model:
+
+- The agent receives a `JINGLE_LIBRARY_DIR`, for example `D:\RadioTEDU\Jingles`.
+- Jingles are scanned like songs but marked with `assetRole: "jingle"`.
+- Jingles are never included in mobile voting candidates.
+- First production behavior should support `JINGLE_BEFORE_WINNER=true`.
+- The playback plan should be `jingle -> winning song` when a jingle is available and the option is enabled.
+- If no jingle exists or the option is disabled, the playback plan should be just `winning song`.
+- The operator panel should show the planned playback order before live playback starts.
+- Keep live playback disabled by default; dry-run should preview FFmpeg commands.
 
 ## Suggested API Contracts
 
@@ -177,6 +207,8 @@ Implement these server-side, not only in the local agent:
 
 After backend contracts exist, update `tools/local-voting-agent`:
 
+- Add `src/agent/folderCatalog.ts` for recursive folder scanning.
+- Add `src/agent/playbackPlan.ts` for jingle-before-winner playback sequencing.
 - Add `src/agent/backendClient.ts` with typed methods for the real backend.
 - Keep the current mock API for local dry-run/dev mode.
 - Add env vars:
@@ -184,10 +216,23 @@ After backend contracts exist, update `tools/local-voting-agent`:
   - `RADIOTEDU_AGENT_ID`
   - `RADIOTEDU_AGENT_SECRET`
   - `RADIOTEDU_DEVICE_ID`
+  - `MUSIC_LIBRARY_DIR`
+  - `JINGLE_LIBRARY_DIR`
+  - `JINGLE_BEFORE_WINNER`
 - Add retry/backoff for backend connectivity.
 - Add command polling or Socket.IO client for winner commands.
 - Add explicit operator state for disconnected, connected, round-open, locked, resolved, playback-error.
 - Keep playback dry-run by default.
+
+Local agent tests to add before implementation:
+
+- Folder scanner recursively loads supported audio files and ignores non-audio files.
+- Folder scanner marks normal music as `assetRole: "song"`.
+- Jingle folder scanner marks jingles as `assetRole: "jingle"`.
+- Candidate selection never returns `assetRole: "jingle"`.
+- Playback plan returns `[jingle, winner]` when jingle-before-winner is enabled and jingles exist.
+- Playback plan returns `[winner]` when jingle-before-winner is disabled or no jingles exist.
+- API state exposes a playback plan preview without leaking local filesystem paths to public/mobile responses.
 
 ## Mobile Follow-Up Work
 
@@ -214,7 +259,7 @@ Phase 2:
 
 Phase 3:
 
-- Agent backend client in `tools/local-voting-agent` while preserving mock mode.
+- Agent folder scanner, jingle playback plan, and backend client in `tools/local-voting-agent` while preserving mock mode.
 
 Phase 4:
 
@@ -245,6 +290,16 @@ npm test
 npm run build
 ```
 
+When working on folder/jingle support, also manually smoke-test with server-side folders:
+
+```powershell
+cd tools/local-voting-agent
+$env:MUSIC_LIBRARY_DIR="D:\RadioTEDU\Music"
+$env:JINGLE_LIBRARY_DIR="D:\RadioTEDU\Jingles"
+$env:JINGLE_BEFORE_WINNER="true"
+npm run dev
+```
+
 Mobile, only if mobile code is changed:
 
 ```powershell
@@ -260,6 +315,7 @@ For the first server-side pass, produce:
 - Database migration/schema changes if implementation is approved.
 - Tests for winner resolution, lock behavior, vote idempotency, and no-vote fallback without public random copy.
 - Backend route/socket contract documentation.
+- Local agent folder-database and jingle integration notes.
 - A clear note of what remains before production use.
 
 ## Safety
