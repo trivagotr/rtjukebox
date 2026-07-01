@@ -18,26 +18,16 @@ const WINNER_REWARD_POINTS = Number.parseInt(process.env.NEXT_SONG_VOTING_WINNER
 
 const uuidSchema = z.string().uuid();
 const stringOrNull = z.string().trim().min(1).max(1000).nullable().optional();
+const disallowedPlaybackFieldPattern = /^(songId|song_id|album|durationSeconds|duration_seconds|coverUrl|cover_url|previewUrl|preview_url|streamUrl|stream_url|filePath|file_path|localPath|local_path|path|absolutePath|absolute_path)$/i;
+const disallowedCandidateFieldPattern = /^(songId|song_id|album|durationSeconds|duration_seconds|coverUrl|cover_url|previewUrl|preview_url|streamUrl|stream_url|filePath|file_path|localPath|local_path|path|absolutePath|absolute_path|metadata)$/i;
 
 const candidateSchema = z.object({
     externalId: stringOrNull,
     external_id: stringOrNull,
-    songId: uuidSchema.optional(),
-    song_id: uuidSchema.optional(),
     title: z.string().trim().min(1).max(200),
     artist: z.string().trim().max(200).nullable().optional(),
-    album: z.string().trim().max(200).nullable().optional(),
-    durationSeconds: z.number().int().positive().max(86400).nullable().optional(),
-    duration_seconds: z.number().int().positive().max(86400).nullable().optional(),
     artworkUrl: stringOrNull,
-    artwork_url: stringOrNull,
-    coverUrl: stringOrNull,
-    cover_url: stringOrNull,
-    previewUrl: stringOrNull,
-    preview_url: stringOrNull,
-    streamUrl: stringOrNull,
-    stream_url: stringOrNull,
-    metadata: z.record(z.unknown()).optional()
+    artwork_url: stringOrNull
 }).passthrough();
 
 const agentRoundSchema = z.object({
@@ -53,7 +43,7 @@ const agentRoundSchema = z.object({
     winning_candidate_id: uuidSchema.optional(),
     agentId: z.string().trim().max(120).nullable().optional(),
     agent_id: z.string().trim().max(120).nullable().optional(),
-    candidates: z.array(candidateSchema).min(2).max(12).optional(),
+    candidates: z.array(candidateSchema).min(2).max(5).optional(),
     metadata: z.record(z.unknown()).optional()
 }).passthrough();
 
@@ -66,15 +56,9 @@ const voteSchema = z.object({
 
 type CandidateInput = {
     externalId: string | null;
-    songId: string | null;
     title: string;
     artist: string | null;
-    album: string | null;
-    durationSeconds: number | null;
     artworkUrl: string | null;
-    previewUrl: string | null;
-    streamUrl: string | null;
-    metadata: unknown;
     position: number;
 };
 
@@ -158,6 +142,40 @@ function ensurePublicValue(value: string | null, fieldName: string): string | nu
     return value;
 }
 
+function assertNoPlaybackFields(value: unknown, fieldPath = 'candidate') {
+    if (!value || typeof value !== 'object') return;
+
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+        const nextPath = `${fieldPath}.${key}`;
+        if (disallowedCandidateFieldPattern.test(key)) {
+            throw new Error(`PLAYBACK_FIELD_NOT_ALLOWED:${nextPath}`);
+        }
+        if (typeof entry === 'string' && looksLikeLocalPath(entry)) {
+            throw new Error(`LOCAL_PATH_NOT_ALLOWED:${nextPath}`);
+        }
+        if (entry && typeof entry === 'object') {
+            assertNoPlaybackFields(entry, nextPath);
+        }
+    }
+}
+
+function assertNoLocalPlaybackPayload(value: unknown, fieldPath = 'payload') {
+    if (!value || typeof value !== 'object') return;
+
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+        const nextPath = `${fieldPath}.${key}`;
+        if (disallowedPlaybackFieldPattern.test(key)) {
+            throw new Error(`PLAYBACK_FIELD_NOT_ALLOWED:${nextPath}`);
+        }
+        if (typeof entry === 'string' && looksLikeLocalPath(entry)) {
+            throw new Error(`LOCAL_PATH_NOT_ALLOWED:${nextPath}`);
+        }
+        if (entry && typeof entry === 'object') {
+            assertNoLocalPlaybackPayload(entry, nextPath);
+        }
+    }
+}
+
 function sanitizeMetadata(value: unknown, depth = 0): unknown {
     if (depth > 4) return null;
     if (value === null || value === undefined) return null;
@@ -177,21 +195,15 @@ function sanitizeMetadata(value: unknown, depth = 0): unknown {
 }
 
 function normalizeCandidate(candidate: z.infer<typeof candidateSchema>, position: number): CandidateInput {
-    const artworkUrl = pickString(candidate.artworkUrl, candidate.artwork_url, candidate.coverUrl, candidate.cover_url);
-    const previewUrl = pickString(candidate.previewUrl, candidate.preview_url);
-    const streamUrl = pickString(candidate.streamUrl, candidate.stream_url);
+    assertNoPlaybackFields(candidate);
+    const externalId = pickString(candidate.externalId, candidate.external_id);
+    const artworkUrl = pickString(candidate.artworkUrl, candidate.artwork_url);
 
     return {
-        externalId: pickString(candidate.externalId, candidate.external_id),
-        songId: pickString(candidate.songId, candidate.song_id),
+        externalId: ensurePublicValue(externalId, 'externalId'),
         title: candidate.title,
         artist: pickString(candidate.artist),
-        album: pickString(candidate.album),
-        durationSeconds: pickNumber(candidate.durationSeconds, candidate.duration_seconds),
         artworkUrl: ensurePublicValue(artworkUrl, 'artworkUrl'),
-        previewUrl: ensurePublicValue(previewUrl, 'previewUrl'),
-        streamUrl: ensurePublicValue(streamUrl, 'streamUrl'),
-        metadata: sanitizeMetadata(candidate.metadata || {}),
         position
     };
 }
@@ -237,18 +249,12 @@ function serializeCandidate(row: any) {
     return {
         id: row.id,
         externalId: row.external_id,
-        songId: row.song_id,
         title: row.title,
         artist: row.artist,
-        album: row.album,
-        durationSeconds: row.duration_seconds,
         artworkUrl: row.artwork_url,
-        previewUrl: row.preview_url,
-        streamUrl: row.stream_url,
         voteScore: Number(row.vote_score || 0),
         voteCount: Number(row.vote_count || 0),
-        position: row.position,
-        metadata: sanitizeMetadata(row.metadata || {})
+        position: row.position
     };
 }
 
@@ -266,8 +272,7 @@ function serializeRound(row: any, candidates: any[], userVoteCandidateId?: strin
         winningCandidateId: row.winning_candidate_id,
         voteCount: candidates.reduce((total, candidate) => total + Number(candidate.vote_count || 0), 0),
         candidates: candidates.map(serializeCandidate),
-        userVoteCandidateId: userVoteCandidateId || null,
-        metadata: sanitizeMetadata(row.metadata || {})
+        userVoteCandidateId: userVoteCandidateId || null
     };
 }
 
@@ -538,6 +543,8 @@ router.post('/agent/rounds', requireAgentAuth, async (req: Request, res: Respons
     const action = body.action || (getRoundId(body) ? 'update' : 'start');
 
     try {
+        assertNoLocalPlaybackPayload(body);
+
         if (action === 'start') {
             if (!body.candidates || body.candidates.length < 2) {
                 return sendError(res, 'At least two candidates are required to start a round', 400, 'CANDIDATES_REQUIRED');
@@ -568,7 +575,7 @@ router.post('/agent/rounds', requireAgentAuth, async (req: Request, res: Respons
                     pickString(body.prompt),
                     expiresAt,
                     getAgentId(body),
-                    JSON.stringify(sanitizeMetadata(body.metadata || {}))
+                    JSON.stringify({})
                 ]);
                 roundId = roundResult.rows[0].id;
 
@@ -582,15 +589,15 @@ router.post('/agent/rounds', requireAgentAuth, async (req: Request, res: Respons
                     `, [
                         roundId,
                         candidate.externalId,
-                        candidate.songId,
+                        null,
                         candidate.title,
                         candidate.artist,
-                        candidate.album,
-                        candidate.durationSeconds,
+                        null,
+                        null,
                         candidate.artworkUrl,
-                        candidate.previewUrl,
-                        candidate.streamUrl,
-                        JSON.stringify(candidate.metadata || {}),
+                        null,
+                        null,
+                        JSON.stringify({}),
                         candidate.position
                     ]);
                 }
@@ -631,15 +638,13 @@ router.post('/agent/rounds', requireAgentAuth, async (req: Request, res: Respons
                 UPDATE next_song_vote_rounds
                 SET prompt = COALESCE($2, prompt),
                     expires_at = COALESCE($3, expires_at),
-                    metadata = COALESCE(metadata, '{}'::jsonb) || $4::jsonb,
                     updated_at = NOW()
                 WHERE id = $1 AND status = 'active'
                 RETURNING id
             `, [
                 roundId,
                 pickString(body.prompt),
-                expiresAt,
-                JSON.stringify(sanitizeMetadata(body.metadata || {}))
+                expiresAt
             ]);
 
             if (updateResult.rows.length === 0) {
@@ -767,8 +772,20 @@ router.post('/agent/rounds', requireAgentAuth, async (req: Request, res: Respons
         if (typeof error?.message === 'string' && error.message.startsWith('LOCAL_PATH_NOT_ALLOWED:')) {
             return sendError(res, 'Local filesystem paths are not allowed in voting payloads', 400, 'LOCAL_PATH_NOT_ALLOWED');
         }
+        if (typeof error?.message === 'string' && error.message.startsWith('PLAYBACK_FIELD_NOT_ALLOWED:')) {
+            return sendError(res, 'Playback/local file fields are not allowed in next song voting candidates', 400, 'PLAYBACK_FIELD_NOT_ALLOWED');
+        }
         return sendError(res, 'Failed to process next song voting round', 500);
     }
 });
+
+export const __nextSongVotingTest = {
+    agentRoundSchema,
+    assertNoPlaybackFields,
+    assertNoLocalPlaybackPayload,
+    looksLikeLocalPath,
+    normalizeCandidate,
+    serializeCandidate
+};
 
 export default router;
