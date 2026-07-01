@@ -19,6 +19,7 @@ The local program should run as a small agent with a browser-based control panel
 - If a tie is resolved by drawing from tied candidates, the result may show that the song won by tie-break, but it should still avoid making random fallback feel like an error state.
 - Users earn gold/points for voting, with one award per voting round.
 - The mobile voting UI should match the existing mobile app design.
+- Anti-cheat and abuse prevention are required for votes, gold/points awards, agent actions, and local file access.
 
 ## Architecture
 
@@ -64,6 +65,12 @@ It should manage:
   - User-voted winner: show selector/voter attribution.
   - Tie-break winner: show tie-break status only if product copy wants it.
   - No-vote random winner: do not show a random-selection message.
+- Abuse prevention:
+  - Server-side round timing is authoritative.
+  - Votes are accepted only for candidates in the active round.
+  - Vote changes are allowed only while the round is open.
+  - Gold/points are awarded at most once per user per round.
+  - Suspicious repeated voting patterns are logged and rate-limited.
 
 ### Mobile App
 
@@ -123,6 +130,41 @@ Agent tests should cover local database candidate selection, 2/3 candidate confi
 Mobile tests should cover voting states, locked state, candidate rendering with album art, winner attribution, and no random-selection copy for no-vote fallback.
 
 Integration testing should simulate one full song ending: current-song progress, round open, user votes, lock, winner resolution, agent handoff, and visible mobile/panel update.
+
+## Anti-Cheat And Abuse Prevention
+
+The backend must be authoritative for all vote, timing, winner, and gold/points decisions. Mobile clients and the local panel can display countdowns, but they cannot decide whether a round is open, locked, or resolved.
+
+Vote controls:
+
+- Require an authenticated user for normal mobile voting. If guest voting is later enabled, bind guest votes to a stable guest session plus fingerprint.
+- Allow one active vote per user per round. Changing a vote updates the same row; it does not create extra voting power.
+- Reject votes after the backend lock time, even if the client still shows the button.
+- Reject votes for songs that are not in the current round candidate list.
+- Rate-limit vote attempts by user, device/session, IP, and fingerprint.
+- Store enough audit data to investigate abuse: round id, user id, selected candidate id, previous vote, accepted/rejected status, coarse IP/fingerprint signal, and timestamp.
+
+Gold/points controls:
+
+- Award voting gold/points only after an accepted vote.
+- Use an idempotency key such as `round_id:user_id:voting_reward` so retries cannot duplicate rewards.
+- Do not award extra gold/points for repeatedly changing a vote within the same round.
+- Keep the points ledger source type tied to the voting round id.
+
+Agent and panel controls:
+
+- Require the local agent to authenticate with a device-scoped secret or signed token before it can create rounds, submit candidates, or receive winner commands.
+- Treat the backend's winner result as authoritative; the panel cannot directly forge a mobile vote winner.
+- Log manual operator overrides separately from user vote results.
+- Freeze the candidate list after a round opens unless an explicit admin override closes and recreates the round.
+- Validate local file paths from the song database so album-art extraction and FFmpeg playback cannot read arbitrary files outside configured music/art directories.
+- Never expose raw local filesystem paths to mobile clients.
+
+Randomness and attribution controls:
+
+- Store the internal resolution mode for audit: user vote, tie-break, or no-vote fallback.
+- Do not show no-vote random fallback as user-facing attribution.
+- Use backend-side random resolution for no-vote and tie-break cases, and persist the chosen candidate id so reconnects cannot change the winner.
 
 ## Open Scope Boundary
 
