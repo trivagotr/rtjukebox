@@ -87,6 +87,78 @@ CREATE TABLE IF NOT EXISTS votes (
 );
 CREATE INDEX IF NOT EXISTS idx_votes_queue ON votes(queue_item_id);
 
+-- Next Song Voting Tables (separate from Jukebox queue voting)
+CREATE TABLE IF NOT EXISTS next_song_vote_rounds (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_id UUID REFERENCES devices(id) ON DELETE SET NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+    prompt VARCHAR(300),
+    agent_id VARCHAR(120),
+    started_at TIMESTAMP DEFAULT NOW(),
+    locked_at TIMESTAMP,
+    resolved_at TIMESTAMP,
+    cancelled_at TIMESTAMP,
+    expires_at TIMESTAMP,
+    winning_candidate_id UUID,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT chk_next_song_vote_round_status CHECK (status IN ('active', 'locked', 'resolved', 'cancelled'))
+);
+CREATE INDEX IF NOT EXISTS idx_next_song_vote_rounds_active ON next_song_vote_rounds(device_id, started_at DESC) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_next_song_vote_rounds_status ON next_song_vote_rounds(status, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS next_song_vote_candidates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    round_id UUID NOT NULL REFERENCES next_song_vote_rounds(id) ON DELETE CASCADE,
+    external_id VARCHAR(200),
+    song_id UUID REFERENCES songs(id) ON DELETE SET NULL,
+    title VARCHAR(200) NOT NULL,
+    artist VARCHAR(200),
+    album VARCHAR(200),
+    duration_seconds INTEGER,
+    artwork_url VARCHAR(1000),
+    preview_url VARCHAR(1000),
+    stream_url VARCHAR(1000),
+    metadata JSONB DEFAULT '{}'::jsonb,
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_next_song_vote_candidates_round ON next_song_vote_candidates(round_id, position);
+
+ALTER TABLE next_song_vote_rounds DROP CONSTRAINT IF EXISTS fk_next_song_vote_winner;
+ALTER TABLE next_song_vote_rounds
+    ADD CONSTRAINT fk_next_song_vote_winner
+    FOREIGN KEY (winning_candidate_id) REFERENCES next_song_vote_candidates(id) ON DELETE SET NULL;
+
+CREATE TABLE IF NOT EXISTS next_song_votes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    round_id UUID NOT NULL REFERENCES next_song_vote_rounds(id) ON DELETE CASCADE,
+    candidate_id UUID NOT NULL REFERENCES next_song_vote_candidates(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    guest_fingerprint VARCHAR(128),
+    ip_hash VARCHAR(128),
+    user_agent_hash VARCHAR(128),
+    vote_weight DECIMAL(5,2) NOT NULL DEFAULT 1.0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_next_song_votes_user_once ON next_song_votes(round_id, user_id) WHERE user_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_next_song_votes_guest_once ON next_song_votes(round_id, guest_fingerprint) WHERE user_id IS NULL AND guest_fingerprint IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_next_song_votes_guest_ip_ua_once ON next_song_votes(round_id, ip_hash, user_agent_hash) WHERE user_id IS NULL AND ip_hash IS NOT NULL AND user_agent_hash IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_next_song_votes_candidate ON next_song_votes(candidate_id);
+
+CREATE TABLE IF NOT EXISTS next_song_vote_rewards (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    round_id UUID NOT NULL REFERENCES next_song_vote_rounds(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reward_type VARCHAR(40) NOT NULL,
+    points INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(round_id, user_id, reward_type)
+);
+CREATE INDEX IF NOT EXISTS idx_next_song_vote_rewards_user ON next_song_vote_rewards(user_id, created_at DESC);
+
 -- Refresh Tokens Table
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -11,6 +11,7 @@ import podcastRoutes from './routes/podcasts';
 import radioRoutes from './routes/radio';
 import jukeboxRoutes from './routes/jukebox';
 import usersRoutes from './routes/users';
+import nextSongVotingRoutes from './routes/nextSongVoting';
 import { authMiddleware } from './middleware/auth';
 import { setupSocketHandlers } from './sockets';
 
@@ -46,6 +47,7 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/podcasts', podcastRoutes);
 app.use('/api/v1/radio', radioRoutes);
+app.use('/api/v1/next-song-voting', nextSongVotingRoutes);
 
 // Jukebox: Kiosk endpoints (no auth required)
 app.use('/jukebox', jukeboxRoutes);
