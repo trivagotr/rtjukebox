@@ -472,7 +472,7 @@ router.post('/rounds/:roundId/votes', optionalAuth, async (req: Request, res: Re
                 );
             }
         } else {
-            if (!userId) {
+            if (!userId && !guestFingerprint) {
                 const guestCollision = await client.query(`
                     SELECT id
                     FROM next_song_votes

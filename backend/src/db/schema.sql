@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS next_song_votes (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_next_song_votes_user_once ON next_song_votes(round_id, user_id) WHERE user_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_next_song_votes_guest_once ON next_song_votes(round_id, guest_fingerprint) WHERE user_id IS NULL AND guest_fingerprint IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_next_song_votes_guest_ip_ua_once ON next_song_votes(round_id, ip_hash, user_agent_hash) WHERE user_id IS NULL AND ip_hash IS NOT NULL AND user_agent_hash IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_next_song_votes_guest_ip_ua_once ON next_song_votes(round_id, ip_hash, user_agent_hash) WHERE user_id IS NULL AND guest_fingerprint IS NULL AND ip_hash IS NOT NULL AND user_agent_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_next_song_votes_candidate ON next_song_votes(candidate_id);
 
 CREATE TABLE IF NOT EXISTS next_song_vote_rewards (
