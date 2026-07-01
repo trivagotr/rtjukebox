@@ -1,6 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
 import {
   NEXT_SONG_VOTE_ACTIVE_ROUND_PATH,
+  NEXT_SONG_VOTE_CLIENT_ID_KEY,
+  buildNextSongVoteRequestConfig,
   buildNextSongVotePath,
   buildNextSongVotePayload,
   getCandidateCoverUrl,
@@ -48,6 +50,27 @@ describe('mobile next-song vote contract', () => {
       candidate_id: 'candidate-1',
       device_id: 'device-1',
     });
+  });
+
+  it('uses a persistent x-client-id fallback only when the user is not logged in', async () => {
+    const records = new Map<string, string>();
+    const storage = {
+      getItem: async (key: string) => records.get(key) ?? null,
+      setItem: async (key: string, value: string) => {
+        records.set(key, value);
+      },
+    };
+
+    const anonymousConfig = await buildNextSongVoteRequestConfig(storage, () => 0.123456789);
+    const repeatedConfig = await buildNextSongVoteRequestConfig(storage, () => 0.987654321);
+
+    expect(anonymousConfig).toEqual({ headers: { 'x-client-id': 'nsv-4fzzzxjylrx' } });
+    expect(repeatedConfig).toEqual(anonymousConfig);
+    expect(records.get(NEXT_SONG_VOTE_CLIENT_ID_KEY)).toBe('nsv-4fzzzxjylrx');
+
+    records.set('access_token', 'jwt-token');
+
+    await expect(buildNextSongVoteRequestConfig(storage, () => 0.1)).resolves.toEqual({});
   });
 
   it('resolves relative album art URLs against the storage origin', () => {

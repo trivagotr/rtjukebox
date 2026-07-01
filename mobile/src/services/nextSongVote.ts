@@ -1,7 +1,9 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './api';
 import { STORAGE_API } from './config';
 
 export const NEXT_SONG_VOTE_ACTIVE_ROUND_PATH = '/next-song-voting/rounds/active';
+export const NEXT_SONG_VOTE_CLIENT_ID_KEY = 'next_song_voting_client_id';
 
 export function buildNextSongVotePath(roundId: string) {
   return `/next-song-voting/rounds/${roundId}/votes`;
@@ -28,6 +30,11 @@ export interface NextSongVoteRound {
   resolutionMode?: NextSongVoteResolutionMode;
   lockAt?: string | null;
   resolveAt?: string | null;
+}
+
+interface NextSongVoteClientStorage {
+  getItem(key: string): Promise<string | null>;
+  setItem(key: string, value: string): Promise<void>;
 }
 
 function isRecord(value: unknown): value is Record<string, any> {
@@ -105,6 +112,41 @@ export function buildNextSongVotePayload(candidateId: string, deviceId?: string 
   };
 }
 
+function createNextSongVoteClientId(random: () => number): string {
+  return `nsv-${random().toString(36).slice(2, 13)}`;
+}
+
+async function getOrCreateNextSongVoteClientId(
+  storage: NextSongVoteClientStorage,
+  random: () => number,
+): Promise<string> {
+  const existing = await storage.getItem(NEXT_SONG_VOTE_CLIENT_ID_KEY);
+  if (existing) {
+    return existing;
+  }
+
+  const nextClientId = createNextSongVoteClientId(random);
+  await storage.setItem(NEXT_SONG_VOTE_CLIENT_ID_KEY, nextClientId);
+  return nextClientId;
+}
+
+export async function buildNextSongVoteRequestConfig(
+  storage: NextSongVoteClientStorage = AsyncStorage,
+  random: () => number = Math.random,
+) {
+  const accessToken = await storage.getItem('access_token');
+  if (accessToken) {
+    return {};
+  }
+
+  const clientId = await getOrCreateNextSongVoteClientId(storage, random);
+  return {
+    headers: {
+      'x-client-id': clientId,
+    },
+  };
+}
+
 export function getCandidateCoverUrl(candidate: Pick<NextSongVoteCandidate, 'albumArtUrl'>, storageApi = STORAGE_API) {
   if (!candidate.albumArtUrl) {
     return null;
@@ -132,6 +174,7 @@ export function getNextSongVoteStatusCopy(round: NextSongVoteRound | null): stri
 export async function fetchActiveNextSongVoteRound(deviceId?: string | null): Promise<NextSongVoteRound | null> {
   const response = await api.get(NEXT_SONG_VOTE_ACTIVE_ROUND_PATH, {
     params: deviceId ? { device_id: deviceId } : undefined,
+    ...(await buildNextSongVoteRequestConfig()),
   });
 
   return normalizeNextSongVoteRound(response.data);
@@ -144,7 +187,8 @@ export async function submitNextSongVote(
 ): Promise<NextSongVoteRound | null> {
   const response = await api.post(
     buildNextSongVotePath(roundId),
-    buildNextSongVotePayload(candidateId, deviceId)
+    buildNextSongVotePayload(candidateId, deviceId),
+    await buildNextSongVoteRequestConfig(),
   );
 
   return normalizeNextSongVoteRound(response.data);
