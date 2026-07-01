@@ -62,7 +62,7 @@ export function createBackendVotingClient(
 
   return {
     async publishRound(round: VotingRound) {
-      const response = await fetchImpl(`${config.apiBaseUrl.replace(/\/$/, '')}/api/v1/jukebox/voting/agent/rounds`, {
+      const response = await fetchImpl(`${config.apiBaseUrl.replace(/\/$/, '')}/api/v1/next-song-voting/agent/rounds`, {
         method: 'POST',
         headers: buildAgentHeaders(config),
         body: JSON.stringify(buildBackendRoundPayload(round)),

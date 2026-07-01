@@ -1,6 +1,12 @@
 import api from './api';
 import { STORAGE_API } from './config';
 
+export const NEXT_SONG_VOTE_ACTIVE_ROUND_PATH = '/next-song-voting/rounds/active';
+
+export function buildNextSongVotePath(roundId: string) {
+  return `/next-song-voting/rounds/${roundId}/votes`;
+}
+
 export type NextSongVoteRoundStatus = 'open' | 'locked' | 'resolved' | 'cancelled';
 export type NextSongVoteResolutionMode = 'user-vote' | 'tie-break' | 'no-vote-fallback' | null;
 
@@ -124,7 +130,7 @@ export function getNextSongVoteStatusCopy(round: NextSongVoteRound | null): stri
 }
 
 export async function fetchActiveNextSongVoteRound(deviceId?: string | null): Promise<NextSongVoteRound | null> {
-  const response = await api.get('/jukebox/voting/rounds/active', {
+  const response = await api.get(NEXT_SONG_VOTE_ACTIVE_ROUND_PATH, {
     params: deviceId ? { device_id: deviceId } : undefined,
   });
 
@@ -137,7 +143,7 @@ export async function submitNextSongVote(
   deviceId?: string | null
 ): Promise<NextSongVoteRound | null> {
   const response = await api.post(
-    `/jukebox/voting/rounds/${roundId}/votes`,
+    buildNextSongVotePath(roundId),
     buildNextSongVotePayload(candidateId, deviceId)
   );
 

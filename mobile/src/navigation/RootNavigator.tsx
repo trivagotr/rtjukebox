@@ -10,11 +10,15 @@ import HomeScreen from '../screens/HomeScreen';
 import RadioScreen from '../screens/RadioScreen';
 import PodcastScreen from '../screens/PodcastScreen';
 import JukeboxScreen from '../screens/jukebox/JukeboxScreen';
+import NextSongVoteScreen from '../screens/next-song-vote/NextSongVoteScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import LeaderboardScreen from '../screens/LeaderboardScreen';
 import EventsScreen from '../screens/EventsScreen';
 import GamesScreen from '../screens/GamesScreen';
 import MarketScreen from '../screens/MarketScreen';
+import StudyHomeScreen from '../screens/study/StudyHomeScreen';
+import StudyRoomScreen from '../screens/study/StudyRoomScreen';
+import AvatarClosetScreen from '../screens/study/AvatarClosetScreen';
 import SnakeScreen from '../screens/games/SnakeScreen';
 import MemoryGameScreen from '../screens/games/MemoryGameScreen';
 import TetrisScreen from '../screens/games/TetrisScreen';
@@ -56,8 +60,12 @@ function MainTabs() {
             iconName = 'microphone';
           } else if (route.name === 'Jukebox') {
             iconName = 'music-box-multiple';
+          } else if (route.name === 'NextSongVote') {
+            iconName = focused ? 'vote' : 'vote-outline';
           } else if (route.name === 'Leaderboard') {
             iconName = focused ? 'trophy' : 'trophy-outline';
+          } else if (route.name === 'Study') {
+            iconName = 'stairs';
           }
 
           return <Icon name={iconName} size={size} color={color} />;
@@ -99,7 +107,9 @@ function MainTabs() {
       <Tab.Screen name="Home" component={HomeScreen} options={{title: 'Ana Sayfa', headerShown: false}} />
       <Tab.Screen name="Radio" component={RadioScreen} options={{title: 'Yayın', headerShown: false}} />
       <Tab.Screen name="Podcasts" component={PodcastScreen} options={{title: 'Podcastler', headerShown: false}} />
+      <Tab.Screen name="NextSongVote" component={NextSongVoteScreen} options={{title: 'Oylama', headerShown: false}} />
       <Tab.Screen name="Jukebox" component={JukeboxScreen} options={{title: 'Jukebox', headerShown: false}} />
+      <Tab.Screen name="Study" component={StudyHomeScreen} options={{title: 'Study', headerShown: false}} />
       <Tab.Screen name="Leaderboard" component={LeaderboardScreen} options={{title: 'Sıralama', headerShown: false}} />
     </Tab.Navigator>
   );
@@ -117,6 +127,12 @@ function getTabLabel(t: (key: string) => string, routeName: string) {
   }
   if (routeName === 'Jukebox') {
     return t('tabs.jukebox');
+  }
+  if (routeName === 'NextSongVote') {
+    return 'Oylama';
+  }
+  if (routeName === 'Study') {
+    return 'Study';
   }
   return t('tabs.leaderboard');
 }
@@ -147,6 +163,8 @@ export function RootNavigator() {
       <Stack.Screen name="Events" component={EventsScreen} />
       <Stack.Screen name="Games" component={GamesScreen} />
       <Stack.Screen name="Market" component={MarketScreen} />
+      <Stack.Screen name="StudyRoom" component={StudyRoomScreen} />
+      <Stack.Screen name="AvatarCloset" component={AvatarClosetScreen} />
       <Stack.Screen name="SnakeGame" component={SnakeScreen} />
       <Stack.Screen name="MemoryGame" component={MemoryGameScreen} />
       <Stack.Screen name="TetrisGame" component={TetrisScreen} />

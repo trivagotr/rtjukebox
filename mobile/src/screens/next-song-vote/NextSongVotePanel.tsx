@@ -80,11 +80,6 @@ export default function NextSongVotePanel({ deviceId }: NextSongVotePanelProps) 
   const [nowTick, setNowTick] = useState(Date.now());
 
   const loadRound = useCallback(async () => {
-    if (!deviceId) {
-      setRound(null);
-      return;
-    }
-
     try {
       setIsLoading(true);
       setRound(await fetchActiveNextSongVoteRound(deviceId));
@@ -105,10 +100,6 @@ export default function NextSongVotePanel({ deviceId }: NextSongVotePanelProps) 
   }, []);
 
   useEffect(() => {
-    if (!deviceId) {
-      return;
-    }
-
     const socket = io(SOCKET_ORIGIN, {
       path: SOCKET_PATH,
       transports: ['websocket', 'polling'],
@@ -117,7 +108,9 @@ export default function NextSongVotePanel({ deviceId }: NextSongVotePanelProps) 
       reconnectionAttempts: 10,
     });
 
-    socket.emit('join_device', deviceId);
+    if (deviceId) {
+      socket.emit('join_device', deviceId);
+    }
     const updateRound = (payload: unknown) => setRound(normalizeNextSongVoteRound(payload));
 
     socket.on('next_vote_round_started', updateRound);
@@ -154,10 +147,6 @@ export default function NextSongVotePanel({ deviceId }: NextSongVotePanelProps) 
   };
 
   const statusCopy = getNextSongVoteStatusCopy(round);
-
-  if (!deviceId) {
-    return null;
-  }
 
   return (
     <View style={styles.panel}>

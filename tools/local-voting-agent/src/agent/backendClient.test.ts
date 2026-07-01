@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAgentHeaders, buildBackendRoundPayload } from './backendClient';
+import { buildAgentHeaders, buildBackendRoundPayload, createBackendVotingClient } from './backendClient';
 import type { VotingRound } from './types';
 
 const round: VotingRound = {
@@ -62,5 +62,26 @@ describe('backend client helpers', () => {
       },
     ]);
     expect(payload.winnerCandidateId).toBe('candidate-song-1');
+  });
+
+  it('publishes rounds to the separate next-song voting backend namespace', async () => {
+    const calls: Array<[string, RequestInit | undefined]> = [];
+    const client = createBackendVotingClient(
+      {
+        apiBaseUrl: 'https://rt.example.test/',
+        agentToken: 'secret-token',
+        deviceId: 'studio-pc',
+        enabled: true,
+      },
+      async (url, init) => {
+        calls.push([String(url), init]);
+        return { ok: true } as Response;
+      },
+    );
+
+    await client?.publishRound(round);
+
+    expect(calls[0][0]).toBe('https://rt.example.test/api/v1/next-song-voting/agent/rounds');
+    expect(calls[0][1]?.headers).toMatchObject({ 'X-RT-Device-Id': 'studio-pc' });
   });
 });

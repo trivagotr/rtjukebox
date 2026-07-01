@@ -17,7 +17,7 @@ The mobile app lives under:
 Relevant files to inspect first:
 
 - `mobile/src/navigation/RootNavigator.tsx`
-- `mobile/src/screens/jukebox/JukeboxScreen.tsx`
+- `mobile/src/screens/next-song-vote/NextSongVoteScreen.tsx`
 - `mobile/src/theme/theme.ts`
 - `mobile/src/services/api.ts`
 - `mobile/src/context/AuthContext.tsx`
@@ -29,7 +29,7 @@ Backend contract should come from Prompt 1. Do not invent final endpoint names i
 
 ## UX Goal
 
-Users should be able to enter next-song voting from the mobile app menu/Jukebox area and vote for one of 2 or 3 candidates.
+Users should be able to enter next-song voting from a separate mobile app menu/tab and vote for one of 2 or 3 candidates.
 
 The UI must feel native to the current RadioTEDU mobile design:
 
@@ -47,11 +47,11 @@ Add a visible entry point for next-song voting.
 
 Preferred placement:
 
-- inside the existing Jukebox tab/screen as a prominent "Next Song Vote" section or button
+- a separate `NextSongVote` tab/menu item labeled `Oylama`
 
 Alternative if existing navigation expects a screen:
 
-- add a dedicated `NextSongVoteScreen` under the Jukebox stack/menu
+- add a dedicated `NextSongVoteScreen` outside the Jukebox stack/menu
 
 Avoid creating a marketing/landing page. The first screen should be useful: active round, candidates, timer/lock state, and vote controls.
 
@@ -80,8 +80,8 @@ Copy rules:
 
 Use actual backend endpoints from Prompt 1 implementation. Expected shape:
 
-- `GET /api/v1/jukebox/voting/rounds/active`
-- `POST /api/v1/jukebox/voting/rounds/:roundId/votes`
+- `GET /api/v1/next-song-voting/rounds/active`
+- `POST /api/v1/next-song-voting/rounds/:roundId/votes`
 - Socket.IO events:
   - `next_vote_round_started`
   - `next_vote_round_updated`
@@ -133,10 +133,11 @@ Vote behavior:
 
 Exact structure depends on the existing app, but likely:
 
-- `mobile/src/screens/jukebox/NextSongVoteScreen.tsx`
+- `mobile/src/screens/next-song-vote/NextSongVoteScreen.tsx`
+- `mobile/src/screens/next-song-vote/NextSongVotePanel.tsx`
 - `mobile/src/services/nextSongVotingService.ts`
 - `mobile/__tests__/nextSongVotingService.test.ts`
-- possibly update `mobile/src/screens/jukebox/JukeboxScreen.tsx`
+- update `mobile/src/navigation/RootNavigator.tsx`
 - possibly update `mobile/src/navigation/RootNavigator.tsx`
 
 Follow existing mobile patterns before adding new abstractions.
@@ -150,7 +151,7 @@ Use TDD.
 - No-vote fallback response does not render random-selection copy.
 - Locked round disables vote controls.
 - Candidate cards render album art/title/artist/votes.
-- Jukebox menu entry navigates to or reveals next-song voting.
+- Separate `Oylama` menu/tab navigates to next-song voting.
 
 ## Verification
 

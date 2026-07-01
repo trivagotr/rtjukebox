@@ -27,18 +27,18 @@ The broadcast computer music "database" is a plain folder tree, not SQL. Folder 
 
 ## Backend Scope
 
-Add or design backend support for next-song voting rounds alongside the existing jukebox system. Do not replace the current jukebox queue/vote behavior yet.
+Add or design backend support for next-song voting rounds as a separate product surface. Do not embed this into the current jukebox queue/vote behavior.
 
 Recommended namespace:
 
-`/api/v1/jukebox/voting`
+`/api/v1/next-song-voting`
 
 Recommended backend concepts:
 
 - `voting_rounds`
 - `voting_round_candidates`
 - `voting_round_votes`
-- `voting_agent_devices` or a safe extension of existing jukebox devices
+- `voting_agent_devices` or a dedicated broadcast-agent device table
 - audit trail for accepted/rejected vote attempts
 - command queue for agent playback commands
 
@@ -73,25 +73,25 @@ The backend must:
 
 Agent endpoints:
 
-- `POST /api/v1/jukebox/voting/agent/register`
-- `POST /api/v1/jukebox/voting/agent/heartbeat`
-- `POST /api/v1/jukebox/voting/agent/playback-progress`
-- `POST /api/v1/jukebox/voting/agent/rounds`
-- `GET /api/v1/jukebox/voting/agent/commands`
-- `POST /api/v1/jukebox/voting/agent/commands/:id/ack`
+- `POST /api/v1/next-song-voting/agent/register`
+- `POST /api/v1/next-song-voting/agent/heartbeat`
+- `POST /api/v1/next-song-voting/agent/playback-progress`
+- `POST /api/v1/next-song-voting/agent/rounds`
+- `GET /api/v1/next-song-voting/agent/commands`
+- `POST /api/v1/next-song-voting/agent/commands/:id/ack`
 
 Mobile endpoints:
 
-- `GET /api/v1/jukebox/voting/rounds/active`
-- `GET /api/v1/jukebox/voting/rounds/:roundId`
-- `POST /api/v1/jukebox/voting/rounds/:roundId/votes`
+- `GET /api/v1/next-song-voting/rounds/active`
+- `GET /api/v1/next-song-voting/rounds/:roundId`
+- `POST /api/v1/next-song-voting/rounds/:roundId/votes`
 
 Admin/operator endpoints:
 
-- `POST /api/v1/jukebox/voting/rounds/:roundId/lock`
-- `POST /api/v1/jukebox/voting/rounds/:roundId/resolve`
-- `POST /api/v1/jukebox/voting/rounds/:roundId/cancel`
-- `POST /api/v1/jukebox/voting/rounds/:roundId/override`
+- `POST /api/v1/next-song-voting/rounds/:roundId/lock`
+- `POST /api/v1/next-song-voting/rounds/:roundId/resolve`
+- `POST /api/v1/next-song-voting/rounds/:roundId/cancel`
+- `POST /api/v1/next-song-voting/rounds/:roundId/override`
 
 Socket events:
 
@@ -106,8 +106,8 @@ Use existing Socket.IO room conventions where possible.
 
 ## Files To Inspect First
 
-- `backend/src/routes/jukebox.ts`
-- `backend/src/services/jukeboxScoring.ts`
+- `backend/src/routes/nextSongVoting.ts`
+- `backend/src/services/nextSongVotingService.ts`
 - `backend/src/services/gamification.ts`
 - `backend/src/sockets/index.ts`
 - `backend/src/db/schema.sql`
@@ -130,7 +130,7 @@ Use TDD. Start with pure helpers before routes:
 
 Then add schema/routes/socket events.
 
-Keep route code small. If `backend/src/routes/jukebox.ts` is already large, add focused helper/service files rather than making it more tangled.
+Keep route code small. Add focused helper/service files for next-song voting rather than growing existing jukebox queue modules.
 
 ## Verification
 

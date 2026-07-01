@@ -1,5 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import {
+  NEXT_SONG_VOTE_ACTIVE_ROUND_PATH,
+  buildNextSongVotePath,
   buildNextSongVotePayload,
   getCandidateCoverUrl,
   getNextSongVoteStatusCopy,
@@ -7,6 +9,11 @@ import {
 } from '../src/services/nextSongVote';
 
 describe('mobile next-song vote contract', () => {
+  it('uses next-song voting endpoints instead of Jukebox queue endpoints', () => {
+    expect(NEXT_SONG_VOTE_ACTIVE_ROUND_PATH).toBe('/next-song-voting/rounds/active');
+    expect(buildNextSongVotePath('round-1')).toBe('/next-song-voting/rounds/round-1/votes');
+  });
+
   it('normalizes an active round payload from the backend envelope', () => {
     const round = normalizeNextSongVoteRound({
       data: {
