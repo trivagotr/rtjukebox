@@ -1,0 +1,24 @@
+[
+  {
+    "id": "song-1",
+    "title": "Campus Lights",
+    "artist": "RadioTEDU",
+    "filePath": "C:/Music/campus-lights.mp3",
+    "albumArtPath": "C:/Music/art/campus-lights.jpg",
+    "enabled": true
+  },
+  {
+    "id": "song-2",
+    "title": "Library After Dark",
+    "artist": "RadioTEDU",
+    "filePath": "C:/Music/library-after-dark.mp3",
+    "enabled": true
+  },
+  {
+    "id": "song-3",
+    "title": "Studio Window",
+    "artist": "RadioTEDU",
+    "filePath": "C:/Music/studio-window.mp3",
+    "enabled": true
+  }
+]
