@@ -21,6 +21,38 @@ async function migrate() {
             console.log('ℹ️ "password" column already exists.');
         }
 
+        // 1b. Add Windows agent playback/debug columns to devices
+        console.log('--- Checking "devices" table for Windows agent playback columns ---');
+        const playbackColumns: Array<{ name: string; definition: string }> = [
+            { name: 'playback_provider', definition: 'VARCHAR(50)' },
+            { name: 'playback_agent_socket_id', definition: 'VARCHAR(120)' },
+            { name: 'playback_agent_connected_at', definition: 'TIMESTAMP' },
+            { name: 'playback_agent_last_seen_at', definition: 'TIMESTAMP' },
+            { name: 'playback_state', definition: 'VARCHAR(40)' },
+            { name: 'playback_state_source', definition: 'VARCHAR(60)' },
+            { name: 'playback_last_event', definition: 'VARCHAR(60)' },
+            { name: 'playback_last_event_at', definition: 'TIMESTAMP' },
+            { name: 'playback_last_error', definition: 'TEXT' },
+            { name: 'playback_debug', definition: "JSONB DEFAULT '{}'::jsonb" }
+        ];
+
+        for (const column of playbackColumns) {
+            const playbackColumnCheck = await db.query(`
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'devices' AND column_name = $1
+            `, [column.name]);
+
+            if (playbackColumnCheck.rows.length === 0) {
+                console.log(`➕ Adding "${column.name}" column to "devices"...`);
+                await db.query(`ALTER TABLE devices ADD COLUMN ${column.name} ${column.definition}`);
+            } else {
+                console.log(`ℹ️ "${column.name}" column already exists.`);
+            }
+        }
+        await db.query('CREATE INDEX IF NOT EXISTS idx_devices_playback_provider ON devices(playback_provider)');
+        console.log('✅ Windows agent playback columns ensured.');
+
         // 2. Create device_sessions table
         console.log('--- Checking for "device_sessions" table ---');
         await db.query(`

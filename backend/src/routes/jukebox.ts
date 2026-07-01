@@ -11,6 +11,15 @@ import { ROLES } from '../middleware/rbac';
 import { AudioService } from '../services/audio';
 import { songUpload } from '../middleware/upload';
 import path from 'path';
+import {
+    authenticateWindowsAgentDevice,
+    getWindowsAgentStatus,
+    isWindowsAgentCommand,
+    isWindowsAgentPlaybackEnabled,
+    sendWindowsAgentCommand,
+    WindowsAgentPlaybackError,
+    WindowsAgentCommandType
+} from '../services/windowsAgentPlayback';
 
 // --- Helper Middlewares ---
 async function checkDeviceSession(req: AuthRequest, res: Response, next: NextFunction) {
@@ -834,6 +843,61 @@ router.post('/kiosk/register', async (req: Request, res: Response) => {
     }
 });
 
+router.get('/kiosk/agent/status/:deviceId', async (req: Request, res: Response) => {
+    try {
+        const status = await getWindowsAgentStatus(req.params.deviceId);
+        if (!status) return sendError(res, 'Device not found', 404);
+
+        return sendSuccess(res, {
+            enabled: isWindowsAgentPlaybackEnabled(),
+            status
+        });
+    } catch (error: any) {
+        if (error?.code === '42703') {
+            return sendSuccess(res, {
+                enabled: isWindowsAgentPlaybackEnabled(),
+                status: null,
+                migrationRequired: true
+            });
+        }
+
+        console.error('Windows agent status error:', error);
+        return sendError(res, 'Failed to load Windows agent status', 500);
+    }
+});
+
+router.post('/kiosk/agent/command', async (req: Request, res: Response) => {
+    const { device_id, password, command, queue_item_id, reason } = req.body || {};
+
+    try {
+        if (!device_id) return sendError(res, 'device_id is required', 400, 'DEVICE_ID_REQUIRED');
+        if (!isWindowsAgentCommand(command)) {
+            return sendError(res, 'Unsupported Windows agent command', 400, 'UNSUPPORTED_WINDOWS_AGENT_COMMAND');
+        }
+
+        await authenticateWindowsAgentDevice({ device_id, password });
+
+        const io = getIO();
+        if (!io) return sendError(res, 'Socket.IO is not ready', 503, 'SOCKET_NOT_READY');
+
+        const payload = await sendWindowsAgentCommand(io, {
+            deviceId: device_id,
+            command: command as WindowsAgentCommandType,
+            queueItemId: queue_item_id || null,
+            reason: reason || null
+        });
+
+        return sendSuccess(res, { command: payload }, 'Windows agent command sent');
+    } catch (error) {
+        if (error instanceof WindowsAgentPlaybackError) {
+            return sendError(res, error.message, error.status, error.code);
+        }
+
+        console.error('Windows agent command error:', error);
+        return sendError(res, 'Failed to send Windows agent command', 500);
+    }
+});
+
 router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
     const { device_id, song_id } = req.body;
 
@@ -1011,7 +1075,16 @@ async function getQueueForDevice(deviceId: string, userId?: string) {
         }
     }
 
-    return { now_playing: nowPlaying || null, queue };
+    let playback = null;
+    try {
+        playback = await getWindowsAgentStatus(deviceId);
+    } catch (error: any) {
+        if (error?.code !== '42703') {
+            throw error;
+        }
+    }
+
+    return { now_playing: nowPlaying || null, queue, playback };
 }
 
 export default router;

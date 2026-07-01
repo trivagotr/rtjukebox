@@ -36,8 +36,19 @@ CREATE TABLE IF NOT EXISTS devices (
     current_song_id UUID, -- Circular reference, handle carefully or add FK later if needed
     last_heartbeat TIMESTAMP,
     password VARCHAR(50), -- Registration & user connection password
+    playback_provider VARCHAR(50),
+    playback_agent_socket_id VARCHAR(120),
+    playback_agent_connected_at TIMESTAMP,
+    playback_agent_last_seen_at TIMESTAMP,
+    playback_state VARCHAR(40),
+    playback_state_source VARCHAR(60),
+    playback_last_event VARCHAR(60),
+    playback_last_event_at TIMESTAMP,
+    playback_last_error TEXT,
+    playback_debug JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_devices_playback_provider ON devices(playback_provider);
 
 -- Songs Table
 CREATE TABLE IF NOT EXISTS songs (
