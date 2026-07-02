@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  buildSpotifyDeviceAuthStartUrl,
   buildSpotifyDeviceAuthEndpoints,
   createSpotifyDeviceAuthController,
   renderSpotifyDeviceAuthSetup,
@@ -351,5 +352,22 @@ describe('kiosk device spotify auth helper', () => {
 
     removeSpotifyDeviceAuthSetup(documentStub);
     expect(documentStub.getElementById('spotifyDeviceAuthSetupOverlay')).toBeNull();
+  });
+
+  it('builds a backend-compatible auth start url with device password and return origin', () => {
+    const authUrl = buildSpotifyDeviceAuthStartUrl(
+      'https://radiotedu.com',
+      'KOLEJ',
+      'secret',
+      'https://radiotedu.com'
+    );
+    const parsed = new URL(authUrl);
+
+    expect(parsed.origin).toBe('https://radiotedu.com');
+    expect(parsed.pathname).toBe('/api/v1/jukebox/kiosk/spotify-device-auth/start');
+    expect(parsed.searchParams.get('device_id')).toBe('KOLEJ');
+    expect(parsed.searchParams.get('device_pwd')).toBe('secret');
+    expect(parsed.searchParams.get('return_origin')).toBe('https://radiotedu.com');
+    expect(parsed.searchParams.has('kiosk_token')).toBe(false);
   });
 });

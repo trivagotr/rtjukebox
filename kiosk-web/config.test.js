@@ -40,4 +40,10 @@ describe('kiosk config', () => {
     expect(config.API_URL).toBe('https://api.example.com');
     expect(config.WS_URL).toBe('https://ws.example.com');
   });
+
+  it('serves kiosk assets from /kiosk even when the page is opened without a trailing slash', () => {
+    const indexHtml = fs.readFileSync(path.resolve(__dirname, './index.html'), 'utf8');
+
+    expect(indexHtml).toContain('<base href="/kiosk/">');
+  });
 });

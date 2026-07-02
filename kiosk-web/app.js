@@ -1264,6 +1264,14 @@ class KioskApp {
                 this.log(`⚠️ Spotify bağlantısı gerekli: ${authRequiredMessage}`, 'error');
                 return;
             }
+            const failedPlan = window.KioskPlayback?.getSongPlaybackPlan?.(song, CONFIG.API_URL);
+            if (failedPlan?.kind === 'spotify' && this.getQueueItemIdForPlayback(song)) {
+                await this.reportKioskPlaybackState(song, 'failed', error).catch((reportError) => {
+                    this.log(`⚠️ Spotify hata durumu bildirilemedi: ${reportError.message}`, 'error');
+                });
+                this.log(`❌ Spotify çalma hatası: ${error.message}`, 'error');
+                return;
+            }
             this.log(`❌ Beklenmedik hata: ${error.message}`, 'error');
         }
     }
@@ -1325,6 +1333,10 @@ class KioskApp {
         return null;
     }
 
+    getSpotifyUriForPlayback(song) {
+        return song?.spotify_uri || song?.spotifyUri || null;
+    }
+
     async fetchKioskSpotifyAccessToken() {
         const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/spotify-token`, {
             method: 'POST',
@@ -1344,7 +1356,7 @@ class KioskApp {
 
     async startSpotifyWebPlaybackAndReportState(song) {
         const token = await this.fetchKioskSpotifyAccessToken();
-        const spotifyUri = song.spotify_uri;
+        const spotifyUri = this.getSpotifyUriForPlayback(song);
         if (!spotifyUri) {
             throw new Error('Spotify URI missing');
         }

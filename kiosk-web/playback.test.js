@@ -44,6 +44,23 @@ describe('kiosk playback helpers', () => {
     });
   });
 
+  it('classifies camelCase spotify queue items from claim-next without falling back to fileUrl', () => {
+    const plan = getSongPlaybackPlan({
+      id: 'queue-item-3',
+      songId: 'song-spotify-2',
+      source: 'spotify',
+      spotifyUri: 'spotify:track:456',
+      fileUrl: '/uploads/songs/legacy-copy.mp3',
+    }, 'https://radiotedu.com');
+
+    expect(plan).toEqual({
+      kind: 'spotify',
+      audioUrl: null,
+      spotifyUri: 'spotify:track:456',
+      songId: 'song-spotify-2',
+    });
+  });
+
   it('syncs the playing view when remote playback is already active for the current now-playing item', () => {
     expect(shouldSyncNowPlayingView({
       nowPlaying: { song_id: 'song-spotify-1', playback_type: 'spotify' },
@@ -415,6 +432,160 @@ describe('kiosk playback helpers', () => {
       device_id: 'device-1',
       device_pwd: 'secret',
     });
+  });
+
+  it('starts spotify web playback for camelCase claim-next queue items', async () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
+    const fetchCalls = [];
+    const context = vm.createContext({
+      window: {
+        localStorage: {
+          getItem: vi.fn(() => null),
+          setItem: vi.fn(),
+          removeItem: vi.fn(),
+        },
+      },
+      document: {
+        addEventListener: vi.fn(),
+        getElementById: vi.fn(() => null),
+      },
+      console,
+      localStorage: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      },
+      fetch: vi.fn((url, options) => {
+        fetchCalls.push([url, options]);
+        const urlString = String(url);
+
+        if (urlString.includes('/api/v1/jukebox/kiosk/spotify-token')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ data: { access_token: 'token-1' } }),
+          });
+        }
+
+        if (urlString.includes('https://api.spotify.com/v1/me/player/play')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({}),
+          });
+        }
+
+        if (urlString.includes('/api/v1/jukebox/kiosk/playback/state')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true }),
+          });
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({}),
+        });
+      }),
+      CONFIG: {
+        DEVICE_PWD: 'secret',
+        API_URL: 'https://radiotedu.com',
+      },
+      module: { exports: {} },
+      exports: {},
+      require,
+    });
+
+    vm.runInContext(appSource, context);
+    const app = Object.create(context.KioskApp.prototype);
+    app.device = { id: 'device-1' };
+    app.spotifyDeviceId = 'browser-device-1';
+    app.spotifyPlayerState = { position_ms: 0, duration_ms: 180000 };
+    app.audioPlayer = { currentTime: 0 };
+
+    await app.startSpotifyWebPlaybackAndReportState({
+      id: 'queue-item-spotify',
+      songId: 'song-spotify-1',
+      source: 'spotify',
+      spotifyUri: 'spotify:track:456',
+      fileUrl: '/uploads/songs/legacy-copy.mp3',
+    });
+
+    const playCall = fetchCalls.find(([url]) => String(url).includes('https://api.spotify.com/v1/me/player/play'));
+    expect(playCall).toBeTruthy();
+    expect(JSON.parse(playCall[1].body)).toEqual({ uris: ['spotify:track:456'] });
+
+    const playbackStateCall = fetchCalls.find(([url]) => String(url).includes('/api/v1/jukebox/kiosk/playback/state'));
+    expect(JSON.parse(playbackStateCall[1].body)).toMatchObject({
+      queue_item_id: 'queue-item-spotify',
+      state: 'playing',
+    });
+  });
+
+  it('reports spotify queue item failure instead of falling back to local audio when web playback is not ready', async () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
+    const context = vm.createContext({
+      window: {
+        KioskPlayback: playbackHelpers,
+        localStorage: {
+          getItem: vi.fn(() => null),
+          setItem: vi.fn(),
+          removeItem: vi.fn(),
+        },
+      },
+      document: {
+        addEventListener: vi.fn(),
+        getElementById: vi.fn(() => null),
+      },
+      console,
+      localStorage: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      },
+      fetch: vi.fn(),
+      CONFIG: {
+        API_URL: 'https://radiotedu.com',
+      },
+      module: { exports: {} },
+      exports: {},
+      require,
+    });
+
+    vm.runInContext(appSource, context);
+    const app = Object.create(context.KioskApp.prototype);
+    app.audioPlayer = {
+      src: '',
+      pause: vi.fn(),
+    };
+    app.isPlaying = false;
+    app.autoplayTriggered = false;
+    app.isSpotifyDeviceAuthConnected = vi.fn(() => true);
+    app.playSpotifySong = vi.fn().mockRejectedValue(new Error('Spotify player readiness timeout'));
+    app.reportKioskPlaybackState = vi.fn().mockResolvedValue({ ok: true });
+    app.getSpotifyDeviceAuthRequiredMessage = vi.fn(() => null);
+    app.log = vi.fn();
+
+    const song = {
+      id: 'queue-item-spotify',
+      songId: 'song-spotify-1',
+      title: 'Spotify Song',
+      source: 'spotify',
+      spotifyUri: 'spotify:track:456',
+      fileUrl: '/uploads/songs/legacy-copy.mp3',
+    };
+
+    await app.playSong(song);
+
+    expect(app.audioPlayer.src).toBe('');
+    expect(app.playSpotifySong).toHaveBeenCalledWith(song);
+    expect(app.reportKioskPlaybackState).toHaveBeenCalledWith(
+      song,
+      'failed',
+      expect.objectContaining({ message: 'Spotify player readiness timeout' })
+    );
+    expect(app.log).toHaveBeenCalledWith(
+      expect.stringContaining('Spotify çalma hatası'),
+      'error'
+    );
   });
 
   it('mirrors now_playing into the kiosk UI when queue updates arrive after spotify playback has already started', async () => {

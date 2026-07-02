@@ -13,6 +13,10 @@
             return song.song_id;
         }
 
+        if (song?.songId) {
+            return song.songId;
+        }
+
         if (typeof song?.id === 'string' && song.id.startsWith('current-')) {
             return song.id.slice('current-'.length);
         }
@@ -21,22 +25,33 @@
     }
 
     function getSongPlaybackPlan(song, apiBaseUrl) {
-        const sourceType = song?.playback_type || song?.source_type || 'local';
+        const sourceType = song?.playback_type || song?.source_type || song?.source || 'local';
+        const spotifyUri = song?.spotify_uri || song?.spotifyUri || null;
+        const fileUrl = song?.file_url || song?.fileUrl || null;
         const songId = extractSongId(song);
 
-        if (sourceType === 'spotify' && song?.spotify_uri) {
+        if (sourceType === 'spotify' || spotifyUri) {
+            if (!spotifyUri) {
+                return {
+                    kind: 'unsupported',
+                    audioUrl: null,
+                    spotifyUri: null,
+                    songId,
+                };
+            }
+
             return {
                 kind: 'spotify',
                 audioUrl: null,
-                spotifyUri: song.spotify_uri,
+                spotifyUri,
                 songId,
             };
         }
 
-        if (typeof song?.file_url === 'string' && song.file_url.length > 0) {
+        if (typeof fileUrl === 'string' && fileUrl.length > 0) {
             return {
                 kind: 'local',
-                audioUrl: song.file_url.startsWith('/') ? apiBaseUrl + song.file_url : song.file_url,
+                audioUrl: fileUrl.startsWith('/') ? apiBaseUrl + fileUrl : fileUrl,
                 spotifyUri: null,
                 songId,
             };
@@ -45,7 +60,7 @@
         return {
             kind: 'unsupported',
             audioUrl: null,
-            spotifyUri: song?.spotify_uri ?? null,
+            spotifyUri,
             songId,
         };
     }
