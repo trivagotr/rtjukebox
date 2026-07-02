@@ -102,20 +102,9 @@ android {
         versionCode 1
         versionName "1.0"
     }
-    // Two build variants from the same code/JS:
-    //   mobile     - phones & tablets (automotive feature NOT required)
-    //   automotive - Android Automotive OS head units; the automotive sourceSet
-    //                manifest marks the automotive feature required=true, which
-    //                is what makes AAOS list the app as a media (template) app.
-    flavorDimensions "platform"
-    productFlavors {
-        mobile {
-            dimension "platform"
-        }
-        automotive {
-            dimension "platform"
-        }
-    }
+    // Single APK distribution: the same package installs on phones/tablets and
+    // exposes optional Android Auto / Automotive media surfaces through the
+    // main manifest, like standard media apps.
     signingConfigs {
         debug {
             storeFile file('debug.keystore')

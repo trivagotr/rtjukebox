@@ -154,14 +154,18 @@ Podcasts use their own `imageUrl` from the feed.
 
 ### Local Gradle verification
 
-Before DHU or emulator testing, verify both Android flavors compile and bundle
-the React Native app:
+Before DHU or emulator testing, verify the single APK compiles and bundles the
+React Native app:
 
 ```powershell
 cd mobile\android
-.\gradlew.bat :app:compileMobileDebugKotlin
-.\gradlew.bat :app:compileAutomotiveDebugKotlin
+.\gradlew.bat :app:compileDebugKotlin
+.\gradlew.bat :app:assembleDebug
 ```
+
+RadioTEDU intentionally does not build a separate Automotive APK. The same APK
+installed on phones/tablets exposes optional Android Auto / Automotive media
+surfaces via `RadioTeduCarService`, matching standard media-app distribution.
 
 If Gradle cannot find the Android SDK, create the ignored local file
 `mobile/android/local.properties`:

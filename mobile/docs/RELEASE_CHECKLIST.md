@@ -42,8 +42,9 @@ tagged: **[done]**, **[code]** (I can implement in this repo), or **[you]**
 - **[code/done]** Study, Çim alan, avatar clothes, Spark, and Rock are
   **phone-only** and excluded from Android Auto browse trees, voice actions,
   playback queues, and templates.
-- **[done]** **Automotive build flavor** (`required="true"`) so AAOS lists the
-  app (fixes the "non media template app" opt-in).
+- **[done]** **Single APK car distribution**: the phone/tablet APK also exposes
+  Android Auto / Automotive media surfaces through optional manifest features,
+  like standard media apps such as Spotify. No separate Automotive APK is built.
 - **[code]** **Content style hints** set (grid root / list children) — verify
   rendering on the head unit.
 - **[you]** Square ≥512 px artwork per channel + a Classic-specific asset

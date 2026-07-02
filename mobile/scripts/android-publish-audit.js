@@ -31,7 +31,6 @@ function main() {
   const buildGradle = read('android/build.gradle');
   const appGradle = read('android/app/build.gradle');
   const manifest = read('android/app/src/main/AndroidManifest.xml');
-  const automotiveManifest = read('android/app/src/automotive/AndroidManifest.xml');
   const autoDesc = read('android/app/src/main/res/xml/automotive_app_desc.xml');
   const proguard = read('android/app/proguard-rules.pro');
   const releaseChecklist = read('docs/RELEASE_CHECKLIST.md');
@@ -65,14 +64,16 @@ function main() {
     check(hasLightLauncherIcons, 'Literal RadioTEDU signal launcher icons exist', 'mipmap-* ic_launcher + ic_launcher_round'),
     check(hasDarkLauncherIcons, 'Dark system launcher icons exist', 'mipmap-night-* ic_launcher + ic_launcher_round'),
     check(/FOREGROUND_SERVICE_MEDIA_PLAYBACK/.test(manifest), 'Media playback foreground service declared', 'FOREGROUND_SERVICE_MEDIA_PLAYBACK'),
+    check(!/productFlavors|flavorDimensions/.test(appGradle), 'Single APK distribution has no separate automotive flavor', 'one APK for phone + car media surfaces'),
+    check(!exists('android/app/src/automotive/AndroidManifest.xml'), 'No separate Automotive APK manifest override exists', 'android/app/src/automotive removed'),
+    check(
+      /android:name="android\.hardware\.type\.automotive"\s+android:required="false"/.test(manifest),
+      'Automotive hardware feature is optional in the single APK',
+      'android.hardware.type.automotive required=false',
+    ),
     check(/android\.media\.browse\.MediaBrowserService/.test(manifest), 'Android Auto media browser service declared', 'RadioTeduCarService'),
     check(/MEDIA_PLAY_FROM_SEARCH/.test(manifest), 'Android Auto voice search action declared', 'MEDIA_PLAY_FROM_SEARCH'),
     check(/<uses\s+name="media"\s*\/>/.test(autoDesc), 'Automotive app descriptor opts into media', 'automotive_app_desc.xml'),
-    check(
-      /android:name="android\.hardware\.type\.automotive"[\s\S]*android:required="true"/.test(automotiveManifest),
-      'Automotive flavor requires automotive hardware',
-      'automotive source set',
-    ),
     check(!/screenOrientation=/.test(manifest), 'Adaptive layouts are not orientation-locked', 'no android:screenOrientation on MainActivity'),
     check(/resizeableActivity="true"/.test(manifest), 'Large screen and foldable resize support is explicit', 'resizeableActivity=true'),
     check(/MediaBrowserServiceCompat|MediaSessionCompat/.test(proguard), 'Release keep rules cover car media services', 'proguard-rules.pro'),

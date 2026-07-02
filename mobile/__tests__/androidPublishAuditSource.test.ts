@@ -14,6 +14,8 @@ describe('android publish audit source', () => {
     expect(source).toContain('Android 17 large-screen readiness is documented');
     expect(source).toContain('Google Maps media controls readiness is documented');
     expect(source).toContain('Backend connectivity contract tests are present');
+    expect(source).toContain('Single APK distribution has no separate automotive flavor');
+    expect(source).toContain('Automotive hardware feature is optional in the single APK');
   });
 
   it('documents applicable beta/preview surfaces separately from not-applicable platform features', () => {
@@ -23,5 +25,7 @@ describe('android publish audit source', () => {
     expect(releaseChecklist()).toContain('Android 16 QPR beta');
     expect(releaseChecklist()).toContain('Android 17 beta');
     expect(releaseChecklist()).toContain('Google Maps media controls');
+    expect(releaseChecklist()).toContain('Single APK car distribution');
+    expect(modernReadiness()).toContain('RadioTEDU does not ship a separate Automotive APK');
   });
 });

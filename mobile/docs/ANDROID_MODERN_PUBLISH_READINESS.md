@@ -8,7 +8,7 @@ RadioTEDU supports all applicable Android beta/preview readiness surfaces throug
 
 - **Notification visibility:** `POST_NOTIFICATIONS` is declared and the Profile screen exposes a runtime permission action for Android 13+.
 - **Media surfaces:** React Native Track Player owns the media notification, lock screen, headset/Bluetooth controls, and media session metadata.
-- **Android Auto / Automotive:** `RadioTeduCarService` is the app media browser service; the mobile and automotive variants keep separate feature declarations.
+- **Android Auto / Automotive:** `RadioTeduCarService` is the app media browser service; the single APK keeps automotive hardware optional while exposing car media declarations.
 - **Study safety:** Study, Çim alan, avatar clothes, Spark, and Rock are phone-only app surfaces and must not appear in Android Auto browse trees, voice actions, playback queues, or car templates.
 - **Live Updates readiness:** Android 16+ is detected in the readiness matrix. Live radio, active podcast playback, jukebox queue state, and event countdowns use a media notification fallback below API 36.
 - **Google Analytics:** GA4 Measurement Protocol remains consent-gated and disabled until credentials are configured.
@@ -39,6 +39,7 @@ The admin sender is production-facing:
 - Voice actions are mapped for "Play Radio TEDU", "Play latest podcast", and "Open jukebox".
 - The manifest declares `MEDIA_PLAY_FROM_SEARCH`.
 - The native car media browser exposes radio, podcasts, rankings, and a driver-safe listen-only jukebox.
+- The phone APK is also the car-capable APK. RadioTEDU does not ship a separate Automotive APK; car surfaces are optional media declarations in the main manifest.
 - Study, Çim alan, avatar clothes, Spark, and Rock are explicitly excluded from car-facing browse/actions; verify the `study-phone-only` checklist item stays green.
 - The publish audit checks media browser service, automotive descriptor, voice search, and release keep rules.
 - Real approval still needs Android Auto and Automotive OS review on Google Play and a real head unit or emulator pass.
