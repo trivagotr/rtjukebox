@@ -12,17 +12,11 @@ const PageTransition: React.FC<PageTransitionProps> = ({
   style,
   ...props
 }) => {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  // Subtle scale effect (0.97 -> 1.0) for a "premium" feel, no directional slide
-  const scaleAnim = useRef(new Animated.Value(0.97)).current;
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
 
   useFocusEffect(
     useCallback(() => {
-      // Reset instantly
-      fadeAnim.setValue(0);
-      scaleAnim.setValue(0.97);
-
-      // Parallel Animation: Fade + Subtle Scale
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 1,
