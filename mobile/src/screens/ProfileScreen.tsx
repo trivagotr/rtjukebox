@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -19,7 +19,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { launchImageLibrary } from 'react-native-image-picker';
 import api from '../services/api';
-import { STORAGE_API } from '../services/config';
+import { STORAGE_API, isAnalyticsConfigured } from '../services/config';
 import {
   createPodcastFeed,
   deletePodcastFeed,
@@ -35,6 +35,15 @@ import {
   type ProfileCustomization,
   type UserBadge,
 } from '../services/profileService';
+import {
+  buildAndroidReadiness,
+  type NotificationPermissionResult,
+} from '../services/androidReadinessService';
+import {
+  requestAndroidNotificationPermission,
+  updateNotificationPreferences,
+  type NotificationPreferences,
+} from '../services/notificationService';
 
 const ProfileScreen = () => {
   const navigation = useNavigation<any>();
@@ -55,8 +64,27 @@ const ProfileScreen = () => {
   const [badges, setBadges] = useState<UserBadge[]>([]);
   const [favoritesForm, setFavoritesForm] = useState<ProfileCustomization>({});
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermissionResult>('unavailable');
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>({
+    podcast: true,
+    radio: true,
+    jukebox: true,
+    events: true,
+  });
+  const [isSavingNotifications, setIsSavingNotifications] = useState(false);
 
   const STORAGE_API_LOCAL = STORAGE_API;
+  const androidReadiness = useMemo(
+    () =>
+      buildAndroidReadiness({
+        platform: Platform.OS,
+        version: Platform.Version,
+        notificationPermission,
+        androidAutoAvailable: Platform.OS === 'android',
+        analyticsConfigured: isAnalyticsConfigured(),
+      }),
+    [notificationPermission],
+  );
 
   const loadFeeds = useCallback(async () => {
     if (!isAdmin) {
@@ -129,6 +157,46 @@ const ProfileScreen = () => {
       Alert.alert('Error', 'Profile favorites could not be saved.');
     } finally {
       setIsSavingProfile(false);
+    }
+  };
+
+  const handleEnableNotifications = async () => {
+    try {
+      const status = await requestAndroidNotificationPermission();
+      setNotificationPermission(status);
+      Alert.alert(
+        status === 'granted' ? 'Notifications ready' : 'Notifications disabled',
+        status === 'granted'
+          ? 'RadioTEDU can show playback and announcement notifications.'
+          : 'You can enable notifications later from Android system settings.',
+      );
+    } catch (error) {
+      console.error('Notification permission error:', error);
+      Alert.alert('Error', 'Notification permission could not be requested.');
+    }
+  };
+
+  const handleNotificationPreferenceToggle = async (key: keyof NotificationPreferences) => {
+    if (!user || user.is_guest) {
+      Alert.alert('Membership required', 'Sign in to save notification preferences.');
+      return;
+    }
+
+    const nextPreferences = {
+      ...notificationPreferences,
+      [key]: !notificationPreferences[key],
+    };
+    setNotificationPreferences(nextPreferences);
+    setIsSavingNotifications(true);
+
+    try {
+      await updateNotificationPreferences(nextPreferences);
+    } catch (error) {
+      setNotificationPreferences(notificationPreferences);
+      console.error('Notification preferences error:', error);
+      Alert.alert('Error', 'Notification preferences could not be saved.');
+    } finally {
+      setIsSavingNotifications(false);
     }
   };
 
@@ -406,6 +474,68 @@ const ProfileScreen = () => {
                 {isSavingProfile ? 'Saving...' : 'Save profile'}
               </Text>
             </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Android System</Text>
+          <View style={styles.readinessCard}>
+            <View style={styles.readinessHeader}>
+              <Icon name="cellphone-cog" size={22} color={COLORS.primary} />
+              <View style={styles.readinessHeaderText}>
+                <Text style={styles.readinessTitle}>Published Android readiness</Text>
+                <Text style={styles.readinessSubtitle}>Notifications, media surfaces, Auto, Live Updates, adaptive screens and audio.</Text>
+              </View>
+            </View>
+
+            <View style={styles.readinessGrid}>
+              {Object.entries({
+                Notifications: androidReadiness.notificationVisibility,
+                Media: androidReadiness.mediaSession,
+                Auto: androidReadiness.androidAuto,
+                'Live Updates': androidReadiness.liveUpdates,
+                Adaptive: androidReadiness.adaptiveLayout,
+                'Android 16': androidReadiness.android16,
+                'Android 16 QPR': androidReadiness.android16Qpr,
+                'Android 17': androidReadiness.android17,
+                'Google Maps': androidReadiness.googleMapsMediaControls,
+                XR: androidReadiness.xrSafe,
+                Audio: androidReadiness.audioQuality,
+                Analytics: androidReadiness.analytics,
+              }).map(([label, value]) => (
+                <View style={styles.readinessPill} key={label}>
+                  <Text style={styles.readinessPillLabel}>{label}</Text>
+                  <Text style={styles.readinessPillValue}>{value}</Text>
+                </View>
+              ))}
+            </View>
+
+            <TouchableOpacity style={styles.saveProfileButton} onPress={handleEnableNotifications}>
+              <Text style={styles.saveProfileButtonText}>Enable notification visibility</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.badgesTitle}>Notification channels</Text>
+            <View style={styles.badgeWrap}>
+              {(['podcast', 'radio', 'jukebox', 'events'] as Array<keyof NotificationPreferences>).map((key) => (
+                <TouchableOpacity
+                  key={key}
+                  style={[
+                    styles.profileBadge,
+                    notificationPreferences[key] ? styles.preferenceEnabled : styles.preferenceDisabled,
+                    isSavingNotifications && styles.actionBtnDisabled,
+                  ]}
+                  onPress={() => handleNotificationPreferenceToggle(key)}
+                  disabled={isSavingNotifications}
+                >
+                  <Icon
+                    name={notificationPreferences[key] ? 'bell-check' : 'bell-off-outline'}
+                    size={14}
+                    color={notificationPreferences[key] ? COLORS.primary : COLORS.textMuted}
+                  />
+                  <Text style={styles.profileBadgeText}>{key}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         </View>
 
@@ -746,6 +876,65 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
     borderWidth: 1,
     borderColor: 'rgba(227, 30, 36, 0.2)',
+  },
+  readinessCard: {
+    padding: SPACING.md,
+    borderRadius: 16,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  readinessHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  readinessHeaderText: {
+    flex: 1,
+  },
+  readinessTitle: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  readinessSubtitle: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 17,
+  },
+  readinessGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
+  },
+  readinessPill: {
+    width: '47%',
+    padding: SPACING.sm,
+    borderRadius: 12,
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  readinessPillLabel: {
+    color: COLORS.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  readinessPillValue: {
+    color: COLORS.text,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  preferenceEnabled: {
+    borderColor: 'rgba(227, 30, 36, 0.35)',
+  },
+  preferenceDisabled: {
+    backgroundColor: COLORS.background,
+    borderColor: COLORS.border,
   },
   adminTitle: {
     fontSize: 14,
