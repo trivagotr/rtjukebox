@@ -1,16 +1,31 @@
-import { describe, expect, it } from '@jest/globals';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import api from '../src/services/api';
 import {
   NEXT_SONG_VOTE_ACTIVE_ROUND_PATH,
   NEXT_SONG_VOTE_CLIENT_ID_KEY,
   buildNextSongVoteRequestConfig,
   buildNextSongVotePath,
   buildNextSongVotePayload,
+  fetchActiveNextSongVoteRound,
   getCandidateCoverUrl,
   getNextSongVoteStatusCopy,
   normalizeNextSongVoteRound,
+  submitNextSongVote,
 } from '../src/services/nextSongVote';
 
+jest.mock('../src/services/api', () => ({
+  __esModule: true,
+  default: {
+    get: jest.fn(),
+    post: jest.fn(),
+  },
+}));
+
 describe('mobile next-song vote contract', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   it('uses next-song voting endpoints instead of Jukebox queue endpoints', () => {
     expect(NEXT_SONG_VOTE_ACTIVE_ROUND_PATH).toBe('/next-song-voting/rounds/active');
     expect(buildNextSongVotePath('round-1')).toBe('/next-song-voting/rounds/round-1/votes');
@@ -51,6 +66,35 @@ describe('mobile next-song vote contract', () => {
       device_id: 'device-1',
     });
   });
+
+  it('fetches and submits next-song votes through the backend API client', async () => {
+    const getMock = api.get as jest.MockedFunction<(path: string, config?: any) => Promise<any>>;
+    const postMock = api.post as jest.MockedFunction<(path: string, body?: any, config?: any) => Promise<any>>;
+    const roundEnvelope = {
+      data: {
+        round: {
+          id: 'round-1',
+          status: 'open',
+          candidates: [{id: 'candidate-1', title: 'Track', artist: 'Artist', votes: 0}],
+        },
+      },
+    };
+    getMock.mockResolvedValueOnce({data: roundEnvelope});
+    postMock.mockResolvedValueOnce({data: roundEnvelope});
+
+    await expect(fetchActiveNextSongVoteRound('device-1')).resolves.toEqual(expect.objectContaining({id: 'round-1'}));
+    await expect(submitNextSongVote('round-1', 'candidate-1', 'device-1')).resolves.toEqual(expect.objectContaining({id: 'round-1'}));
+
+    expect(getMock).toHaveBeenCalledWith(NEXT_SONG_VOTE_ACTIVE_ROUND_PATH, expect.objectContaining({
+      params: {device_id: 'device-1'},
+    }));
+    expect(postMock).toHaveBeenCalledWith(
+      buildNextSongVotePath('round-1'),
+      buildNextSongVotePayload('candidate-1', 'device-1'),
+      expect.any(Object),
+    );
+  });
+
 
   it('uses a persistent x-client-id fallback only when the user is not logged in', async () => {
     const records = new Map<string, string>();
