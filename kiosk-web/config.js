@@ -15,6 +15,7 @@ const IS_LOCAL_DEV = ['localhost', '127.0.0.1'].includes(window.location.hostnam
 const API_BASE = IS_LOCAL_DEV
     ? `${window.location.protocol}//${window.location.hostname}:3000`
     : `${window.location.origin}${PUBLIC_BASE_PATH}`;
+const DEPLOYMENT_CONFIG = window.RT_JUKEBOX_CONFIG || {};
 
 const getDeviceCode = () => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -42,22 +43,22 @@ const CONFIG = {
     DEVICE_PWD: getDevicePassword(),
 
     // Backend API URL
-    API_URL: API_BASE,
+    API_URL: DEPLOYMENT_CONFIG.API_URL || API_BASE,
 
     // WebSocket URL (genellikle API_URL ile aynı)
-    WS_URL: IS_LOCAL_DEV ? API_BASE : window.location.origin,
-    SOCKET_PATH: `${PUBLIC_BASE_PATH || ''}/socket.io`,
+    WS_URL: DEPLOYMENT_CONFIG.WS_URL || (IS_LOCAL_DEV ? API_BASE : window.location.origin),
+    SOCKET_PATH: DEPLOYMENT_CONFIG.SOCKET_PATH || `${PUBLIC_BASE_PATH || ''}/socket.io`,
 
     // QR kod için web URL formatı
     // Kullanıcı bu URL'yi tarayarak şarkı ekleyecek
-    QR_LINK_FORMAT: IS_LOCAL_DEV
+    QR_LINK_FORMAT: DEPLOYMENT_CONFIG.QR_LINK_FORMAT || (IS_LOCAL_DEV
         ? `${window.location.protocol}//${window.location.hostname}:5173/?code={DEVICE_CODE}`
-        : `${window.location.origin}${PUBLIC_BASE_PATH || ''}/?code={DEVICE_CODE}`,
+        : `${window.location.origin}${PUBLIC_BASE_PATH || ''}/?code={DEVICE_CODE}`),
 
     // Yeniden bağlanma ayarları
-    RECONNECT_INTERVAL: 5000, // 5 saniye
+    RECONNECT_INTERVAL: DEPLOYMENT_CONFIG.RECONNECT_INTERVAL || 5000, // 5 saniye
 
     // Progress bar güncellemeleri
-    UI_UPDATE_INTERVAL: 100, // 0.1 saniye (görsel akıcılık için)
-    SOCKET_EMIT_INTERVAL: 5000 // 5 saniye (sunucu yükü için)
+    UI_UPDATE_INTERVAL: DEPLOYMENT_CONFIG.UI_UPDATE_INTERVAL || 100, // 0.1 saniye (görsel akıcılık için)
+    SOCKET_EMIT_INTERVAL: DEPLOYMENT_CONFIG.SOCKET_EMIT_INTERVAL || 5000 // 5 saniye (sunucu yükü için)
 };

@@ -699,6 +699,46 @@ async function emitQueueUpdatedForDevice(deviceId: string) {
     getIO()?.to(`device:${deviceId}`).emit('queue_updated', await getQueueForDevice(deviceId, undefined, { skipRecovery: true }));
 }
 
+type KioskPlaybackState = 'playing' | 'played' | 'failed' | 'skipped' | 'paused';
+
+function mapKioskPlaybackQueueItem(row: Record<string, any>, state: string = 'playing') {
+    return {
+        id: row.id,
+        songId: row.song_id,
+        title: row.title,
+        artist: row.artist,
+        coverUrl: row.cover_url ?? null,
+        durationSeconds: typeof row.duration_ms === 'number' ? Math.round(row.duration_ms / 1000) : null,
+        source: row.source_type,
+        spotifyUri: row.spotify_uri ?? null,
+        fileUrl: row.file_url ?? null,
+        state,
+    };
+}
+
+function normalizeKioskPlaybackState(value: unknown): KioskPlaybackState | null {
+    if (
+        value === 'playing' ||
+        value === 'played' ||
+        value === 'failed' ||
+        value === 'skipped' ||
+        value === 'paused'
+    ) {
+        return value;
+    }
+    return null;
+}
+
+function getStoredQueueStatusForPlaybackState(state: KioskPlaybackState) {
+    if (state === 'failed') {
+        return 'skipped';
+    }
+    if (state === 'paused') {
+        return 'playing';
+    }
+    return state;
+}
+
 async function getSpotifyKioskPlaybackSnapshotForDevice(deviceId: string) {
     const token = await spotifyService.getKioskPlaybackToken(deviceId);
     try {
@@ -774,9 +814,12 @@ function readSpotifyKioskDevicePassword(req: Request) {
     const bodyPassword = typeof (req.body as { device_pwd?: unknown } | undefined)?.device_pwd === 'string'
         ? ((req.body as { device_pwd?: string }).device_pwd || null)
         : null;
+    const bodyPlaybackPassword = typeof (req.body as { password?: unknown } | undefined)?.password === 'string'
+        ? ((req.body as { password?: string }).password || null)
+        : null;
     const queryPassword = typeof req.query?.device_pwd === 'string' ? req.query.device_pwd : null;
 
-    return (bodyPassword ?? queryPassword ?? '').trim();
+    return (bodyPassword ?? bodyPlaybackPassword ?? queryPassword ?? '').trim();
 }
 
 async function loadValidatedSpotifyKioskDevice(deviceId: string, devicePassword: string) {
@@ -3017,6 +3060,185 @@ router.get('/kiosk/spotify-device-auth/start', handleSpotifyKioskDeviceAuthStart
 router.post('/kiosk/spotify-device-auth/start', handleSpotifyKioskDeviceAuthStartRequest);
 
 router.post('/kiosk/spotify-device', handleSpotifyKioskDeviceRegistration);
+
+router.post('/kiosk/playback/claim-next', async (req: Request, res: Response) => {
+    const { device_id } = req.body;
+
+    try {
+        if (!device_id) {
+            return sendError(res, 'Missing device_id', 400);
+        }
+
+        const validation = await loadValidatedSpotifyKioskDevice(device_id, readSpotifyKioskDevicePassword(req));
+        if (!validation.ok) {
+            return sendError(res, validation.error, validation.statusCode);
+        }
+
+        const currentPlaying = await db.query(
+            `SELECT qi.id, qi.song_id, s.title, s.artist, s.cover_url, s.duration_ms,
+                    s.source_type, s.spotify_uri, s.file_url
+             FROM queue_items qi
+             JOIN songs s ON s.id = qi.song_id
+             WHERE qi.device_id = $1 AND qi.status = 'playing'
+             ORDER BY qi.added_at ASC
+             LIMIT 1`,
+            [device_id]
+        );
+
+        if (currentPlaying.rows.length > 0) {
+            return sendSuccess(res, {
+                queueItem: mapKioskPlaybackQueueItem(currentPlaying.rows[0], 'playing'),
+            }, 'Current queue item already claimed');
+        }
+
+        const claimed = await db.query(
+            `WITH next_item AS (
+                 SELECT qi.id
+                 FROM queue_items qi
+                 JOIN songs s ON s.id = qi.song_id
+                 WHERE qi.device_id = $1 AND qi.status = 'pending'
+                 ORDER BY qi.priority_score DESC, qi.added_at ASC
+                 LIMIT 1
+             )
+             UPDATE queue_items qi
+             SET status = 'playing'
+             FROM next_item, songs s
+             WHERE qi.id = next_item.id AND s.id = qi.song_id
+             RETURNING qi.id, qi.song_id, s.title, s.artist, s.cover_url, s.duration_ms,
+                       s.source_type, s.spotify_uri, s.file_url`,
+            [device_id]
+        );
+
+        if (claimed.rows.length === 0) {
+            return sendSuccess(res, { queueItem: null }, 'No pending queue item');
+        }
+
+        const queueItem = claimed.rows[0];
+        await db.query(
+            'UPDATE devices SET current_song_id = $2, last_heartbeat = NOW() WHERE id = $1',
+            [device_id, queueItem.song_id]
+        );
+        await recordAutoplayPlaybackStart({ queueItemId: queueItem.id });
+        getIO()?.to(`device:${device_id}`).emit('now_playing_updated', {
+            queue_item_id: queueItem.id,
+            state: 'playing',
+        });
+        getIO()?.to(`device:${device_id}`).emit('queue_updated', await getQueueForDevice(device_id));
+
+        return sendSuccess(res, {
+            queueItem: mapKioskPlaybackQueueItem(queueItem, 'playing'),
+        }, 'Queue item claimed');
+    } catch (error) {
+        console.error('Kiosk playback claim failed:', error);
+        return sendError(res, 'Kiosk playback claim failed', 500);
+    }
+});
+
+router.post('/kiosk/playback/state', async (req: Request, res: Response) => {
+    const {
+        device_id,
+        queue_item_id,
+        position_ms,
+        duration_ms,
+        error_code,
+        error_message,
+    } = req.body;
+    const playbackState = normalizeKioskPlaybackState(req.body?.state);
+
+    try {
+        if (!device_id) {
+            return sendError(res, 'Missing device_id', 400);
+        }
+        if (!queue_item_id) {
+            return sendError(res, 'Missing queue_item_id', 400);
+        }
+        if (!playbackState) {
+            return sendError(res, 'Invalid playback state', 400);
+        }
+
+        const validation = await loadValidatedSpotifyKioskDevice(device_id, readSpotifyKioskDevicePassword(req));
+        if (!validation.ok) {
+            return sendError(res, validation.error, validation.statusCode);
+        }
+
+        const queueItemResult = await db.query(
+            `SELECT qi.id, qi.device_id, qi.song_id, qi.added_by, qi.queue_reason, s.asset_role
+             FROM queue_items qi
+             JOIN songs s ON s.id = qi.song_id
+             WHERE qi.id = $1 AND qi.device_id = $2`,
+            [queue_item_id, device_id]
+        );
+        if (queueItemResult.rows.length === 0) {
+            return sendError(res, 'Queue item not found for device', 404);
+        }
+
+        const queueItem = queueItemResult.rows[0];
+        const storedStatus = getStoredQueueStatusForPlaybackState(playbackState);
+
+        if (playbackState === 'paused') {
+            await db.query('UPDATE devices SET last_heartbeat = NOW() WHERE id = $1', [device_id]);
+        } else if (storedStatus === 'played') {
+            await db.query(
+                "UPDATE queue_items SET status = 'played', played_at = NOW() WHERE id = $1",
+                [queue_item_id]
+            );
+            await db.query(
+                `UPDATE devices
+                 SET current_song_id = NULL, last_heartbeat = NOW()
+                 WHERE id = $1 AND current_song_id = $2`,
+                [device_id, queueItem.song_id]
+            );
+            await maybeEnqueueProfileSystemItems({
+                deviceId: device_id,
+                completedNormalMusicItem: isCompletedNormalMusicItem(queueItem),
+            });
+        } else if (storedStatus === 'skipped') {
+            await db.query(
+                "UPDATE queue_items SET status = 'skipped' WHERE id = $1",
+                [queue_item_id]
+            );
+            await db.query(
+                `UPDATE devices
+                 SET current_song_id = NULL, last_heartbeat = NOW()
+                 WHERE id = $1 AND current_song_id = $2`,
+                [device_id, queueItem.song_id]
+            );
+        } else {
+            await db.query(
+                "UPDATE queue_items SET status = 'playing' WHERE id = $1",
+                [queue_item_id]
+            );
+            await db.query(
+                'UPDATE devices SET current_song_id = $2, last_heartbeat = NOW() WHERE id = $1',
+                [device_id, queueItem.song_id]
+            );
+        }
+
+        const eventPayload = {
+            queue_item_id,
+            state: playbackState,
+            stored_status: storedStatus,
+            position_ms: typeof position_ms === 'number' ? position_ms : null,
+            duration_ms: typeof duration_ms === 'number' ? duration_ms : null,
+            error_code: error_code ?? null,
+            error_message: error_message ?? null,
+        };
+        getIO()?.to(`device:${device_id}`).emit('playback_state_updated', eventPayload);
+        if (playbackState === 'failed') {
+            getIO()?.to(`device:${device_id}`).emit('playback_failed', eventPayload);
+        }
+        getIO()?.to(`device:${device_id}`).emit('queue_updated', await getQueueForDevice(device_id));
+
+        return sendSuccess(res, {
+            queue_item_id,
+            state: playbackState,
+            stored_status: storedStatus,
+        }, 'Playback state updated');
+    } catch (error) {
+        console.error('Kiosk playback state update failed:', error);
+        return sendError(res, 'Kiosk playback state update failed', 500);
+    }
+});
 
 router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
     const { device_id, song_id } = req.body;

@@ -310,7 +310,7 @@ describe('kiosk playback helpers', () => {
           });
         }
 
-        if (urlString.includes('/api/v1/jukebox/kiosk/now-playing')) {
+        if (urlString.includes('/api/v1/jukebox/kiosk/playback/state')) {
           return Promise.resolve({
             ok: true,
             json: () => Promise.resolve({ success: true }),
@@ -393,12 +393,18 @@ describe('kiosk playback helpers', () => {
     });
 
     expect(app.skipUnsupportedSong).not.toHaveBeenCalled();
-    expect(fetchCalls.some(([url]) => String(url).includes('/api/v1/jukebox/kiosk/now-playing'))).toBe(true);
-    const nowPlayingCall = fetchCalls.find(([url]) => String(url).includes('/api/v1/jukebox/kiosk/now-playing'));
-    expect(JSON.parse(nowPlayingCall?.[1]?.body)).toEqual({
+    expect(fetchCalls.some(([url]) => String(url).includes('/api/v1/jukebox/kiosk/playback/state'))).toBe(true);
+    expect(fetchCalls.some(([url]) => String(url).includes('/api/v1/jukebox/kiosk/now-playing'))).toBe(false);
+    const playbackStateCall = fetchCalls.find(([url]) => String(url).includes('/api/v1/jukebox/kiosk/playback/state'));
+    expect(JSON.parse(playbackStateCall?.[1]?.body)).toEqual({
       device_id: 'device-1',
-      device_pwd: 'secret',
-      song_id: 'song-spotify-1',
+      password: 'secret',
+      queue_item_id: 'queue-item-spotify',
+      state: 'playing',
+      position_ms: 0,
+      duration_ms: null,
+      error_code: null,
+      error_message: null,
     });
     const spotifyTokenCall = fetchCalls.find(([url]) => String(url).includes('/api/v1/jukebox/kiosk/spotify-token'));
     expect(spotifyTokenCall?.[1]).toMatchObject({
@@ -732,7 +738,16 @@ describe('kiosk playback helpers', () => {
       setInterval,
       clearInterval,
       localStorage: windowStub.localStorage,
-      fetch: vi.fn((url) => Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, url }) })),
+      fetch: vi.fn((url) => {
+        const urlString = String(url);
+        if (urlString.includes('/api/v1/jukebox/kiosk/spotify-token')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { access_token: 'token-1' } }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, url }) });
+      }),
       CONFIG: {
         DEVICE_CODE: 'KIOSK-1',
         DEVICE_PWD: 'secret',
@@ -757,6 +772,7 @@ describe('kiosk playback helpers', () => {
     const app = new context.KioskApp();
     app.device = { id: 'device-1' };
     app.spotifyController = { player: { pause: vi.fn() } };
+    app.spotifyDeviceId = 'browser-device-1';
     vi.spyOn(app, 'ensureSpotifyPlaybackReady').mockResolvedValue(app.spotifyController);
     vi.spyOn(app, 'showPlayingState').mockImplementation(() => {});
 
@@ -1036,7 +1052,14 @@ describe('kiosk playback helpers', () => {
       localStorage: windowStub.localStorage,
       fetch: vi.fn((url) => {
         const urlString = String(url);
-        if (urlString.includes('/api/v1/jukebox/kiosk/now-playing')) {
+        if (urlString.includes('/api/v1/jukebox/kiosk/spotify-token')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { access_token: 'token-1' } }),
+          });
+        }
+
+        if (urlString.includes('/api/v1/jukebox/kiosk/playback/state')) {
           return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
         }
 
@@ -1069,6 +1092,7 @@ describe('kiosk playback helpers', () => {
     const app = new context.KioskApp();
     app.device = { id: 'device-1' };
     app.spotifyController = { player: { pause: vi.fn() } };
+    app.spotifyDeviceId = 'browser-device-1';
     app.ensureSpotifyPlaybackReady = vi.fn().mockResolvedValue(app.spotifyController);
     vi.spyOn(app, 'showPlayingState').mockImplementation(() => {});
     const startProgressUpdate = vi.spyOn(app, 'startProgressUpdate').mockImplementation(() => {});
@@ -1142,7 +1166,7 @@ describe('kiosk playback helpers', () => {
       localStorage: localStorageStub,
       fetch: vi.fn((url) => {
         const urlString = String(url);
-        if (urlString.includes('/api/v1/jukebox/kiosk/now-playing')) {
+        if (urlString.includes('/api/v1/jukebox/kiosk/spotify-token')) {
           return Promise.resolve({
             ok: false,
             status: 503,

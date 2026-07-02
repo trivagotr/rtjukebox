@@ -531,6 +531,143 @@ describe('jukebox spotify kiosk routes', () => {
     }
   });
 
+  it('lets a kiosk claim the next pending item as a queue-item playback contract', async () => {
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'queue-1',
+          song_id: 'song-spotify-1',
+          title: 'Spotify Song',
+          artist: 'Spotify Artist',
+          cover_url: 'https://img.example/cover.jpg',
+          duration_ms: 180000,
+          source_type: 'spotify',
+          spotify_uri: 'spotify:track:4uLU6hMCjMI75M1A2tKUQC',
+          file_url: null,
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValue({ rows: [] });
+    const server = await createJukeboxRouterServer();
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/playback/claim-next`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_id: 'device-1',
+          password: 'secret',
+        }),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.data.queueItem).toEqual({
+        id: 'queue-1',
+        songId: 'song-spotify-1',
+        title: 'Spotify Song',
+        artist: 'Spotify Artist',
+        coverUrl: 'https://img.example/cover.jpg',
+        durationSeconds: 180,
+        source: 'spotify',
+        spotifyUri: 'spotify:track:4uLU6hMCjMI75M1A2tKUQC',
+        fileUrl: null,
+        state: 'playing',
+      });
+      expect(mockDbQuery.mock.calls.some(([sql]) => String(sql).includes("status = 'playing'"))).toBe(true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('marks a claimed queue item played only from the playback state endpoint', async () => {
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret' }] })
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'queue-1',
+          device_id: 'device-1',
+          song_id: 'song-spotify-1',
+          added_by: 'user-1',
+          queue_reason: 'user',
+          asset_role: 'music',
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValue({ rows: [] });
+    const server = await createJukeboxRouterServer();
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/playback/state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_id: 'device-1',
+          password: 'secret',
+          queue_item_id: 'queue-1',
+          state: 'played',
+          position_ms: 180000,
+          duration_ms: 180000,
+          error_code: null,
+          error_message: null,
+        }),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.data).toEqual({
+        queue_item_id: 'queue-1',
+        state: 'played',
+        stored_status: 'played',
+      });
+      expect(mockDbQuery.mock.calls.some(([sql]) => String(sql).includes("SET status = 'played'"))).toBe(true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('maps playback failures to skipped queue status instead of played', async () => {
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret' }] })
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'queue-1',
+          device_id: 'device-1',
+          song_id: 'song-spotify-1',
+          added_by: 'user-1',
+          queue_reason: 'user',
+          asset_role: 'music',
+        }],
+      })
+      .mockResolvedValue({ rows: [] });
+    const server = await createJukeboxRouterServer();
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/playback/state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_id: 'device-1',
+          password: 'secret',
+          queue_item_id: 'queue-1',
+          state: 'failed',
+          error_code: 'SPOTIFY_PLAYBACK_ERROR',
+          error_message: 'Premium required',
+        }),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.data.stored_status).toBe('skipped');
+      expect(mockDbQuery.mock.calls.some(([sql]) => String(sql).includes("SET status = 'played'"))).toBe(false);
+      expect(mockDbQuery.mock.calls.some(([sql]) => String(sql).includes("SET status = 'skipped'"))).toBe(true);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('returns 503 when a kiosk starts a spotify song without device spotify auth', async () => {
     mockDbQuery
       .mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret', is_active: true }] })

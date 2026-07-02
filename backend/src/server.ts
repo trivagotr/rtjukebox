@@ -24,6 +24,7 @@ import { startRadioHistoryWatcher } from './services/radioHistory';
 import { syncPodcastFeed } from './services/podcastFeeds';
 import { ensureDefaultPodcastFeeds, getDefaultPodcastFeeds } from './services/defaultPodcastFeeds';
 import { db } from './db';
+import { redactSensitiveUrl } from './utils/redactUrl';
 import { resolveCorsOrigins } from './config/cors';
 
 const IS_TEST_ENV = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
@@ -92,7 +93,7 @@ app.use(express.json());
 
 // Request logger
 app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    console.log(`[${new Date().toISOString()}] ${req.method} ${redactSensitiveUrl(req.url)}`);
     next();
 });
 app.use(rateLimit({ windowMs: 60000, max: 500 }));

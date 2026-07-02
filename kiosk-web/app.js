@@ -835,7 +835,14 @@ class KioskApp {
         }
 
         this.spotifyTrackEnding = true;
-        this.stopPlayback();
+        const endedSong = this.queueData?.now_playing;
+        const queueItemId = this.getQueueItemIdForPlayback(endedSong);
+        if (queueItemId) {
+            this.reportKioskPlaybackState(endedSong, 'played').catch((error) => {
+                this.log(`âš ï¸ Spotify bitiÅŸ bildirimi hatasÄ±: ${error.message}`, 'error');
+            });
+        }
+        this.stopPlayback({ notifyServer: !queueItemId });
         setTimeout(() => {
             this.spotifyTrackEnding = false;
         }, 0);
@@ -1278,15 +1285,18 @@ class KioskApp {
 
         this.audioPlayer.pause();
         this.audioPlayer.src = '';
-        const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/now-playing`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                device_id: this.device.id,
-                device_pwd: this.getDevicePasswordForApi(),
-                song_id: songId
-            })
-        });
+        const queueItemId = this.getQueueItemIdForPlayback(song);
+        const response = queueItemId
+            ? await this.startSpotifyWebPlaybackAndReportState(song)
+            : await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/now-playing`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    device_id: this.device.id,
+                    device_pwd: this.getDevicePasswordForApi(),
+                    song_id: songId
+                })
+            });
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
@@ -1299,7 +1309,95 @@ class KioskApp {
         this.showPlayingState(song);
     }
 
-    stopPlayback() {
+    getQueueItemIdForPlayback(song) {
+        if (!song) {
+            return null;
+        }
+
+        if (song.queue_item_id) {
+            return song.queue_item_id;
+        }
+
+        if (typeof song.id === 'string' && !song.id.startsWith('current-') && !song.id.startsWith('autoplay-')) {
+            return song.id;
+        }
+
+        return null;
+    }
+
+    async fetchKioskSpotifyAccessToken() {
+        const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/spotify-token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_id: this.device.id,
+                device_pwd: this.getDevicePasswordForApi(),
+            }),
+        });
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || `Spotify token request failed (${response.status})`);
+        }
+        const payload = await response.json();
+        return payload.data.access_token;
+    }
+
+    async startSpotifyWebPlaybackAndReportState(song) {
+        const token = await this.fetchKioskSpotifyAccessToken();
+        const spotifyUri = song.spotify_uri;
+        if (!spotifyUri) {
+            throw new Error('Spotify URI missing');
+        }
+        if (!this.spotifyDeviceId) {
+            throw new Error('Spotify Web Playback device is not ready');
+        }
+
+        const playResponse = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(this.spotifyDeviceId)}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ uris: [spotifyUri] }),
+        });
+        if (!playResponse.ok) {
+            const errData = await playResponse.json().catch(() => ({}));
+            throw new Error(errData?.error?.message || `Spotify playback start failed (${playResponse.status})`);
+        }
+
+        return this.reportKioskPlaybackState(song, 'playing');
+    }
+
+    async reportKioskPlaybackState(song, state, error = null) {
+        const queueItemId = this.getQueueItemIdForPlayback(song);
+        if (!queueItemId) {
+            throw new Error('Queue item id missing');
+        }
+        const positionMs = typeof this.spotifyPlayerState?.position_ms === 'number'
+            ? this.spotifyPlayerState.position_ms
+            : Math.round((this.audioPlayer?.currentTime || 0) * 1000);
+        const durationMs = typeof this.spotifyPlayerState?.duration_ms === 'number'
+            ? this.spotifyPlayerState.duration_ms
+            : null;
+
+        return fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/playback/state`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device_id: this.device.id,
+                password: this.getDevicePasswordForApi(),
+                queue_item_id: queueItemId,
+                state,
+                position_ms: positionMs,
+                duration_ms: durationMs,
+                error_code: error?.code || null,
+                error_message: error?.message || null,
+            })
+        });
+    }
+
+    stopPlayback(options = {}) {
+        const notifyServer = options.notifyServer !== false;
         this.pauseSpotifyPlayback();
         this.audioPlayer.pause();
         this.audioPlayer.src = '';
@@ -1307,7 +1405,7 @@ class KioskApp {
         this.queueData.now_playing = null; // Clear local state immediately to prevent loop
         this.showIdleState();
 
-        if (this.device) {
+        if (this.device && notifyServer) {
             fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/now-playing`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
