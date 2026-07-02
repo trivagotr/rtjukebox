@@ -7,6 +7,7 @@ import {
   Image,
   ActivityIndicator,
 } from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import TrackPlayer, {
   usePlaybackState,
   State,
@@ -28,6 +29,7 @@ const MiniPlayer = () => {
   const playbackState = usePlaybackState();
   const track = useActiveTrack();
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
   const {metadata, updateMetadata} = useMetadata();
   const {activeChannels} = useChannels();
   const [isChangingChannel, setIsChangingChannel] = React.useState(false);
@@ -35,25 +37,23 @@ const MiniPlayer = () => {
   // More robust detection: check if Radio tab is currently active
   const isOnRadioTab = useNavigationState(state => {
     if (!state) {
-      return true;
-    } // Default to hiding if state not ready
+      return false;
+    }
     try {
-      // Get the active route in the stack (should be 'Main')
       const stackRoute = state.routes[state.index] as any;
       if (stackRoute.name === 'Profile') {
         return false;
-      } // Not on radio, but on profile
+      }
 
-      // Check if there's nested tab state
       if (stackRoute.state && stackRoute.state.index !== undefined) {
         const tabState = stackRoute.state;
         const activeTab = tabState.routes[tabState.index];
         return activeTab?.name === 'Radio';
       }
-      // If no nested state, assume first tab (Radio) is active
-      return true;
+
+      return false;
     } catch {
-      return true; // Default to hiding if any error
+      return false;
     }
   });
 
@@ -153,6 +153,10 @@ const MiniPlayer = () => {
   }
 
   const skipToPrevious = async () => {
+    if (activeChannels.length === 0) {
+      return;
+    }
+
     console.log(
       '[MiniPlayer] skipToPrevious called. TrackID:',
       displayTrack?.id,
@@ -194,6 +198,10 @@ const MiniPlayer = () => {
   };
 
   const skipToNext = async () => {
+    if (activeChannels.length === 0) {
+      return;
+    }
+
     console.log('[MiniPlayer] skipToNext called. TrackID:', displayTrack?.id);
 
     let nextIndex = 0; // Default to first channel
@@ -246,7 +254,7 @@ const MiniPlayer = () => {
   const displayArtwork = metadata?.artwork || displayTrack?.artwork;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, {bottom: insets.bottom + 78}]}>
       <View style={styles.content}>
         <View style={styles.artworkContainer}>
           {displayArtwork &&
@@ -263,10 +271,10 @@ const MiniPlayer = () => {
         <TouchableOpacity
           style={styles.infoContainer}
           onPress={() => navigation.navigate('Player')}>
-          <Text style={styles.title} numberOfLines={1}>
+          <Text style={styles.title} numberOfLines={1} maxFontSizeMultiplier={1.1}>
             {displayTitle}
           </Text>
-          <Text style={styles.artist} numberOfLines={1}>
+          <Text style={styles.artist} numberOfLines={1} maxFontSizeMultiplier={1.1}>
             {displayArtist}
           </Text>
         </TouchableOpacity>
@@ -300,13 +308,14 @@ const MiniPlayer = () => {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    bottom: 90, // Raised to clear the Total Tab Bar (approx 60-80px)
-    left: 8,
-    right: 8,
-    backgroundColor: '#282828',
-    borderRadius: 8,
+    left: 12,
+    right: 12,
+    backgroundColor: '#211113',
+    borderRadius: 18,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(227, 30, 36, 0.24)',
     elevation: 10,
     shadowColor: '#000',
     shadowOffset: {width: 0, height: 4},
@@ -323,7 +332,7 @@ const styles = StyleSheet.create({
   artwork: {
     width: 48,
     height: 48,
-    borderRadius: 4,
+    borderRadius: 12,
   },
   placeholderArtwork: {
     backgroundColor: '#404040',
@@ -347,18 +356,23 @@ const styles = StyleSheet.create({
   controls: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginLeft: 8,
   },
   iconButton: {
-    padding: 8,
-  },
-  playButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: COLORS.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: 8,
+    marginHorizontal: 6,
   },
 });
 

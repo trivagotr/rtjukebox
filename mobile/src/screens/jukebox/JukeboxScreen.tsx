@@ -194,7 +194,7 @@ const JukeboxScreen = ({ route }: any) => {
 
   const handleRequestSong = async (song: any) => {
     if (!device) {
-      Alert.alert('Hata', 'Lutfen once bir muzik kutusuna baglanin.');
+      Alert.alert('Hata', 'Lütfen önce bir müzik kutusuna bağlanın.');
       return;
     }
 
@@ -238,23 +238,23 @@ const JukeboxScreen = ({ route }: any) => {
         device_id: device.id,
         ...songSelectionPayload,
       }, { headers });
-      Alert.alert('Basarili', 'Sarki kuyruga eklendi.');
+      Alert.alert('Başarılı', 'Şarkı kuyruğa eklendi.');
       setSearch('');
       setSearchResults([]);
     } catch (error: any) {
       if (error.response?.data?.code === 'GUEST_LIMIT_REACHED') {
         const serverMessage = error.response?.data?.error || 'Misafir limitiniz doldu.';
         Alert.alert(
-          'Limit Asildi',
+          'Limit Aşıldı',
           serverMessage,
           [
-            { text: 'Iptal', style: 'cancel' },
-            { text: 'Giris Yap', onPress: () => navigation.navigate('Auth', { screen: 'Login' }) },
-            { text: 'Uye Ol', onPress: () => navigation.navigate('Auth', { screen: 'Register' }) },
+            { text: 'İptal', style: 'cancel' },
+            { text: 'Giriş Yap', onPress: () => navigation.navigate('Auth', { screen: 'Login' }) },
+            { text: 'Üye Ol', onPress: () => navigation.navigate('Auth', { screen: 'Register' }) },
           ]
         );
       } else {
-        Alert.alert('Hata', error.response?.data?.error || 'Sarki eklenemedi.');
+        Alert.alert('Hata', error.response?.data?.error || 'Şarkı eklenemedi.');
       }
     } finally {
       setIsLoading(false);
@@ -329,8 +329,8 @@ const JukeboxScreen = ({ route }: any) => {
   const renderSearchResult = ({ item }: { item: any }) => (
     <TouchableOpacity style={styles.searchResultItem} onPress={() => handleRequestSong(item)}>
       <View style={styles.songInfo}>
-        <Text style={styles.songTitle}>{item.title}</Text>
-        <Text style={styles.songArtist}>{item.artist}</Text>
+        <Text style={styles.songTitle} numberOfLines={1}>{item.title}</Text>
+        <Text style={styles.songArtist} numberOfLines={1}>{item.artist}</Text>
       </View>
       <Icon name="plus-circle" size={24} color={COLORS.primary} />
     </TouchableOpacity>
@@ -338,7 +338,7 @@ const JukeboxScreen = ({ route }: any) => {
 
   const NowPlayingHero = ({ song }: { song: any }) => {
     if (!song) return (
-      <View style={styles.heroContainer}>
+      <View style={[styles.heroContainer, styles.idleHeroContainer]}>
         <View style={styles.idleDisc}>
           <Icon name="music-note" size={40} color={COLORS.textMuted} />
         </View>
@@ -371,7 +371,7 @@ const JukeboxScreen = ({ route }: any) => {
         <View style={styles.voteBar}>
           <TouchableOpacity style={styles.voteBtn} onPress={() => handleVote(song, 1)}>
             <Icon name="thumb-up" size={24} color="#4ADE80" />
-            <Text style={[styles.voteBtnText, { color: '#4ADE80' }]}>Begen</Text>
+            <Text style={[styles.voteBtnText, { color: '#4ADE80' }]}>Beğen</Text>
           </TouchableOpacity>
 
           <View style={styles.voteDivider} />
@@ -380,7 +380,7 @@ const JukeboxScreen = ({ route }: any) => {
             <>
               <TouchableOpacity style={styles.voteBtn} onPress={() => handleVote(song, 1, true)}>
                 <Icon name={song.user_vote === 3 || song.user_vote === 4 ? 'star' : 'star-outline'} size={24} color="#F59E0B" />
-                <Text style={[styles.voteBtnText, { color: '#F59E0B' }]}>Super</Text>
+                <Text style={[styles.voteBtnText, { color: '#F59E0B' }]}>Süper</Text>
               </TouchableOpacity>
               <View style={styles.voteDivider} />
             </>
@@ -388,7 +388,7 @@ const JukeboxScreen = ({ route }: any) => {
 
           <TouchableOpacity style={styles.voteBtn} onPress={() => handleVote(song, -1)}>
             <Icon name="thumb-down" size={24} color="#F87171" />
-            <Text style={[styles.voteBtnText, { color: '#F87171' }]}>Begenme</Text>
+            <Text style={[styles.voteBtnText, { color: '#F87171' }]}>Beğenme</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -522,7 +522,7 @@ const JukeboxScreen = ({ route }: any) => {
         {/* Tappable Device Banner */}
         <TouchableOpacity style={styles.deviceBanner} onPress={() => setShowDeviceSelector(true)}>
           <Icon name="map-marker-radius" size={16} color={COLORS.primary} />
-          <Text style={styles.deviceText}>
+          <Text style={styles.deviceText} numberOfLines={1}>
             {device ? (device.location || device.name) : 'Cihaz Seçin'}
           </Text>
           <Icon name="chevron-down" size={16} color={COLORS.textMuted} />
@@ -549,6 +549,7 @@ const JukeboxScreen = ({ route }: any) => {
               data={searchResults}
               keyExtractor={item => getCatalogSongKey(item)}
               renderItem={renderSearchResult}
+              contentContainerStyle={styles.searchListContent}
             />
           </View>
         ) : (
@@ -606,6 +607,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
     marginTop: 0,
+  },
+  idleHeroContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 172,
   },
   heroContent: {
     flexDirection: 'row',
@@ -711,6 +717,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   listContent: { paddingBottom: 100 },
+  searchListContent: { paddingBottom: 110 },
   queueItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -769,7 +776,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: SPACING.sm,
   },
-  deviceText: { color: COLORS.text, fontSize: 13, marginLeft: 6 },
+  deviceText: { flex: 1, color: COLORS.text, fontSize: 13, marginLeft: 6 },
   searchResultItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -778,6 +785,8 @@ const styles = StyleSheet.create({
     marginHorizontal: SPACING.md,
     marginBottom: 4,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   modalOverlay: {
     flex: 1,
@@ -866,6 +875,7 @@ const styles = StyleSheet.create({
   idleText: {
     color: COLORS.textMuted,
     fontStyle: 'italic',
+    textAlign: 'center',
   },
   deviceOption: {
     flexDirection: 'row',

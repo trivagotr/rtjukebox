@@ -23,6 +23,7 @@ class KioskApp {
         this.isPlaying = false;
         this.waveformCanvas = document.getElementById('waveformCanvas');
         this.waveformCtx = this.waveformCanvas?.getContext('2d');
+        this.visualStateTransitionTimer = null;
 
         // Autoplay Logic
         this.autoplayTriggered = false;
@@ -338,17 +339,21 @@ class KioskApp {
     showDeviceSetupOverlay() {
         const div = document.createElement('div');
         div.id = 'deviceSetupOverlay';
-        div.style = 'position:fixed; inset:0; background:#1a1a2e; z-index:20000; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px; text-align:center;';
+        div.className = 'device-setup-overlay';
         div.innerHTML = `
-            <div style="font-size:60px; margin-bottom:20px;">⚙️</div>
-            <h2 style="color:white; margin-bottom:10px;">Cihaz Kurulumu</h2>
-            <p style="color:rgba(255,255,255,0.6); margin-bottom:30px; max-width:400px;">Bu ekranın hangi Jukebox'u temsil ettiğini belirlemek için sistem panelindeki Cihaz Kodunu ve Şifresini girin.</p>
-            <div style="display:flex; flex-direction:column; gap:15px; width:100%; max-width:400px;">
-                <input type="text" id="setupDeviceCode" placeholder="Cihaz Kodu (Örn: KAFE-01)" style="width:100%; padding:15px; border-radius:12px; border:2px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-weight:bold; text-transform:uppercase;">
-                <input type="password" id="setupDevicePassword" placeholder="Cihaz Şifresi" style="width:100%; padding:15px; border-radius:12px; border:2px solid rgba(255,255,255,0.1); background:rgba(0,0,0,0.3); color:white; font-weight:bold;">
-                <button id="saveDeviceCode" style="padding:15px; border-radius:12px; background:var(--accent-red, #dc2626); color:white; font-weight:bold; border:none; cursor:pointer;">Kaydet ve Başlat</button>
+            <div class="device-setup-card">
+                <div class="device-setup-icon" aria-hidden="true">
+                    <span class="material-symbols-rounded">settings</span>
+                </div>
+                <h2 class="device-setup-title">Cihaz Kurulumu</h2>
+                <p class="device-setup-message">Bu ekranın hangi Jukebox'u temsil ettiğini belirlemek için sistem panelindeki Cihaz Kodunu ve Şifresini girin.</p>
+                <div class="device-setup-form">
+                    <input class="device-setup-input" type="text" id="setupDeviceCode" placeholder="Cihaz Kodu (Örn: KAFE-01)">
+                    <input class="device-setup-input" type="password" id="setupDevicePassword" placeholder="Cihaz Şifresi">
+                    <button class="device-setup-button" id="saveDeviceCode">Kaydet ve Başlat</button>
+                </div>
+                <p class="device-setup-footnote">Veya URL'ye <b>?code=KOD&pwd=SIFRE</b> ekleyerek açın.</p>
             </div>
-            <p style="color:rgba(255,255,255,0.4); margin-top:20px; font-size:12px;">Veya URL'ye <b>?code=KOD&pwd=SIFRE</b> ekleyerek açın.</p>
         `;
         document.body.appendChild(div);
 
@@ -447,19 +452,23 @@ class KioskApp {
     showStartupOverlay() {
         const div = document.createElement('div');
         div.id = 'startupOverlay';
-        div.style = 'position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:10000; display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; backdrop-filter:blur(10px);';
+        div.className = 'startup-overlay';
         const showSpotifyConnectCta = !this.spotifyDeviceAuthReady || !this.isSpotifyDeviceAuthConnected();
         div.innerHTML = `
-            <div style="font-size:80px; margin-bottom:20px; animation: pulse 2s infinite">🎵</div>
-            <h2 style="color:white; margin:0">Jukebox'u Başlatmak İçın Tıklayın</h2>
-            <p style="color:rgba(255,255,255,0.5); margin-top:10px;">Tarayıcı ses kısıtlamasını aşmak için gereklidir</p>
+            <div class="startup-card">
+                <div class="startup-icon" aria-hidden="true">
+                    <span class="material-symbols-rounded">music_note</span>
+                </div>
+                <h2 class="startup-title">Jukebox'u Başlatmak İçin Tıklayın</h2>
+                <p class="startup-message">Tarayıcı ses kısıtlamasını aşmak için gereklidir</p>
         `;
         if (showSpotifyConnectCta) {
             div.innerHTML += `
-            <button id="startupSpotifyConnectButton" type="button" style="margin-top:18px; padding:14px 22px; border:none; border-radius:16px; font-weight:700; color:#fff; background:linear-gradient(135deg, #e31e26, #ff6b72); cursor:pointer; box-shadow:0 12px 30px rgba(227,30,38,0.35);">Spotify Bağla</button>
-            <p style="color:rgba(255,255,255,0.42); margin-top:10px; max-width:360px; text-align:center;">Bu kiosk kendi Spotify hesabıyla bağlanmadan Spotify şarkıları çalamaz.</p>
+                <button id="startupSpotifyConnectButton" class="startup-button" type="button">Spotify Bağla</button>
+                <p class="startup-footnote">Bu kiosk kendi Spotify hesabıyla bağlanmadan Spotify şarkıları çalamaz.</p>
             `;
         }
+        div.innerHTML += '</div>';
         div.onclick = (event) => {
             if (event?.target?.id === 'startupSpotifyConnectButton') {
                 return;
@@ -504,9 +513,9 @@ class KioskApp {
         const barCount = 80;
         const barWidth = width / barCount - 2;
         const gradient = ctx.createLinearGradient(0, 0, width, 0);
-        gradient.addColorStop(0, '#a855f7');
-        gradient.addColorStop(0.5, '#ec4899');
-        gradient.addColorStop(1, '#a855f7');
+        gradient.addColorStop(0, '#E31E26');
+        gradient.addColorStop(0.55, '#F36A07');
+        gradient.addColorStop(1, '#FF8C42');
 
         ctx.fillStyle = gradient;
 
@@ -1035,8 +1044,8 @@ class KioskApp {
         if (albumContainer) {
             albumContainer.classList.add('dj-scratch-active');
 
-            // Wait for animation to finish (1.5s in CSS)
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            // Keep this in sync with .dj-scratch-active in CSS.
+            await new Promise(resolve => setTimeout(resolve, 900));
 
             albumContainer.classList.remove('dj-scratch-active');
         }
@@ -1402,9 +1411,40 @@ class KioskApp {
     }
 
     // ===== UI Updates =====
+    transitionVisualState(showElement, hideElement) {
+        if (!showElement) {
+            return;
+        }
+
+        if (this.visualStateTransitionTimer) {
+            clearTimeout(this.visualStateTransitionTimer);
+            this.visualStateTransitionTimer = null;
+        }
+
+        showElement.classList.remove('hidden', 'state-exiting');
+        showElement.classList.add('state-entering');
+
+        if (hideElement && !hideElement.classList.contains('hidden')) {
+            hideElement.classList.remove('state-entering');
+            hideElement.classList.add('state-exiting');
+        }
+
+        this.visualStateTransitionTimer = setTimeout(() => {
+            showElement.classList.remove('state-entering');
+
+            if (hideElement) {
+                hideElement.classList.add('hidden');
+                hideElement.classList.remove('state-exiting');
+            }
+
+            this.visualStateTransitionTimer = null;
+        }, 240);
+    }
+
     showPlayingState(song) {
-        document.getElementById('idleState').classList.add('hidden');
-        document.getElementById('playingState').classList.remove('hidden');
+        const idleState = document.getElementById('idleState');
+        const playingState = document.getElementById('playingState');
+        this.transitionVisualState(playingState, idleState);
 
         // Album art
         const albumArt = document.getElementById('albumArt');
@@ -1413,7 +1453,7 @@ class KioskApp {
         // Update glow color based on album (could be dynamic)
         const glow = document.getElementById('albumGlow');
         if (glow) {
-            glow.style.background = `radial-gradient(circle, #a855f7 0%, transparent 70%)`;
+            glow.style.background = 'radial-gradient(circle, rgba(227, 30, 38, 0.55) 0%, rgba(243, 106, 7, 0.32) 42%, transparent 72%)';
         }
 
         // Song info
@@ -1429,8 +1469,9 @@ class KioskApp {
     }
 
     showIdleState() {
-        document.getElementById('idleState').classList.remove('hidden');
-        document.getElementById('playingState').classList.add('hidden');
+        const idleState = document.getElementById('idleState');
+        const playingState = document.getElementById('playingState');
+        this.transitionVisualState(idleState, playingState);
 
         // Hide live indicator
         document.getElementById('liveIndicator').style.display = 'none';

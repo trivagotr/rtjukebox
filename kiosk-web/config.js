@@ -2,12 +2,8 @@
 // Bu dosyayı her cihaza göre düzenleyin
 const getPublicBasePath = () => {
     const pathname = window.location.pathname || '';
-    const kioskIndex = pathname.indexOf('/kiosk/');
-    if (kioskIndex === -1) {
-        return '';
-    }
-
-    return pathname.slice(0, kioskIndex);
+    const match = pathname.match(/^(.*)\/kiosk(?:\/|$)/);
+    return match ? match[1] : '';
 };
 
 const PUBLIC_BASE_PATH = getPublicBasePath();

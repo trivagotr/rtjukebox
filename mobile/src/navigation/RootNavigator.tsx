@@ -3,6 +3,7 @@ import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {ActivityIndicator, Text, View} from 'react-native';
 import {useTranslation} from 'react-i18next';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import AuthGuard from '../components/AuthGuard';
 import {useAuth} from '../context/AuthContext';
@@ -43,6 +44,9 @@ function AuthStack() {
 
 function MainTabs() {
   const {t} = useTranslation();
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, 8);
+
   return (
     <Tab.Navigator
       screenOptions={({route}) => ({
@@ -67,6 +71,7 @@ function MainTabs() {
         tabBarLabelStyle: {
           fontSize: 10,
         },
+        tabBarHideOnKeyboard: true,
         tabBarLabel: ({focused, color}) => (
           <Text
             style={{
@@ -81,10 +86,14 @@ function MainTabs() {
           </Text>
         ),
         tabBarStyle: {
-          backgroundColor: COLORS.background,
+          backgroundColor: COLORS.card,
           borderTopColor: COLORS.border,
-          height: 70,
-          paddingBottom: 12,
+          height: 62 + bottomInset,
+          paddingTop: 8,
+          paddingBottom: bottomInset,
+        },
+        tabBarItemStyle: {
+          paddingVertical: 2,
         },
         headerStyle: {
           backgroundColor: COLORS.background,

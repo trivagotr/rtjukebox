@@ -7,7 +7,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useNavigation } from '@react-navigation/native';
-import { SPACING } from '../theme/theme';
+import { COLORS, SPACING } from '../theme/theme';
 
 const GlobalHeader = () => {
   const navigation = useNavigation<any>();
@@ -18,16 +18,18 @@ const GlobalHeader = () => {
 
   return (
     <View style={styles.header}>
-      <View style={{ width: 28 }} />
+      <View style={styles.sideSlot} />
       <Image
         source={require('../assets/images/logo-03byz.png')}
         style={styles.logo}
         resizeMode="contain"
       />
       <TouchableOpacity
+        style={styles.profileButton}
         onPress={handleProfilePress}
-        activeOpacity={0.7}>
-        <Icon name="account-circle" size={28} color="#fff" />
+        hitSlop={{top: 8, right: 8, bottom: 8, left: 8}}
+        activeOpacity={0.75}>
+        <Icon name="account-circle" size={28} color={COLORS.text} />
       </TouchableOpacity>
     </View>
   );
@@ -44,8 +46,19 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   logo: {
+    height: 42,
+    width: 156,
+  },
+  sideSlot: {
+    width: 44,
     height: 44,
-    width: 160,
+  },
+  profileButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 
