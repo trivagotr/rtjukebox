@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StatusBar } from 'react-native';
+import { ActivityIndicator, StatusBar, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import TrackPlayer, { Capability } from 'react-native-track-player';
@@ -42,7 +42,7 @@ const linking: any = {
 };
 
 function App(): React.JSX.Element {
-  const [showSplash, setShowSplash] = React.useState(true);
+  const [showSplash, setShowSplash] = React.useState(false);
   const [i18nReady, setI18nReady] = React.useState(false);
   const handleSplashFinish = React.useCallback(() => setShowSplash(false), []);
 
@@ -182,7 +182,11 @@ function ConsentGate({
   ]);
 
   if (!ready) {
-    return null;
+    return (
+      <View style={{flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center'}}>
+        <ActivityIndicator color="#E31E24" size="large" />
+      </View>
+    );
   }
 
   // First launch (or after a policy-version bump): ask for consent before

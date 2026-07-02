@@ -16,9 +16,11 @@ import LeaderboardScreen from '../screens/LeaderboardScreen';
 import EventsScreen from '../screens/EventsScreen';
 import GamesScreen from '../screens/GamesScreen';
 import MarketScreen from '../screens/MarketScreen';
+import SocialWebViewScreen from '../screens/social/SocialWebViewScreen';
 import StudyHomeScreen from '../screens/study/StudyHomeScreen';
 import StudyRoomScreen from '../screens/study/StudyRoomScreen';
 import AvatarClosetScreen from '../screens/study/AvatarClosetScreen';
+import LibraryStudyWebView from '../screens/study/LibraryStudyWebView';
 import SnakeScreen from '../screens/games/SnakeScreen';
 import MemoryGameScreen from '../screens/games/MemoryGameScreen';
 import TetrisScreen from '../screens/games/TetrisScreen';
@@ -60,28 +62,36 @@ function MainTabs() {
             iconName = 'microphone';
           } else if (route.name === 'Jukebox') {
             iconName = 'music-box-multiple';
-          } else if (route.name === 'NextSongVote') {
-            iconName = focused ? 'vote' : 'vote-outline';
-          } else if (route.name === 'Leaderboard') {
-            iconName = focused ? 'trophy' : 'trophy-outline';
           } else if (route.name === 'Study') {
             iconName = 'stairs';
           }
 
-          return <Icon name={iconName} size={size} color={color} />;
+          return (
+            <View
+              style={{
+                minWidth: 42,
+                height: 30,
+                borderRadius: 999,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: focused ? 'rgba(227,30,36,0.16)' : 'transparent',
+              }}>
+              <Icon name={iconName} size={size} color={color} />
+            </View>
+          );
         },
         tabBarActiveTintColor: COLORS.primary,
-        tabBarInactiveTintColor: 'gray',
+        tabBarInactiveTintColor: '#8F8F94',
         tabBarLabelStyle: {
-          fontSize: 10,
+          fontSize: 11,
         },
         tabBarLabel: ({focused, color}) => (
           <Text
             style={{
               color,
-              fontSize: 10,
+              fontSize: 11,
               textAlign: 'center',
-              fontWeight: focused ? 'bold' : 'normal',
+              fontWeight: focused ? '900' : '700',
             }}
             maxFontSizeMultiplier={1.1}
             numberOfLines={1}>
@@ -91,8 +101,12 @@ function MainTabs() {
         tabBarStyle: {
           backgroundColor: COLORS.background,
           borderTopColor: COLORS.border,
-          height: 70,
-          paddingBottom: 12,
+          height: 76,
+          paddingTop: 8,
+          paddingBottom: 14,
+        },
+        tabBarItemStyle: {
+          paddingHorizontal: 2,
         },
         headerStyle: {
           backgroundColor: COLORS.background,
@@ -107,10 +121,8 @@ function MainTabs() {
       <Tab.Screen name="Home" component={HomeScreen} options={{title: 'Ana Sayfa', headerShown: false}} />
       <Tab.Screen name="Radio" component={RadioScreen} options={{title: 'Yayın', headerShown: false}} />
       <Tab.Screen name="Podcasts" component={PodcastScreen} options={{title: 'Podcastler', headerShown: false}} />
-      <Tab.Screen name="NextSongVote" component={NextSongVoteScreen} options={{title: 'Oylama', headerShown: false}} />
       <Tab.Screen name="Jukebox" component={JukeboxScreen} options={{title: 'Jukebox', headerShown: false}} />
       <Tab.Screen name="Study" component={StudyHomeScreen} options={{title: 'Study', headerShown: false}} />
-      <Tab.Screen name="Leaderboard" component={LeaderboardScreen} options={{title: 'Sıralama', headerShown: false}} />
     </Tab.Navigator>
   );
 }
@@ -127,9 +139,6 @@ function getTabLabel(t: (key: string) => string, routeName: string) {
   }
   if (routeName === 'Jukebox') {
     return t('tabs.jukebox');
-  }
-  if (routeName === 'NextSongVote') {
-    return 'Oylama';
   }
   if (routeName === 'Study') {
     return 'Study';
@@ -163,6 +172,10 @@ export function RootNavigator() {
       <Stack.Screen name="Events" component={EventsScreen} />
       <Stack.Screen name="Games" component={GamesScreen} />
       <Stack.Screen name="Market" component={MarketScreen} />
+      <Stack.Screen name="NextSongVote" component={NextSongVoteScreen} />
+      <Stack.Screen name="Social" component={SocialWebViewScreen} />
+      <Stack.Screen name="Leaderboard" component={LeaderboardScreen} />
+      <Stack.Screen name="LibraryStudyWeb" component={LibraryStudyWebView} />
       <Stack.Screen name="StudyRoom" component={StudyRoomScreen} />
       <Stack.Screen name="AvatarCloset" component={AvatarClosetScreen} />
       <Stack.Screen name="SnakeGame" component={SnakeScreen} />

@@ -113,10 +113,12 @@ const HomeScreen = () => {
 
           <View style={styles.quickGrid}>
             <QuickAction icon="timer-outline" label={t('focus.title')} onPress={() => navigation.navigate('Focus')} />
+            <QuickAction icon="vote-outline" label="Oylama" onPress={() => navigation.navigate('NextSongVote')} />
+            <QuickAction icon="account-group-outline" label="Social" onPress={() => navigation.navigate('Social')} />
+            <QuickAction icon="trophy-outline" label="Sıralama" onPress={() => navigation.navigate('Leaderboard')} />
             <QuickAction icon="calendar-star" label="Etkinlikler" onPress={() => navigation.navigate('Events')} />
             <QuickAction icon="gamepad-variant" label="Oyunlar" onPress={() => navigation.navigate('Games')} />
             <QuickAction icon="shopping-outline" label="Market" onPress={() => navigation.navigate('Market')} />
-            <QuickAction icon="trophy-outline" label="Sıralama" onPress={() => navigation.navigate('Leaderboard')} />
           </View>
 
           {loading && !refreshing ? (

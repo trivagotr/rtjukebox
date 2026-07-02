@@ -39,6 +39,7 @@ const DEFAULT_STATE: ConsentState = {
   ageRange: null,
   gender: null,
 };
+const CONSENT_READY_TIMEOUT_MS = 2000;
 
 interface ConsentContextType {
   consent: ConsentState;
@@ -56,6 +57,7 @@ export const ConsentProvider: React.FC<{children: ReactNode}> = ({children}) => 
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    const readyTimer = setTimeout(() => setReady(true), CONSENT_READY_TIMEOUT_MS);
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(STORAGE_KEY);
@@ -69,9 +71,11 @@ export const ConsentProvider: React.FC<{children: ReactNode}> = ({children}) => 
       } catch {
         // ignore — defaults (nothing consented) are the safe state
       } finally {
+        clearTimeout(readyTimer);
         setReady(true);
       }
     })();
+    return () => clearTimeout(readyTimer);
   }, []);
 
   const persist = useCallback(async (state: ConsentState) => {
