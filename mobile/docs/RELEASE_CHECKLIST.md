@@ -22,8 +22,8 @@ tagged: **[done]**, **[code]** (I can implement in this repo), or **[you]**
 - **[you]** Store listing assets: 512×512 icon, feature graphic (1024×500),
   phone + (if Auto) car screenshots, short/full description (localize to the
   6 app languages).
-- **[code/done]** **Target API level**: targetSdk 34 (meets current Play
-  requirement). Re-check each year (Play raises the floor ~annually).
+- **[code/done]** **Target API level**: targetSdk 35 for current phone/tablet
+  Play publishing. Re-check each year (Play raises the floor ~annually).
 - **[code/done]** **Permissions minimized & justified** (see `SECURITY_REVIEW.md`):
   CAMERA (avatar), media playback foreground service, notifications, scoped
   storage. Provide a **prominent-disclosure** justification for the foreground
@@ -35,8 +35,13 @@ tagged: **[done]**, **[code]** (I can implement in this repo), or **[you]**
 ## 2. Android Auto / Automotive OS — quality
 
 - **[done]** Custom `MediaBrowserService` (RNTP v4 has none) + MediaSession.
+- **[done]** Android Auto voice actions for "Play Radio TEDU", "Play latest
+  podcast", and "Open jukebox" route through media-session search handling.
 - **[done]** Driver-safe design: ≤2-tap depth, flat lists, large targets,
   Jukebox is **listen-only** (no QR/add/vote), dark template.
+- **[code/done]** Study, Çim alan, avatar clothes, Spark, and Rock are
+  **phone-only** and excluded from Android Auto browse trees, voice actions,
+  playback queues, and templates.
 - **[done]** **Automotive build flavor** (`required="true"`) so AAOS lists the
   app (fixes the "non media template app" opt-in).
 - **[code]** **Content style hints** set (grid root / list children) — verify
@@ -67,6 +72,30 @@ tagged: **[done]**, **[code]** (I can implement in this repo), or **[you]**
 - **[done]** Network security config (no cleartext except dev loopback),
   http(s)-only deep links, scoped storage (`SECURITY_REVIEW.md`).
 - **[code]** Release signing reads gitignored `keystore.properties`.
+- **[code/done]** Published Android readiness checks are automated with
+  `npm run audit:android` from `mobile/`.
+- **[code/done]** Admin notification sender is available in the published
+  jukebox controller and routes through backend FCM delivery/preference APIs.
+- **[code/done]** Notification dry-runs and sends persist audit rows with FCM
+  targeted/sent/failed stats.
+- **[code/done]** Adaptive Android support removes portrait lock and keeps
+  MainActivity resizable for tablets, foldables, ChromeOS, and future desktop
+  modes.
+- **[code/done]** Android 16 readiness is tracked for predictive back,
+  edge-to-edge, 16 KB page compatibility, startup diagnostics, notification
+  compatibility, and Live Updates fallback behavior.
+- **[code/done]** Android 16 QPR beta readiness is tracked for developer
+  verification/install-flow notes, custom app icon shape validation, ART/GC
+  jank audit coverage, and SMS OTP protection marked not applicable.
+- **[code/done]** Android 17 beta readiness is tracked for large-screen
+  orientation/resizability/aspect-ratio behavior, tablet/foldable/ChromeOS
+  layout safety, background audio, and memory pressure QA.
+- **[code/done]** Google Maps media controls are ready through the standard
+  Android MediaSession + MediaBrowserService path; real surfacing requires
+  Google validation / real device validation.
+- **[code/done]** Modern audio practices are documented for high-quality
+  streams, MediaSession, Bluetooth/wireless controls, Dolby/spatial-safe output,
+  and loudness metadata QA.
 - **[you]** Generate the **real release keystore**; enroll in **Play App
   Signing**. Keep the upload key safe.
 - **[code]** **ProGuard/R8** rules for release (keep RNTP, vector-icons,

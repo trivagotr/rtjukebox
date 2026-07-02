@@ -66,7 +66,11 @@ A small in-process **JS bridge** now does **one** thing — supply the catalog:
   service controls ExoPlayer directly (no relay to JS). `onPlayFromMediaId` reads
   the item's embedded `url` from the catalog and plays it; "skip next/previous"
   on live radio = cycle to the next/previous **radio station** in the catalog;
-  `onPlayFromSearch` matches a radio title (else the first station).
+  `onPlayFromSearch` matches a radio title (else the first station). Search
+  text is normalized for Turkish Gemini / Assistant phrases too, so commands
+  such as "Hey Gemini, RadioTEDU çal", "RadioTEDU Rock oynat", "rtedu çal",
+  and "Spark çal" score the intended station instead of falling through to the
+  generic main-channel match.
 
 Key rule: **there must be exactly one `MediaBrowserService`.** A previous
 hand-written `AutoBrowserService.kt` was a second browser with no media session,
@@ -148,6 +152,28 @@ Podcasts use their own `imageUrl` from the feed.
 
 ## Testing on the Desktop Head Unit (DHU)
 
+### Local Gradle verification
+
+Before DHU or emulator testing, verify both Android flavors compile and bundle
+the React Native app:
+
+```powershell
+cd mobile\android
+.\gradlew.bat :app:compileMobileDebugKotlin
+.\gradlew.bat :app:compileAutomotiveDebugKotlin
+```
+
+If Gradle cannot find the Android SDK, create the ignored local file
+`mobile/android/local.properties`:
+
+```properties
+sdk.dir=C\:\\Users\\akgul\\AppData\\Local\\Android\\Sdk
+```
+
+Metro must watch the repo-level `shared` folder because Study semantic room
+modules import shared seat-slot contracts; otherwise the Android bundle fails
+while resolving `shared/social/seatSlots`.
+
 Android Auto projection needs a **phone** (not a tablet) with the Android Auto
 app. To preview the car UI on your computer:
 
@@ -166,6 +192,17 @@ app. To preview the car UI on your computer:
 No phone? Use the **Android Automotive OS** emulator (SDK Manager →
 "Automotive with Play Store" system image) — the same code targets it.
 
+### Google Maps media controls
+
+Google Maps does not need a RadioTEDU-specific Maps SDK integration for audio.
+It surfaces compatible media apps through the same Android media stack used by
+Assistant and Android Auto: `MediaBrowserServiceCompat`, `MediaSessionCompat`,
+media notification controls, and `MEDIA_PLAY_FROM_SEARCH`. Validate this on a
+real device by starting navigation in Google Maps, opening the Maps media
+controls picker, selecting RadioTEDU, then confirming play/pause and voice
+queries such as "Play Radio TEDU", "Radio TEDU çal", "Play latest podcast",
+"son podcasti cal", "Spark cal", and "Rock cal".
+
 ### Manual checklist
 
 - [ ] App appears in the car media app list with correct name/icon
@@ -177,6 +214,9 @@ No phone? Use the **Android Automotive OS** emulator (SDK Manager →
 - [ ] Play / Pause / Stop work from the car (drive ExoPlayer directly)
 - [ ] Next / Previous cycle to the next/previous radio station
 - [ ] Voice "Play RadioTEDU" / "play jazz" plays the matching station
+- [ ] Voice "Hey Gemini, RadioTEDU çal" starts the main station
+- [ ] Voice "Hey Gemini, play Spark on RadioTEDU" and "Spark çal" select Spark
+- [ ] Voice "Hey Gemini, play RadioTEDU Rock" and "RadioTEDU Rock oynat" select Rock
 - [ ] A bad/unreachable stream shows an **error** state (not a dead spinner)
 - [ ] A stream that connects but never delivers data resolves to **error**
       within ~15–20 s (data-source timeout + buffering watchdog), not a forever
