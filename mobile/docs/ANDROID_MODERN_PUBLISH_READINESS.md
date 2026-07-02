@@ -97,10 +97,17 @@ The readiness layer and audit cover:
 RadioTEDU should preserve system-level audio behavior:
 
 - High-quality streams remain the preferred source when configured.
+- FLAC streams warn on mobile data and do not warn on Wi-Fi.
 - MediaSession metadata powers lock screen, notification, headset, Bluetooth, and car controls.
 - Bluetooth and wireless headphone controls route through Track Player remote events.
 - Dolby/spatial-audio devices are treated as safe output routes; the app should not downmix or force a route unless the OS requests it.
 - Loudness metadata and normalization are release QA checks for podcast/radio production assets.
+
+## Localization
+
+- Languages: en, tr, ru, ar, de, nl.
+- Arabic is declared as RTL and prompts for restart when layout direction changes.
+- The release audit verifies locale bundles before Android readiness can pass.
 
 ## Release Audit
 
