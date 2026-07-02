@@ -24,8 +24,17 @@ export interface NextSongVoteCandidate {
 
 export interface NextSongVoteRound {
   id: string;
+  deviceId: string | null;
   status: NextSongVoteRoundStatus;
   prompt: string;
+  stationName: string | null;
+  streamKey: string | null;
+  icecastMount: string | null;
+  startedAt: string | null;
+  lockedAt: string | null;
+  resolvedAt: string | null;
+  cancelledAt: string | null;
+  expiresAt: string | null;
   winningCandidateId: string | null;
   voteCount: number;
   userVoteCandidateId: string | null;
@@ -67,6 +76,15 @@ function normalizeStatus(value: unknown): NextSongVoteRoundStatus {
     : 'active';
 }
 
+function nullableString(
+  record: Record<string, any>,
+  camelKey: string,
+  snakeKey?: string,
+): string | null {
+  const value = record[camelKey] ?? (snakeKey ? record[snakeKey] : undefined);
+  return typeof value === 'string' ? value : null;
+}
+
 function normalizeCandidate(
   candidate: Record<string, any>,
 ): NextSongVoteCandidate {
@@ -100,24 +118,27 @@ export function normalizeNextSongVoteRound(
 
   return {
     id: round.id,
+    deviceId: nullableString(round, 'deviceId', 'device_id'),
     status: normalizeStatus(round.status),
     prompt:
       typeof round.prompt === 'string'
         ? round.prompt
         : 'Sıradaki şarkı için oy ver',
+    stationName: nullableString(round, 'stationName', 'station_name'),
+    streamKey: nullableString(round, 'streamKey', 'stream_key'),
+    icecastMount: nullableString(round, 'icecastMount', 'icecast_mount'),
+    startedAt: nullableString(round, 'startedAt', 'started_at'),
+    lockedAt: nullableString(round, 'lockedAt', 'locked_at'),
+    resolvedAt: nullableString(round, 'resolvedAt', 'resolved_at'),
+    cancelledAt: nullableString(round, 'cancelledAt', 'cancelled_at'),
+    expiresAt: nullableString(round, 'expiresAt', 'expires_at'),
     winningCandidateId:
-      typeof round.winningCandidateId === 'string'
-        ? round.winningCandidateId
-        : typeof round.winning_candidate_id === 'string'
-        ? round.winning_candidate_id
-        : null,
+      nullableString(round, 'winningCandidateId', 'winning_candidate_id') ??
+      null,
     voteCount: Number(round.voteCount ?? round.vote_count ?? 0),
     userVoteCandidateId:
-      typeof round.userVoteCandidateId === 'string'
-        ? round.userVoteCandidateId
-        : typeof round.user_vote_candidate_id === 'string'
-        ? round.user_vote_candidate_id
-        : null,
+      nullableString(round, 'userVoteCandidateId', 'user_vote_candidate_id') ??
+      null,
     candidates: round.candidates.filter(isRecord).map(normalizeCandidate),
   };
 }
@@ -214,7 +235,7 @@ export function getNextSongVoteStatusCopy(
   }
 
   if (round.status === 'cancelled') {
-    return 'Åžu an aktif oylama yok';
+    return 'Şu an aktif oylama yok';
   }
 
   if (round.status === 'resolved') {
@@ -222,6 +243,25 @@ export function getNextSongVoteStatusCopy(
   }
 
   return round.prompt;
+}
+
+export function formatNextSongVoteRemainingTime(
+  round: NextSongVoteRound | null,
+  nowMs = Date.now(),
+): string | null {
+  if (!round?.expiresAt || round.status !== 'active') {
+    return null;
+  }
+
+  const expiresMs = Date.parse(round.expiresAt);
+  if (Number.isNaN(expiresMs)) {
+    return null;
+  }
+
+  const totalSeconds = Math.max(0, Math.ceil((expiresMs - nowMs) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
 export function getNextSongVoteErrorCopy(error: unknown): string {

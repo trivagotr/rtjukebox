@@ -7,13 +7,15 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
     setItem: jest.fn(),
   },
 }));
+
 import {API_ORIGIN, BASE_API} from '../src/services/api';
 import {
   NEXT_SONG_VOTE_ACTIVE_ROUND_PATH,
   NEXT_SONG_VOTE_CLIENT_ID_KEY,
-  buildNextSongVoteRequestConfig,
-  buildNextSongVotePath,
   buildNextSongVoteBody,
+  buildNextSongVotePath,
+  buildNextSongVoteRequestConfig,
+  formatNextSongVoteRemainingTime,
   getCandidateArtworkUrl,
   getNextSongVoteErrorCopy,
   getNextSongVoteStatusCopy,
@@ -46,6 +48,11 @@ describe('next-song voting mobile contract', () => {
           id: 'round-1',
           status: 'active',
           prompt: 'Sıradaki şarkı için oy ver',
+          stationName: 'RadioTEDU',
+          streamKey: 'ai',
+          icecastMount: '/ai',
+          startedAt: '2026-07-02T09:00:00.000Z',
+          expiresAt: '2026-07-02T09:01:15.000Z',
           winningCandidateId: null,
           voteCount: 4,
           userVoteCandidateId: 'candidate-2',
@@ -103,6 +110,11 @@ describe('next-song voting mobile contract', () => {
       id: 'round-1',
       status: 'active',
       prompt: 'Sıradaki şarkı için oy ver',
+      stationName: 'RadioTEDU',
+      streamKey: 'ai',
+      icecastMount: '/ai',
+      startedAt: '2026-07-02T09:00:00.000Z',
+      expiresAt: '2026-07-02T09:01:15.000Z',
       voteCount: 4,
       userVoteCandidateId: 'candidate-2',
     });
@@ -178,6 +190,7 @@ describe('next-song voting mobile contract', () => {
           id: 'round-1',
           status: 'active',
           prompt: 'Sıradaki şarkı için oy ver',
+          expiresAt: '2026-07-02T09:01:15.000Z',
           candidates: [],
         },
       },
@@ -195,7 +208,37 @@ describe('next-song voting mobile contract', () => {
     ).toBe('Sıradaki şarkı seçildi');
     expect(
       getNextSongVoteStatusCopy({...activeRound!, status: 'cancelled'}),
-    ).toBe('Åžu an aktif oylama yok');
+    ).toBe('Şu an aktif oylama yok');
+  });
+
+  it('formats active round remaining time from expiresAt', () => {
+    const activeRound = normalizeNextSongVoteRound({
+      data: {
+        id: 'round-1',
+        status: 'active',
+        expiresAt: '2026-07-02T09:01:15.000Z',
+        candidates: [],
+      },
+    });
+
+    expect(
+      formatNextSongVoteRemainingTime(
+        activeRound,
+        new Date('2026-07-02T09:00:00.000Z').getTime(),
+      ),
+    ).toBe('1:15');
+    expect(
+      formatNextSongVoteRemainingTime(
+        activeRound,
+        new Date('2026-07-02T09:02:00.000Z').getTime(),
+      ),
+    ).toBe('0:00');
+    expect(
+      formatNextSongVoteRemainingTime({
+        ...activeRound!,
+        status: 'locked',
+      }),
+    ).toBeNull();
   });
 
   it('maps closed voting errors to user-facing copy', () => {

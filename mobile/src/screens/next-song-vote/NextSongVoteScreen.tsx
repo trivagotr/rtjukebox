@@ -15,6 +15,7 @@ import io from 'socket.io-client';
 import {API_ORIGIN} from '../../services/api';
 import {
   fetchActiveNextSongVoteRound,
+  formatNextSongVoteRemainingTime,
   getCandidateArtworkUrl,
   getNextSongVoteErrorCopy,
   getNextSongVoteStatusCopy,
@@ -96,6 +97,9 @@ function CandidateCard({
 export default function NextSongVoteScreen() {
   const [round, setRound] = useState<NextSongVoteRound | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(
+    null,
+  );
   const [votingCandidateId, setVotingCandidateId] = useState<string | null>(
     null,
   );
@@ -141,7 +145,24 @@ export default function NextSongVoteScreen() {
   }, []);
 
   const winner = useMemo(() => getWinningCandidate(round), [round]);
+  const remainingTime = useMemo(
+    () => formatNextSongVoteRemainingTime(round),
+    [round],
+  );
+  const selectedVoteCandidateId =
+    round?.userVoteCandidateId ?? selectedCandidateId;
   const canVote = round?.status === 'active' && !votingCandidateId;
+
+  useEffect(() => {
+    if (!round) {
+      setSelectedCandidateId(null);
+      return;
+    }
+
+    if (round.userVoteCandidateId) {
+      setSelectedCandidateId(round.userVoteCandidateId);
+    }
+  }, [round]);
 
   const handleVote = async (candidateId: string) => {
     if (!round || round.status !== 'active') {
@@ -150,6 +171,7 @@ export default function NextSongVoteScreen() {
 
     try {
       setVotingCandidateId(candidateId);
+      setSelectedCandidateId(candidateId);
       const nextRound = await submitNextSongVote(round.id, candidateId);
       if (nextRound) {
         setRound(nextRound);
@@ -177,11 +199,19 @@ export default function NextSongVoteScreen() {
         <View style={styles.panel}>
           <Text style={styles.status}>{getNextSongVoteStatusCopy(round)}</Text>
           {round && (
-            <Text style={styles.meta}>
-              {round.status === 'resolved' && winner
-                ? `${winner.title} kazandı`
-                : `${round.voteCount} oy`}
-            </Text>
+            <View style={styles.metaStack}>
+              {round.stationName && (
+                <Text style={styles.stationName}>{round.stationName}</Text>
+              )}
+              <Text style={styles.meta}>
+                {round.status === 'resolved' && winner
+                  ? `${winner.title} kazandı`
+                  : `${round.voteCount} oy`}
+              </Text>
+              {remainingTime && (
+                <Text style={styles.remainingTime}>{remainingTime} kaldı</Text>
+              )}
+            </View>
           )}
 
           {isLoading ? (
@@ -193,7 +223,7 @@ export default function NextSongVoteScreen() {
                   key={candidate.id}
                   candidate={candidate}
                   disabled={!canVote}
-                  isSelected={round.userVoteCandidateId === candidate.id}
+                  isSelected={selectedVoteCandidateId === candidate.id}
                   isWinner={round.winningCandidateId === candidate.id}
                   onVote={() => handleVote(candidate.id)}
                 />
@@ -257,8 +287,21 @@ const styles = StyleSheet.create({
   meta: {
     color: COLORS.textMuted,
     fontSize: 13,
+  },
+  metaStack: {
     marginTop: 4,
     marginBottom: SPACING.md,
+  },
+  stationName: {
+    color: COLORS.primary,
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+  remainingTime: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    marginTop: 2,
   },
   loader: {
     paddingVertical: SPACING.lg,

@@ -12,11 +12,21 @@ describe('next-song vote navigation', () => {
       path.join(__dirname, '../src/screens/jukebox/JukeboxScreen.tsx'),
       'utf8',
     );
+    const nextSongVoteSource = fs.readFileSync(
+      path.join(
+        __dirname,
+        '../src/screens/next-song-vote/NextSongVoteScreen.tsx',
+      ),
+      'utf8',
+    );
 
     expect(navigatorSource).toContain('NextSongVoteScreen');
     expect(navigatorSource).toContain('<Tab.Screen');
     expect(navigatorSource).toContain('name="NextSongVote"');
     expect(jukeboxSource).not.toContain('NextSongVote');
     expect(jukeboxSource).toContain('/jukebox/');
+    expect(nextSongVoteSource).toContain('formatNextSongVoteRemainingTime');
+    expect(nextSongVoteSource).toContain('stationName');
+    expect(nextSongVoteSource).toContain('remainingTime');
   });
 });
