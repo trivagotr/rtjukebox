@@ -413,7 +413,7 @@ describe('kiosk playback helpers', () => {
     expect(fetchCalls.some(([url]) => String(url).includes('/api/v1/jukebox/kiosk/playback/state'))).toBe(true);
     expect(fetchCalls.some(([url]) => String(url).includes('/api/v1/jukebox/kiosk/now-playing'))).toBe(false);
     const playbackStateCall = fetchCalls.find(([url]) => String(url).includes('/api/v1/jukebox/kiosk/playback/state'));
-    expect(JSON.parse(playbackStateCall?.[1]?.body)).toEqual({
+    expect(JSON.parse(playbackStateCall?.[1]?.body)).toMatchObject({
       device_id: 'device-1',
       password: 'secret',
       queue_item_id: 'queue-item-spotify',
@@ -428,7 +428,7 @@ describe('kiosk playback helpers', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     });
-    expect(JSON.parse(spotifyTokenCall?.[1]?.body)).toEqual({
+    expect(JSON.parse(spotifyTokenCall?.[1]?.body)).toMatchObject({
       device_id: 'device-1',
       device_pwd: 'secret',
     });
@@ -1072,7 +1072,7 @@ describe('kiosk playback helpers', () => {
 
     expect(spotifyPlayer.getCurrentState).toHaveBeenCalledTimes(1);
     const autoplayCall = fetchCalls.find(([url]) => url === 'http://127.0.0.1:3000/api/v1/jukebox/autoplay/trigger');
-    expect(JSON.parse(autoplayCall?.[1]?.body)).toEqual({
+    expect(JSON.parse(autoplayCall?.[1]?.body)).toMatchObject({
       device_id: 'device-1',
       device_pwd: 'secret',
     });
@@ -2077,6 +2077,157 @@ describe('kiosk playback helpers', () => {
     expect(localStorageStub.setItem).toHaveBeenCalledWith('device_code', 'CHILL-IN');
     expect(localStorageStub.setItem).toHaveBeenCalledWith('device_pwd', '1234');
     expect(locationStub.href).toBe('http://127.0.0.1:3000/kiosk/?code=CHILL-IN&pwd=1234');
+  });
+
+  it('registers the kiosk with a stable browser session id', async () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
+    const fetch = vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({
+        success: true,
+        data: {
+          device: { id: 'device-1', name: 'KOLEJ', location: 'Kolej' },
+          kioskSession: {
+            sessionId: 'session-1',
+            role: 'active',
+            activeSessionId: 'session-1',
+            heartbeatIntervalMs: 5000,
+            sessionTimeoutMs: 25000,
+          },
+        },
+      }),
+    }));
+    const localStorageStub = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    };
+    const context = vm.createContext({
+      window: {
+        crypto: { randomUUID: vi.fn(() => 'session-1') },
+        localStorage: localStorageStub,
+        addEventListener: vi.fn(),
+      },
+      document: {
+        addEventListener: vi.fn(),
+        getElementById: vi.fn((id) => {
+          if (id === 'deviceLocation') return { textContent: '' };
+          return null;
+        }),
+      },
+      localStorage: localStorageStub,
+      fetch,
+      console,
+      CONFIG: {
+        DEVICE_CODE: 'KOLEJ',
+        DEVICE_PWD: 'secret',
+        API_URL: 'https://radiotedu.com',
+      },
+      module: { exports: {} },
+      exports: {},
+      require,
+    });
+
+    vm.runInContext(appSource, context);
+    const app = Object.create(context.KioskApp.prototype);
+    app.socket = null;
+    app.log = vi.fn();
+    app.updateConnectionStatus = vi.fn();
+    app.applyKioskSession = context.KioskApp.prototype.applyKioskSession;
+
+    await app.registerDevice();
+
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      device_code: 'KOLEJ',
+      password: 'secret',
+      session_id: 'session-1',
+    });
+    expect(app.kioskSession?.role).toBe('active');
+    expect(localStorageStub.setItem).toHaveBeenCalledWith('kiosk_session_id', 'session-1');
+  });
+
+  it('keeps standby kiosk sessions from starting playback or spotify player setup', () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
+    const appended = [];
+    const context = vm.createContext({
+      window: {
+        localStorage: { getItem: vi.fn(() => null), setItem: vi.fn(), removeItem: vi.fn() },
+        addEventListener: vi.fn(),
+      },
+      document: {
+        body: { appendChild: vi.fn((node) => appended.push(node)) },
+        addEventListener: vi.fn(),
+        createElement: vi.fn(() => ({
+          id: '',
+          style: {},
+          innerHTML: '',
+          remove: vi.fn(),
+          querySelector: vi.fn(() => null),
+        })),
+        getElementById: vi.fn(() => null),
+      },
+      localStorage: { getItem: vi.fn(() => null), setItem: vi.fn(), removeItem: vi.fn() },
+      console,
+      module: { exports: {} },
+      exports: {},
+      require,
+    });
+
+    vm.runInContext(appSource, context);
+    const app = Object.create(context.KioskApp.prototype);
+    app.log = vi.fn();
+    app.pauseSpotifyPlayback = vi.fn();
+    app.stopProgressUpdate = vi.fn();
+    app.showIdleState = vi.fn();
+    app.playSong = vi.fn();
+    app.queueData = { now_playing: { id: 'queue-item-1' }, queue: [{ id: 'queue-item-2' }] };
+
+    app.applyKioskSession({
+      sessionId: 'session-b',
+      role: 'standby',
+      activeSessionId: 'session-a',
+    });
+    app.checkAndPlayNext();
+
+    expect(app.isActiveKioskSession()).toBe(false);
+    expect(app.pauseSpotifyPlayback).toHaveBeenCalled();
+    expect(app.playSong).not.toHaveBeenCalled();
+    expect(appended[0]?.id).toBe('kioskStandbyOverlay');
+  });
+
+  it('sends best-effort kiosk logout with sendBeacon on pagehide', () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
+    const sendBeacon = vi.fn(() => true);
+    const context = vm.createContext({
+      window: {
+        localStorage: { getItem: vi.fn(() => null), setItem: vi.fn(), removeItem: vi.fn() },
+        addEventListener: vi.fn(),
+      },
+      navigator: { sendBeacon },
+      document: {
+        addEventListener: vi.fn(),
+        getElementById: vi.fn(() => null),
+      },
+      localStorage: { getItem: vi.fn(() => null), setItem: vi.fn(), removeItem: vi.fn() },
+      console,
+      CONFIG: { API_URL: 'https://radiotedu.com' },
+      Blob,
+      module: { exports: {} },
+      exports: {},
+      require,
+    });
+
+    vm.runInContext(appSource, context);
+    const app = Object.create(context.KioskApp.prototype);
+    app.device = { id: 'device-1' };
+    app.kioskSessionId = 'session-1';
+
+    app.notifyKioskLogout();
+
+    expect(sendBeacon).toHaveBeenCalledWith(
+      'https://radiotedu.com/api/v1/jukebox/kiosk/logout',
+      expect.any(Blob)
+    );
   });
 
   it('shows a visible spotify connect action in the startup overlay when device auth is missing', () => {

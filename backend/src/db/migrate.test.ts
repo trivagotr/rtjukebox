@@ -56,6 +56,15 @@ describe('db migration helper', () => {
         expect(schemaSql).toContain('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_super_vote_at TIMESTAMP');
     });
 
+    it('includes kiosk active player session columns on devices', () => {
+        const schemaSql = loadSchemaSql();
+
+        expect(schemaSql).toContain('active_kiosk_session_id VARCHAR(100)');
+        expect(schemaSql).toContain('active_kiosk_heartbeat_at TIMESTAMP');
+        expect(schemaSql).toContain('ALTER TABLE devices ADD COLUMN IF NOT EXISTS active_kiosk_session_id VARCHAR(100)');
+        expect(schemaSql).toContain('ALTER TABLE devices ADD COLUMN IF NOT EXISTS active_kiosk_heartbeat_at TIMESTAMP');
+    });
+
     it('includes podcast feed registry tables in the schema', () => {
         const schemaSql = loadSchemaSql();
 

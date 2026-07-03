@@ -19,6 +19,10 @@ class KioskApp {
         this.spotifyDeviceAuthReady = false;
         this.spotifyDeviceAuthSetupState = this.loadSpotifyDeviceAuthSetupState();
         this.spotifyTrackEnding = false;
+        this.kioskSessionId = this.getOrCreateKioskSessionId();
+        this.kioskSession = null;
+        this.kioskHeartbeatInterval = null;
+        this.kioskLifecycleHandlersBound = false;
         this.progressInterval = null;
         this.isPlaying = false;
         this.waveformCanvas = document.getElementById('waveformCanvas');
@@ -62,6 +66,94 @@ class KioskApp {
         if (!this.debugEl) return;
         this.debugEl.innerHTML = '<b>Debug (Press D to Toggle)</b><br>' +
             this.logs.slice(0, 20).map(l => `<span style="color:${l.type === 'error' ? 'red' : 'inherit'}">[${l.time}] ${l.msg}</span>`).join('<br>');
+    }
+
+    getKioskSessionStorageKey() {
+        return 'kiosk_session_id';
+    }
+
+    createKioskSessionId() {
+        if (window.crypto?.randomUUID) {
+            return window.crypto.randomUUID();
+        }
+
+        return `kiosk-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+
+    getOrCreateKioskSessionId() {
+        try {
+            const existing = localStorage.getItem(this.getKioskSessionStorageKey());
+            if (existing) {
+                this.kioskSessionId = existing;
+                return existing;
+            }
+
+            const sessionId = this.createKioskSessionId();
+            localStorage.setItem(this.getKioskSessionStorageKey(), sessionId);
+            this.kioskSessionId = sessionId;
+            return sessionId;
+        } catch (error) {
+            this.log?.(`⚠️ Kiosk session localStorage kullanılamadı: ${error.message}`, 'error');
+            this.kioskSessionId = this.createKioskSessionId();
+            return this.kioskSessionId;
+        }
+    }
+
+    isActiveKioskSession() {
+        return this.kioskSession?.role !== 'standby';
+    }
+
+    buildKioskSessionPayload(extra = {}) {
+        return {
+            ...extra,
+            session_id: this.kioskSessionId,
+        };
+    }
+
+    applyKioskSession(kioskSession) {
+        if (!kioskSession) {
+            return;
+        }
+
+        const wasActive = this.isActiveKioskSession();
+        this.kioskSession = kioskSession;
+
+        if (kioskSession.role === 'standby') {
+            this.pauseSpotifyPlayback?.();
+            this.stopProgressUpdate?.();
+            this.isPlaying = false;
+            this.showIdleState?.();
+            this.showKioskStandbyOverlay(kioskSession);
+            return;
+        }
+
+        this.hideKioskStandbyOverlay();
+        if (!wasActive) {
+            this.log('✅ Bu kiosk aktif player oldu');
+        }
+    }
+
+    showKioskStandbyOverlay(kioskSession = this.kioskSession) {
+        let overlay = document.getElementById('kioskStandbyOverlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'kioskStandbyOverlay';
+            overlay.style = 'position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:10001; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; color:white; padding:32px;';
+            document.body.appendChild(overlay);
+        }
+
+        overlay.innerHTML = `
+            <div style="font-size:72px; margin-bottom:18px;">⏸</div>
+            <h2 style="margin:0; font-size:34px;">Bu kiosk başka sekmede aktif</h2>
+            <p style="max-width:520px; color:rgba(255,255,255,0.68); line-height:1.5;">
+                Aktif session: ${this.escapeHtml(kioskSession?.activeSessionId || 'bilinmiyor')}
+            </p>
+        `;
+    }
+
+    hideKioskStandbyOverlay() {
+        const overlay = document.getElementById('kioskStandbyOverlay');
+        overlay?.remove?.();
     }
 
     getSpotifyDeviceAuthSetupStateStorageKey() {
@@ -274,6 +366,105 @@ class KioskApp {
         return localStorage.getItem('device_pwd') || CONFIG.DEVICE_PWD || '';
     }
 
+    setupKioskLifecycleHandlers() {
+        if (this.kioskLifecycleHandlersBound || !window.addEventListener) {
+            return;
+        }
+
+        const notify = () => this.notifyKioskLogout();
+        window.addEventListener('pagehide', notify);
+        window.addEventListener('beforeunload', notify);
+        this.kioskLifecycleHandlersBound = true;
+    }
+
+    startKioskHeartbeat() {
+        this.stopKioskHeartbeat();
+        const intervalMs = this.kioskSession?.heartbeatIntervalMs || 5000;
+        this.kioskHeartbeatInterval = setInterval(() => {
+            this.sendKioskHeartbeat().catch((error) => {
+                this.log(`⚠️ Kiosk heartbeat hatası: ${error.message}`, 'error');
+            });
+        }, intervalMs);
+    }
+
+    stopKioskHeartbeat() {
+        if (this.kioskHeartbeatInterval) {
+            clearInterval(this.kioskHeartbeatInterval);
+            this.kioskHeartbeatInterval = null;
+        }
+    }
+
+    async sendKioskHeartbeat() {
+        if (!this.device?.id || !this.kioskSessionId) {
+            return null;
+        }
+
+        const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/heartbeat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(this.buildKioskSessionPayload({
+                device_id: this.device.id,
+                device_pwd: this.getDevicePasswordForApi(),
+            })),
+        });
+
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || `Kiosk heartbeat failed (${response.status})`);
+        }
+
+        const payload = await response.json();
+        const previousRole = this.kioskSession?.role;
+        this.applyKioskSession(payload.data?.kioskSession);
+
+        if (previousRole === 'standby' && this.isActiveKioskSession()) {
+            await this.resumeAfterKioskBecameActive();
+        }
+
+        return payload.data?.kioskSession || null;
+    }
+
+    async resumeAfterKioskBecameActive() {
+        if (!this.socket) {
+            this.connectSocket();
+        }
+
+        try {
+            await this.setupSpotifyDeviceAuthFlow();
+            if (this.spotifyDeviceAuthReady) {
+                await this.resumeAfterSpotifyDeviceAuth();
+            } else if (!document.getElementById('startupOverlay')) {
+                this.showStartupOverlay();
+            }
+        } catch (error) {
+            this.log(`⚠️ Aktif kiosk başlatılamadı: ${error.message}`, 'error');
+        }
+    }
+
+    notifyKioskLogout() {
+        if (!this.device?.id || !this.kioskSessionId) {
+            return false;
+        }
+
+        const payload = JSON.stringify(this.buildKioskSessionPayload({
+            device_id: this.device.id,
+        }));
+        const url = `${CONFIG.API_URL}/api/v1/jukebox/kiosk/logout`;
+
+        const navigatorScope = typeof navigator !== 'undefined' ? navigator : null;
+        if (navigatorScope?.sendBeacon) {
+            return navigatorScope.sendBeacon(url, new Blob([payload], { type: 'application/json' }));
+        }
+
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload,
+            keepalive: true,
+        }).catch(() => {});
+        return true;
+    }
+
     // ===== Initialization =====
     async init() {
         console.log('🎵 RadioTEDU Kiosk başlatılıyor...');
@@ -295,9 +486,19 @@ class KioskApp {
 
         try {
             await this.registerDevice();
+            this.setupKioskLifecycleHandlers();
+            this.startKioskHeartbeat();
         } catch (err) {
             this.log(`❌ Başlatma hatası: ${err.message}`, 'error');
             this.showDeviceSetupOverlay();
+            return;
+        }
+
+        if (!this.isActiveKioskSession()) {
+            this.connectSocket();
+            this.setupFullscreenToggle();
+            this.setupLogoutButton();
+            window.addEventListener('resize', () => this.setupWaveform());
             return;
         }
 
@@ -356,6 +557,10 @@ class KioskApp {
         const pwdInput = div.querySelector('#setupDevicePassword');
         const button = div.querySelector('#saveDeviceCode');
 
+        if (!input || !pwdInput || !button) {
+            return;
+        }
+
         // Pre-fill if exists
         input.value = localStorage.getItem('device_code') || '';
         pwdInput.value = localStorage.getItem('device_pwd') || '';
@@ -402,6 +607,8 @@ class KioskApp {
 
     logout() {
         this.log('🚪 Çıkış yapılıyor...');
+        this.notifyKioskLogout();
+        this.stopKioskHeartbeat();
 
         // Stop audio
         if (this.audioPlayer) {
@@ -583,6 +790,10 @@ class KioskApp {
     }
 
     async initializeSpotifyPlayback() {
+        if (!this.isActiveKioskSession()) {
+            return null;
+        }
+
         if (!this.device || !window.KioskSpotifyPlayer) {
             return null;
         }
@@ -615,6 +826,7 @@ class KioskApp {
                         body: JSON.stringify({
                             device_id: this.device.id,
                             device_pwd: this.getDevicePasswordForApi(),
+                            session_id: this.kioskSessionId,
                         }),
                     });
                     if (!response.ok) {
@@ -738,6 +950,7 @@ class KioskApp {
             body: JSON.stringify({
                 device_id: this.device.id,
                 device_pwd: this.getDevicePasswordForApi(),
+                session_id: this.kioskSessionId,
                 spotify_device_id: spotifyDeviceId || null,
                 player_name: this.device.name || null,
                 is_active: isActive,
@@ -760,6 +973,7 @@ class KioskApp {
                         state: payload.player_state || null,
                     }),
                     device_pwd: this.getDevicePasswordForApi(),
+                    session_id: this.kioskSessionId,
                 }
             ),
         });
@@ -773,6 +987,10 @@ class KioskApp {
     }
 
     activateSpotifyPlayback() {
+        if (!this.isActiveKioskSession()) {
+            return;
+        }
+
         if (this.spotifyController?.activateElement) {
             try {
                 this.spotifyController.activateElement();
@@ -914,7 +1132,8 @@ class KioskApp {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     device_code: CONFIG.DEVICE_CODE,
-                    password: CONFIG.DEVICE_PWD
+                    password: CONFIG.DEVICE_PWD,
+                    session_id: this.getOrCreateKioskSessionId(),
                 })
             });
 
@@ -927,12 +1146,18 @@ class KioskApp {
 
             // Backend sends { success: true, data: { device: ... } }
             const deviceData = data.data ? data.data.device : data.device;
+            const kioskSession = data.data?.kioskSession || data.kioskSession || null;
 
             if (!deviceData) {
                 throw new Error('Device data missing in response');
             }
 
             this.device = deviceData;
+            this.applyKioskSession(kioskSession || {
+                sessionId: this.kioskSessionId,
+                role: 'active',
+                activeSessionId: this.kioskSessionId,
+            });
 
             // Ensure we join the room if socket is already connected
             if (this.socket && this.socket.connected) {
@@ -1015,6 +1240,18 @@ class KioskApp {
         this.socket.on('disconnect', () => {
             console.log('🔌 Socket bağlantısı kesildi');
             this.updateConnectionStatus('error', 'Bağlantı kesildi');
+        });
+
+        this.socket.on('kiosk_session_changed', (session) => {
+            if (!session?.activeSessionId && session?.sessionId === this.kioskSessionId) {
+                return;
+            }
+
+            this.applyKioskSession({
+                ...session,
+                sessionId: this.kioskSessionId,
+                role: session?.activeSessionId === this.kioskSessionId ? 'active' : 'standby',
+            });
         });
 
         this.socket.on('queue_updated', (data) => {
@@ -1104,6 +1341,11 @@ class KioskApp {
 
     // ===== Playback Control =====
     checkAndPlayNext() {
+        if (!this.isActiveKioskSession()) {
+            this.log('⏸ Standby kiosk playback beklemede');
+            return;
+        }
+
         if (document.getElementById('startupOverlay')) {
             this.log('⏳ Başlatma bekleniyor (Tıklayın)...');
             return;
@@ -1120,6 +1362,10 @@ class KioskApp {
     }
 
     playNextFromQueue() {
+        if (!this.isActiveKioskSession()) {
+            return;
+        }
+
         if (this.queueData.queue && this.queueData.queue.length > 0) {
             this.playSong(this.queueData.queue[0]);
         } else {
@@ -1133,7 +1379,7 @@ class KioskApp {
     }
 
     triggerAutoplay() {
-        if (!this.device || this.autoplayTriggered) return;
+        if (!this.device || this.autoplayTriggered || !this.isActiveKioskSession()) return;
 
         this.autoplayTriggered = true;
         this.log('🤖 Autoplay tetikleniyor...');
@@ -1144,6 +1390,7 @@ class KioskApp {
             body: JSON.stringify({
                 device_id: this.device.id,
                 device_pwd: this.getDevicePasswordForApi(),
+                session_id: this.kioskSessionId,
             })
         }).then(r => r.json())
             .then(d => {
@@ -1198,6 +1445,11 @@ class KioskApp {
     }
 
     async playSong(song) {
+        if (!this.isActiveKioskSession()) {
+            this.log('⏸ Standby kiosk şarkı çalmıyor');
+            return;
+        }
+
         console.log('▶️ Çalınıyor:', song.title);
 
         try {
@@ -1344,6 +1596,7 @@ class KioskApp {
             body: JSON.stringify({
                 device_id: this.device.id,
                 device_pwd: this.getDevicePasswordForApi(),
+                session_id: this.kioskSessionId,
             }),
         });
         if (!response.ok) {
@@ -1398,6 +1651,7 @@ class KioskApp {
             body: JSON.stringify({
                 device_id: this.device.id,
                 password: this.getDevicePasswordForApi(),
+                session_id: this.kioskSessionId,
                 queue_item_id: queueItemId,
                 state,
                 position_ms: positionMs,
@@ -1486,6 +1740,7 @@ class KioskApp {
                     body: JSON.stringify({
                         device_id: this.device.id,
                         device_pwd: this.getDevicePasswordForApi(),
+                        session_id: this.kioskSessionId,
                     })
                 }).then(r => r.json())
                     .then(d => this.log(`🤖 Otomatik eklendi: ${d.data?.song_title || 'Şarkı'}`))

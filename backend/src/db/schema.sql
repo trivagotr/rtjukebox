@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS devices (
     is_active BOOLEAN DEFAULT TRUE,
     current_song_id UUID, -- Circular reference, handle carefully or add FK later if needed
     last_heartbeat TIMESTAMP,
+    active_kiosk_session_id VARCHAR(100),
+    active_kiosk_heartbeat_at TIMESTAMP,
     password VARCHAR(50), -- Registration & user connection password
     created_at TIMESTAMP DEFAULT NOW()
 );
@@ -208,6 +210,8 @@ ALTER TABLE devices ADD COLUMN IF NOT EXISTS spotify_playback_device_id VARCHAR(
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS spotify_player_name VARCHAR(200);
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS spotify_player_connected_at TIMESTAMP;
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS spotify_player_is_active BOOLEAN DEFAULT FALSE;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS active_kiosk_session_id VARCHAR(100);
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS active_kiosk_heartbeat_at TIMESTAMP;
 UPDATE devices SET override_enabled = COALESCE(override_enabled, FALSE);
 UPDATE devices SET spotify_player_is_active = COALESCE(spotify_player_is_active, FALSE);
 ALTER TABLE devices ALTER COLUMN override_enabled SET DEFAULT FALSE;

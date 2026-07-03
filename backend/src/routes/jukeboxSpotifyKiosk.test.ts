@@ -55,6 +55,235 @@ beforeEach(() => {
 });
 
 describe('jukebox spotify kiosk routes', () => {
+  it('registers a kiosk session as the active player when no live active session exists', async () => {
+    const server = await createJukeboxRouterServer();
+    const heartbeatAt = new Date('2026-07-03T10:00:00.000Z');
+    mockDbQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'device-1',
+          device_code: 'KOLEJ',
+          password: null,
+          active_kiosk_session_id: null,
+          active_kiosk_heartbeat_at: null,
+        }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'device-1',
+          device_code: 'KOLEJ',
+          active_kiosk_session_id: 'session-a',
+          active_kiosk_heartbeat_at: heartbeatAt,
+          is_active: true,
+        }],
+      });
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_code: 'KOLEJ', session_id: 'session-a' }),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.data.kioskSession).toEqual(expect.objectContaining({
+        sessionId: 'session-a',
+        role: 'active',
+        activeSessionId: 'session-a',
+      }));
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('registers a second live kiosk tab as standby without replacing the active player', async () => {
+    const server = await createJukeboxRouterServer();
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [{
+        id: 'device-1',
+        device_code: 'KOLEJ',
+        password: null,
+        active_kiosk_session_id: 'session-a',
+        active_kiosk_heartbeat_at: new Date(),
+      }],
+    });
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_code: 'KOLEJ', session_id: 'session-b' }),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.data.kioskSession).toEqual(expect.objectContaining({
+        sessionId: 'session-b',
+        role: 'standby',
+        activeSessionId: 'session-a',
+      }));
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('keeps standby kiosk heartbeat passive while another session is active', async () => {
+    const server = await createJukeboxRouterServer();
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [{
+        id: 'device-1',
+        password: null,
+        active_kiosk_session_id: 'session-a',
+        active_kiosk_heartbeat_at: new Date(),
+      }],
+    });
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/heartbeat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id: 'device-1', session_id: 'session-b' }),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.data.kioskSession).toEqual(expect.objectContaining({
+        sessionId: 'session-b',
+        role: 'standby',
+        activeSessionId: 'session-a',
+      }));
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('promotes a kiosk heartbeat to active when the previous active session expired', async () => {
+    const server = await createJukeboxRouterServer();
+    mockDbQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'device-1',
+          password: null,
+          active_kiosk_session_id: 'session-a',
+          active_kiosk_heartbeat_at: new Date(Date.now() - 60_000),
+        }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'device-1',
+          active_kiosk_session_id: 'session-b',
+          active_kiosk_heartbeat_at: new Date(),
+        }],
+      });
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/heartbeat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id: 'device-1', session_id: 'session-b' }),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.data.kioskSession).toEqual(expect.objectContaining({
+        sessionId: 'session-b',
+        role: 'active',
+        activeSessionId: 'session-b',
+      }));
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects standby kiosk spotify player registration', async () => {
+    const server = await createJukeboxRouterServer();
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [{
+        id: 'device-1',
+        password: null,
+        active_kiosk_session_id: 'session-a',
+        active_kiosk_heartbeat_at: new Date(),
+      }],
+    });
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/spotify-device`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_id: 'device-1',
+          session_id: 'session-b',
+          spotify_device_id: 'browser-device-1',
+          player_name: 'Kiosk Browser',
+        }),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(payload.error).toBe('Kiosk session is standby');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects standby kiosk claim-next requests', async () => {
+    const server = await createJukeboxRouterServer();
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [{
+        id: 'device-1',
+        password: null,
+        active_kiosk_session_id: 'session-a',
+        active_kiosk_heartbeat_at: new Date(),
+      }],
+    });
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/playback/claim-next`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id: 'device-1', session_id: 'session-b' }),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(payload.error).toBe('Kiosk session is standby');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects standby kiosk playback state updates', async () => {
+    const server = await createJukeboxRouterServer();
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [{
+        id: 'device-1',
+        password: null,
+        active_kiosk_session_id: 'session-a',
+        active_kiosk_heartbeat_at: new Date(),
+      }],
+    });
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/playback/state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_id: 'device-1',
+          session_id: 'session-b',
+          queue_item_id: 'queue-item-1',
+          state: 'playing',
+        }),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(payload.error).toBe('Kiosk session is standby');
+    } finally {
+      await server.close();
+    }
+  });
+
   it('rejects missing device_id when requesting a kiosk spotify token', async () => {
     const res = createMockRes();
 
