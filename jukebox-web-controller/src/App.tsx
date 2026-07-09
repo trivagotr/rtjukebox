@@ -29,6 +29,7 @@ import {
   resolveDisplayedVote,
 } from './nowPlayingVotes';
 import { resolveWebRuntimeConfig } from './runtimeConfig';
+import { createSocketSession } from './socketSession';
 
 const runtimeConfig = resolveWebRuntimeConfig({
   windowOrigin: window.location.origin,
@@ -662,6 +663,7 @@ function App() {
   const deviceRef = useRef<DeviceSummary | null>(null);
   const leaderboardRequestSeqRef = useRef(0);
   const leaderboardPeriodRef = useRef<'total' | 'monthly'>('total');
+  const socketDeviceId = device?.id ?? null;
 
   const syncVotesFromQueue = useCallback((nextNowPlaying: QueueSong | null, nextQueue: QueueSong[]) => {
     const nextVotes: Record<string, number> = {};
@@ -812,21 +814,24 @@ function App() {
   }, [connectToDevice]);
 
   useEffect(() => {
-    if (!device || socket) return undefined;
+    if (!socketDeviceId) {
+      setSocket(null);
+      return undefined;
+    }
 
-    const newSocket = io(SOCKET_URL, {
+    const session = createSocketSession(() => io(SOCKET_URL, {
       path: SOCKET_PATH,
       reconnectionAttempts: 10,
       reconnectionDelay: 2000,
       transports: ['websocket', 'polling'],
-    });
-    setSocket(newSocket);
+    }));
+    setSocket(session.socket);
 
     return () => {
-      newSocket.disconnect();
-      setSocket(null);
+      session.dispose();
+      setSocket((current) => current === session.socket ? null : current);
     };
-  }, [device, socket]);
+  }, [socketDeviceId]);
 
   useEffect(() => {
     if (!socket || !device) return undefined;
