@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
@@ -6,7 +6,7 @@ import { BASE_API } from '../services/config';
 
 const API_URL = BASE_API;
 
-interface User {
+export interface User {
     id: string;
     email: string;
     display_name: string;
@@ -27,6 +27,7 @@ interface AuthContextType {
     register: (email: string, password: string, displayName: string) => Promise<void>;
     guestLogin: (displayName: string) => Promise<void>;
     logout: () => Promise<void>;
+    refreshSession: () => Promise<User | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -49,6 +50,31 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
+    const clearSessionState = useCallback(async () => {
+        await AsyncStorage.multiRemove(['access_token', 'refresh_token']);
+        delete axios.defaults.headers.common['Authorization'];
+        setUser(null);
+    }, []);
+
+    const refreshSession = useCallback(async (): Promise<User | null> => {
+        try {
+            const accessToken = await AsyncStorage.getItem('access_token');
+            if (!accessToken) {
+                setUser(null);
+                return null;
+            }
+
+            axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
+            const response = await axios.get(`${API_URL}/auth/me`);
+            const nextUser = normalizeUser(response.data.data);
+            setUser(nextUser);
+            return nextUser;
+        } catch (error) {
+            await clearSessionState();
+            throw error;
+        }
+    }, [clearSessionState]);
+
     useEffect(() => {
         loadStorageData();
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -56,15 +82,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const loadStorageData = async () => {
         try {
-            const accessToken = await AsyncStorage.getItem('access_token');
-            if (accessToken) {
-                // Set default axios header
-                axios.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
-
-                // Fetch profile to verify token
-                const response = await axios.get(`${API_URL}/auth/me`);
-                setUser(normalizeUser(response.data.data));
-            }
+            await refreshSession();
         } catch (error) {
             console.log('[AuthContext] No valid session found');
             await logout();
@@ -124,15 +142,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
-    const logout = async () => {
-        await AsyncStorage.removeItem('access_token');
-        await AsyncStorage.removeItem('refresh_token');
-        delete axios.defaults.headers.common['Authorization'];
-        setUser(null);
-    };
+    const logout = clearSessionState;
 
     return (
-        <AuthContext.Provider value={{ user, isLoading, login, register, guestLogin, logout }}>
+        <AuthContext.Provider value={{ user, isLoading, login, register, guestLogin, logout, refreshSession }}>
             {children}
         </AuthContext.Provider>
     );

@@ -48,7 +48,7 @@ import {
 const ProfileScreen = () => {
   const navigation = useNavigation<any>();
   const { t } = useTranslation();
-  const { user, logout } = useAuth();
+  const { user, logout, refreshSession } = useAuth();
   const isAdmin = user?.role === 'admin';
 
   const [showAdminTab, setShowAdminTab] = useState(false);
@@ -317,7 +317,8 @@ const ProfileScreen = () => {
         });
 
         if (response.data.data?.avatar_url) {
-          Alert.alert('Success', 'Your profile photo has been updated.');
+      await refreshSession();
+      Alert.alert('Success', 'Your profile photo has been updated.');
           setLocalAvatar(`${STORAGE_API_LOCAL}${response.data.data.avatar_url}`);
         }
       } catch (error) {

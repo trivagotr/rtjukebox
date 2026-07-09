@@ -26,6 +26,7 @@ export const PROD_SERVER_ORIGIN = `https://${SERVER_DOMAIN}/jukebox`;
 export const DEV_SERVER_ORIGIN = 'http://127.0.0.1:3000';
 export const PROD_FOCUS_WEB_URL = `https://${SERVER_DOMAIN}/focus/`;
 export const DEV_FOCUS_WEB_URL = 'http://127.0.0.1:4177/index.html';
+export const SOCIAL_WEB_URL = `https://${SERVER_DOMAIN}/social/`;
 
 export function resolveApiConfig(isDev: boolean) {
   const serverOrigin = isDev ? DEV_SERVER_ORIGIN : PROD_SERVER_ORIGIN;
@@ -37,6 +38,7 @@ export function resolveApiConfig(isDev: boolean) {
     baseApi: `${serverOrigin}/api/v1`,
     storageApi: serverOrigin,
     focusWebUrl: isDev ? DEV_FOCUS_WEB_URL : PROD_FOCUS_WEB_URL,
+    socialWebUrl: SOCIAL_WEB_URL,
     socketOrigin,
     socketPath,
   };
@@ -47,5 +49,6 @@ const resolvedApiConfig = resolveApiConfig(__DEV__);
 export const BASE_API = resolvedApiConfig.baseApi;
 export const STORAGE_API = resolvedApiConfig.storageApi;
 export const FOCUS_WEB_URL = resolvedApiConfig.focusWebUrl;
+export const RESOLVED_SOCIAL_WEB_URL = resolvedApiConfig.socialWebUrl;
 export const SOCKET_ORIGIN = resolvedApiConfig.socketOrigin;
 export const SOCKET_PATH = resolvedApiConfig.socketPath;
