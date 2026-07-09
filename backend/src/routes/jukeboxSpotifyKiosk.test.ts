@@ -1,16 +1,37 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
+import jwt from 'jsonwebtoken';
 import type { AddressInfo } from 'net';
 
-const { mockDbQuery } = vi.hoisted(() => ({
-  mockDbQuery: vi.fn(),
-}));
+const {
+  mockDbQuery,
+  mockSocketEmit,
+  mockSocketGetIO,
+  mockSocketState,
+  mockSocketTo,
+} = vi.hoisted(() => {
+  const socketState = { current: undefined as any };
+  const socketEmit = vi.fn();
+  const socketTo = vi.fn(() => ({ emit: socketEmit }));
+
+  return {
+    mockDbQuery: vi.fn(),
+    mockSocketEmit: socketEmit,
+    mockSocketGetIO: vi.fn(() => socketState.current),
+    mockSocketState: socketState,
+    mockSocketTo: socketTo,
+  };
+});
 
 vi.mock('../db', () => ({
   db: {
     query: mockDbQuery,
     pool: {},
   },
+}));
+
+vi.mock('../socket', () => ({
+  getIO: mockSocketGetIO,
 }));
 
 let jukeboxModule: typeof import('./jukebox');
@@ -51,10 +72,121 @@ beforeAll(async () => {
 
 beforeEach(() => {
   mockDbQuery.mockReset();
+  mockSocketEmit.mockClear();
+  mockSocketGetIO.mockClear();
+  mockSocketState.current = undefined;
+  mockSocketTo.mockClear();
   vi.restoreAllMocks();
 });
 
 describe('jukebox spotify kiosk routes', () => {
+  it('keeps a guest spotify enqueue pending without dispatching browser playback', async () => {
+    const insertedQueueItem = {
+      id: 'queue-guest-1',
+      device_id: 'device-1',
+      song_id: 'song-spotify-1',
+      added_by: 'guest-1',
+      priority_score: 1000,
+      status: 'pending',
+      queue_reason: 'user',
+    };
+    const spotifyUri = 'spotify:track:4uLU6hMCjMI75M1A2tKUQC';
+
+    mockDbQuery.mockImplementation(async (sql: unknown) => {
+      const query = String(sql);
+
+      if (query.includes('FROM device_sessions')) {
+        return { rows: [{ '?column?': 1 }] };
+      }
+      if (query.includes('SELECT role, total_songs_added, is_guest FROM users')) {
+        return { rows: [{ role: 'guest', total_songs_added: 0, is_guest: true }] };
+      }
+      if (query.includes('SELECT COUNT(id) FROM queue_items')) {
+        return { rows: [{ count: '0' }] };
+      }
+      if (query.includes('FROM guest_daily_song_limits')) {
+        return { rows: [] };
+      }
+      if (query.includes('SELECT id, source_type, visibility, asset_role FROM songs')) {
+        return {
+          rows: [{
+            id: 'song-spotify-1',
+            source_type: 'spotify',
+            visibility: 'public',
+            asset_role: 'music',
+          }],
+        };
+      }
+      if (query.includes('SELECT id FROM queue_items') || query.includes("status = 'played'")) {
+        return { rows: [] };
+      }
+      if (query.includes('INSERT INTO queue_items')) {
+        return { rows: [{ ...insertedQueueItem }] };
+      }
+      if (query.includes('SELECT COUNT(id) AS pending_count')) {
+        return { rows: [{ pending_count: '1' }] };
+      }
+      if (query.includes('SELECT source_type, spotify_uri FROM songs')) {
+        return { rows: [{ source_type: 'spotify', spotify_uri: spotifyUri }] };
+      }
+      if (query.includes('spotify_playback_device_id')) {
+        return {
+          rows: [{
+            current_song_id: null,
+            spotify_playback_device_id: 'browser-device-1',
+            spotify_player_is_active: true,
+          }],
+        };
+      }
+      if (query.includes("UPDATE queue_items SET status = 'playing'")) {
+        insertedQueueItem.status = 'playing';
+        return { rows: [] };
+      }
+      if (query.includes('SELECT current_song_id FROM devices')) {
+        return { rows: [{ current_song_id: null }] };
+      }
+
+      return { rows: [] };
+    });
+
+    vi.spyOn(spotifyServiceModule.spotifyService, 'getKioskPlaybackToken').mockResolvedValue({
+      accessToken: 'access-token',
+      expiresAt: Date.now() + 60_000,
+      scopes: 'streaming user-modify-playback-state user-read-playback-state',
+    });
+    const transferPlayback = vi.spyOn(spotifyServiceModule.spotifyService, 'transferPlayback').mockResolvedValue();
+    const playTrack = vi.spyOn(spotifyServiceModule.spotifyService, 'playTrack').mockResolvedValue();
+    const token = jwt.sign(
+      { id: 'guest-1', email: 'guest@example.com', role: 'guest' },
+      process.env.JWT_SECRET || 'test-secret-key',
+    );
+    const server = await createJukeboxRouterServer();
+
+    try {
+      const response = await fetch(`${server.baseUrl}/queue`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'x-guest-fingerprint': 'guest-browser-1',
+        },
+        body: JSON.stringify({
+          device_id: 'device-1',
+          song_id: 'song-spotify-1',
+        }),
+      });
+      const payload = await response.json();
+
+      expect.soft(response.status).toBe(200);
+      expect.soft(payload.data.auto_started).toBe(false);
+      expect.soft(insertedQueueItem.status).toBe('pending');
+      expect.soft(transferPlayback).not.toHaveBeenCalled();
+      expect.soft(playTrack).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
   it('registers a kiosk session as the active player when no live active session exists', async () => {
     const server = await createJukeboxRouterServer();
     const heartbeatAt = new Date('2026-07-03T10:00:00.000Z');
@@ -819,12 +951,13 @@ describe('jukebox spotify kiosk routes', () => {
           id: 'queue-1',
           device_id: 'device-1',
           song_id: 'song-spotify-1',
-          added_by: 'user-1',
-          queue_reason: 'user',
-          asset_role: 'music',
-        }],
-      })
-      .mockResolvedValueOnce({ rows: [] })
+           added_by: 'user-1',
+           queue_reason: 'user',
+           asset_role: 'music',
+           status: 'playing',
+         }],
+       })
+      .mockResolvedValueOnce({ rows: [{ id: 'queue-1' }] })
       .mockResolvedValue({ rows: [] });
     const server = await createJukeboxRouterServer();
 
@@ -857,6 +990,152 @@ describe('jukebox spotify kiosk routes', () => {
     }
   });
 
+  it('advances a playing queue item once when duplicate played reports arrive', async () => {
+    let queueStatus = 'playing';
+    let currentSongId: string | null = 'song-spotify-1';
+    let terminalTransitions = 0;
+    let deviceClears = 0;
+    let profileLoads = 0;
+
+    mockSocketState.current = { to: mockSocketTo };
+    mockDbQuery.mockImplementation(async (sql: unknown) => {
+      const query = String(sql);
+
+      if (query.includes('SELECT id, password FROM devices')) {
+        return { rows: [{ id: 'device-1', password: 'secret' }] };
+      }
+      if (query.includes('WHERE qi.id = $1 AND qi.device_id = $2')) {
+        return {
+          rows: [{
+            id: 'queue-1',
+            device_id: 'device-1',
+            song_id: 'song-spotify-1',
+            added_by: 'user-1',
+            queue_reason: 'user',
+            asset_role: 'music',
+            status: queueStatus,
+            current_song_id: currentSongId,
+          }],
+        };
+      }
+      if (query.includes("UPDATE queue_items SET status = 'played'")) {
+        const isConditional = query.includes("status = 'playing'");
+        if (!isConditional || queueStatus === 'playing') {
+          terminalTransitions += 1;
+          queueStatus = 'played';
+          return { rows: [{ id: 'queue-1' }] };
+        }
+        return { rows: [] };
+      }
+      if (query.includes('SET current_song_id = NULL')) {
+        deviceClears += 1;
+        currentSongId = null;
+        return { rows: [] };
+      }
+      if (query.includes('LEFT JOIN radio_profiles')) {
+        profileLoads += 1;
+        return { rows: [] };
+      }
+      if (query.includes('SELECT current_song_id FROM devices')) {
+        return { rows: [{ current_song_id: currentSongId }] };
+      }
+
+      return { rows: [] };
+    });
+    const server = await createJukeboxRouterServer();
+    const reportPlayed = () => fetch(`${server.baseUrl}/kiosk/playback/state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        device_id: 'device-1',
+        password: 'secret',
+        queue_item_id: 'queue-1',
+        state: 'played',
+        position_ms: 180000,
+        duration_ms: 180000,
+      }),
+    });
+
+    try {
+      const firstResponse = await reportPlayed();
+      const secondResponse = await reportPlayed();
+
+      expect.soft(firstResponse.status).toBe(200);
+      expect.soft(secondResponse.status).toBe(200);
+      expect.soft(queueStatus).toBe('played');
+      expect.soft(terminalTransitions).toBe(1);
+      expect.soft(deviceClears).toBe(1);
+      expect.soft(profileLoads).toBe(1);
+      expect.soft(mockSocketEmit.mock.calls.filter(([event]) => event === 'playback_state_updated')).toHaveLength(1);
+      expect.soft(mockSocketEmit.mock.calls.filter(([event]) => event === 'queue_updated')).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects a stale item trying to become playing while another item is current', async () => {
+    let queueStatus = 'pending';
+    let currentSongId = 'song-current';
+    let queueStatusUpdates = 0;
+    let deviceCurrentUpdates = 0;
+
+    mockDbQuery.mockImplementation(async (sql: unknown) => {
+      const query = String(sql);
+
+      if (query.includes('SELECT id, password FROM devices')) {
+        return { rows: [{ id: 'device-1', password: 'secret' }] };
+      }
+      if (query.includes('WHERE qi.id = $1 AND qi.device_id = $2')) {
+        return {
+          rows: [{
+            id: 'queue-stale',
+            device_id: 'device-1',
+            song_id: 'song-stale',
+            added_by: 'user-2',
+            queue_reason: 'user',
+            asset_role: 'music',
+            status: queueStatus,
+            current_song_id: currentSongId,
+          }],
+        };
+      }
+      if (query.includes("UPDATE queue_items SET status = 'playing'")) {
+        queueStatusUpdates += 1;
+        queueStatus = 'playing';
+        return { rows: [{ id: 'queue-stale' }] };
+      }
+      if (query.includes('UPDATE devices SET current_song_id = $2')) {
+        deviceCurrentUpdates += 1;
+        currentSongId = 'song-stale';
+        return { rows: [] };
+      }
+
+      return { rows: [] };
+    });
+    const server = await createJukeboxRouterServer();
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/playback/state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_id: 'device-1',
+          password: 'secret',
+          queue_item_id: 'queue-stale',
+          state: 'playing',
+        }),
+      });
+
+      expect.soft(response.status).toBe(409);
+      expect.soft(queueStatus).toBe('pending');
+      expect.soft(currentSongId).toBe('song-current');
+      expect.soft(queueStatusUpdates).toBe(0);
+      expect.soft(deviceCurrentUpdates).toBe(0);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('maps playback failures to skipped queue status instead of played', async () => {
     mockDbQuery
       .mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret' }] })
@@ -865,11 +1144,13 @@ describe('jukebox spotify kiosk routes', () => {
           id: 'queue-1',
           device_id: 'device-1',
           song_id: 'song-spotify-1',
-          added_by: 'user-1',
-          queue_reason: 'user',
-          asset_role: 'music',
-        }],
-      })
+           added_by: 'user-1',
+           queue_reason: 'user',
+           asset_role: 'music',
+           status: 'playing',
+         }],
+       })
+      .mockResolvedValueOnce({ rows: [{ id: 'queue-1' }] })
       .mockResolvedValue({ rows: [] });
     const server = await createJukeboxRouterServer();
 

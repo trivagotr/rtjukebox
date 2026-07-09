@@ -460,30 +460,6 @@ export function resolveSpotifyKioskPlaybackDeviceId(input: {
     return playbackDeviceId ? playbackDeviceId : null;
 }
 
-export function shouldImmediatelyStartSpotifyQueueItem(params: {
-    song: SpotifyPlaybackDispatchSong;
-    currentSongId?: string | null;
-    pendingCount: number;
-    playbackTarget?: {
-        spotify_playback_device_id?: string | null;
-        spotify_player_is_active?: boolean | null;
-    } | null;
-}) {
-    if (params.song.source_type !== 'spotify' || !params.song.spotify_uri) {
-        return false;
-    }
-
-    if (params.currentSongId) {
-        return false;
-    }
-
-    if (params.pendingCount !== 1) {
-        return false;
-    }
-
-    return resolveSpotifyKioskPlaybackDeviceId(params.playbackTarget ?? {}) !== null;
-}
-
 async function loadSpotifyKioskPlaybackTarget(deviceId: string) {
     const result = await db.query(
         `SELECT spotify_playback_device_id, spotify_player_is_active
@@ -2546,59 +2522,7 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
             [device_id, queueSelection.songId, userId, priorityScore, queueSelection.queueReason]
         );
 
-        let autoStarted = false;
-        if (queueSelection.sourceType === 'spotify') {
-            const [deviceStateResult, pendingCountResult, songSourceResult] = await Promise.all([
-                db.query(
-                    `SELECT current_song_id, spotify_playback_device_id, spotify_player_is_active
-                     FROM devices
-                     WHERE id = $1`,
-                    [device_id]
-                ),
-                db.query(
-                    "SELECT COUNT(id) AS pending_count FROM queue_items WHERE device_id = $1 AND status = 'pending'",
-                    [device_id]
-                ),
-                db.query(
-                    'SELECT source_type, spotify_uri FROM songs WHERE id = $1',
-                    [queueSelection.songId]
-                ),
-            ]);
-
-            const deviceState = deviceStateResult.rows[0] ?? null;
-            const pendingCount = Number.parseInt(pendingCountResult.rows[0]?.pending_count ?? '0', 10);
-            const songSource = songSourceResult.rows[0] ?? null;
-
-            if (shouldImmediatelyStartSpotifyQueueItem({
-                song: {
-                    source_type: songSource?.source_type ?? 'spotify',
-                    spotify_uri: songSource?.spotify_uri ?? null,
-                },
-                currentSongId: deviceState?.current_song_id ?? null,
-                pendingCount,
-                playbackTarget: deviceState,
-            })) {
-                try {
-                    await dispatchSpotifyPlaybackForSong({
-                        deviceId: device_id,
-                        song: {
-                            source_type: 'spotify',
-                            spotify_uri: songSource?.spotify_uri ?? null,
-                        },
-                    });
-
-                    await db.query("UPDATE queue_items SET status = 'playing' WHERE id = $1", [result.rows[0].id]);
-                    await recordAutoplayPlaybackStart({ queueItemId: result.rows[0].id });
-                    await db.query(
-                        'UPDATE devices SET current_song_id = $2, last_heartbeat = NOW() WHERE id = $1',
-                        [device_id, queueSelection.songId]
-                    );
-                    autoStarted = true;
-                } catch (dispatchError) {
-                    console.warn('[Spotify Queue Autostart] Deferred to kiosk client:', dispatchError);
-                }
-            }
-        }
+        const autoStarted = false;
 
         await applyQueueAddStats({
             dbClient: db,
@@ -2619,7 +2543,7 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
             },
             'Song added to queue',
             null,
-            201
+            200
         );
     } catch (error) {
         console.error(error);
@@ -3450,9 +3374,11 @@ router.post('/kiosk/playback/state', async (req: Request, res: Response) => {
         }
 
         const queueItemResult = await db.query(
-            `SELECT qi.id, qi.device_id, qi.song_id, qi.added_by, qi.queue_reason, s.asset_role
+            `SELECT qi.id, qi.device_id, qi.song_id, qi.added_by, qi.queue_reason, qi.status,
+                    s.asset_role, d.current_song_id
              FROM queue_items qi
              JOIN songs s ON s.id = qi.song_id
+             JOIN devices d ON d.id = qi.device_id
              WHERE qi.id = $1 AND qi.device_id = $2`,
             [queue_item_id, device_id]
         );
@@ -3462,14 +3388,37 @@ router.post('/kiosk/playback/state', async (req: Request, res: Response) => {
 
         const queueItem = queueItemResult.rows[0];
         const storedStatus = getStoredQueueStatusForPlaybackState(playbackState);
+        const responseData = {
+            queue_item_id,
+            state: playbackState,
+            stored_status: storedStatus,
+        };
 
         if (playbackState === 'paused') {
             await db.query('UPDATE devices SET last_heartbeat = NOW() WHERE id = $1', [device_id]);
         } else if (storedStatus === 'played') {
-            await db.query(
-                "UPDATE queue_items SET status = 'played', played_at = NOW() WHERE id = $1",
-                [queue_item_id]
+            if (queueItem.status === 'played') {
+                return sendSuccess(res, responseData, 'Playback state already updated');
+            }
+            if (queueItem.status !== 'playing') {
+                return sendError(res, 'Queue item playback transition conflict', 409);
+            }
+
+            const transitioned = await db.query(
+                "UPDATE queue_items SET status = 'played', played_at = NOW() WHERE id = $1 AND device_id = $2 AND status = 'playing' RETURNING id",
+                [queue_item_id, device_id]
             );
+            if (transitioned.rows.length === 0) {
+                const latest = await db.query(
+                    'SELECT status FROM queue_items WHERE id = $1 AND device_id = $2',
+                    [queue_item_id, device_id]
+                );
+                if (latest.rows[0]?.status === 'played') {
+                    return sendSuccess(res, responseData, 'Playback state already updated');
+                }
+                return sendError(res, 'Queue item playback transition conflict', 409);
+            }
+
             await db.query(
                 `UPDATE devices
                  SET current_song_id = NULL, last_heartbeat = NOW()
@@ -3481,10 +3430,28 @@ router.post('/kiosk/playback/state', async (req: Request, res: Response) => {
                 completedNormalMusicItem: isCompletedNormalMusicItem(queueItem),
             });
         } else if (storedStatus === 'skipped') {
-            await db.query(
-                "UPDATE queue_items SET status = 'skipped' WHERE id = $1",
-                [queue_item_id]
+            if (queueItem.status === 'skipped') {
+                return sendSuccess(res, responseData, 'Playback state already updated');
+            }
+            if (queueItem.status !== 'playing') {
+                return sendError(res, 'Queue item playback transition conflict', 409);
+            }
+
+            const transitioned = await db.query(
+                "UPDATE queue_items SET status = 'skipped' WHERE id = $1 AND device_id = $2 AND status = 'playing' RETURNING id",
+                [queue_item_id, device_id]
             );
+            if (transitioned.rows.length === 0) {
+                const latest = await db.query(
+                    'SELECT status FROM queue_items WHERE id = $1 AND device_id = $2',
+                    [queue_item_id, device_id]
+                );
+                if (latest.rows[0]?.status === 'skipped') {
+                    return sendSuccess(res, responseData, 'Playback state already updated');
+                }
+                return sendError(res, 'Queue item playback transition conflict', 409);
+            }
+
             await db.query(
                 `UPDATE devices
                  SET current_song_id = NULL, last_heartbeat = NOW()
@@ -3492,10 +3459,38 @@ router.post('/kiosk/playback/state', async (req: Request, res: Response) => {
                 [device_id, queueItem.song_id]
             );
         } else {
-            await db.query(
-                "UPDATE queue_items SET status = 'playing' WHERE id = $1",
-                [queue_item_id]
+            if (queueItem.current_song_id && queueItem.current_song_id !== queueItem.song_id) {
+                return sendError(res, 'Another queue item is currently playing', 409);
+            }
+            if (queueItem.status === 'playing') {
+                return sendSuccess(res, responseData, 'Playback state already updated');
+            }
+            if (queueItem.status !== 'pending') {
+                return sendError(res, 'Queue item playback transition conflict', 409);
+            }
+
+            const transitioned = await db.query(
+                "UPDATE queue_items SET status = 'playing' WHERE id = $1 AND device_id = $2 AND status = 'pending' RETURNING id",
+                [queue_item_id, device_id]
             );
+            if (transitioned.rows.length === 0) {
+                const latest = await db.query(
+                    `SELECT qi.status, qi.song_id, d.current_song_id
+                     FROM queue_items qi
+                     JOIN devices d ON d.id = qi.device_id
+                     WHERE qi.id = $1 AND qi.device_id = $2`,
+                    [queue_item_id, device_id]
+                );
+                const latestItem = latest.rows[0] ?? null;
+                if (
+                    latestItem?.status === 'playing'
+                    && (!latestItem.current_song_id || latestItem.current_song_id === latestItem.song_id)
+                ) {
+                    return sendSuccess(res, responseData, 'Playback state already updated');
+                }
+                return sendError(res, 'Queue item playback transition conflict', 409);
+            }
+
             await db.query(
                 'UPDATE devices SET current_song_id = $2, last_heartbeat = NOW() WHERE id = $1',
                 [device_id, queueItem.song_id]
@@ -3517,11 +3512,7 @@ router.post('/kiosk/playback/state', async (req: Request, res: Response) => {
         }
         getIO()?.to(`device:${device_id}`).emit('queue_updated', await getQueueForDevice(device_id));
 
-        return sendSuccess(res, {
-            queue_item_id,
-            state: playbackState,
-            stored_status: storedStatus,
-        }, 'Playback state updated');
+        return sendSuccess(res, responseData, 'Playback state updated');
     } catch (error) {
         console.error('Kiosk playback state update failed:', error);
         return sendError(res, 'Kiosk playback state update failed', 500);
