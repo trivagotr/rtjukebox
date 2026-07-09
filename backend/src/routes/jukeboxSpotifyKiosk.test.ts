@@ -1155,6 +1155,19 @@ describe('jukebox spotify kiosk routes', () => {
       releaseInitialLoads = resolve;
     });
     let deviceLockTail = Promise.resolve();
+    const transactionClients: Array<{
+      operations: string[];
+      release: ReturnType<typeof vi.fn>;
+    }> = [];
+    const acquireDeviceLock = async () => {
+      const previousLock = deviceLockTail;
+      let releaseLock!: () => void;
+      deviceLockTail = new Promise<void>((resolve) => {
+        releaseLock = resolve;
+      });
+      await previousLock;
+      return releaseLock;
+    };
 
     mockDbQuery.mockImplementation(async (sql: unknown, params: unknown[] = []) => {
       const query = String(sql);
@@ -1203,23 +1216,36 @@ describe('jukebox spotify kiosk routes', () => {
     });
 
     mockDbPoolConnect.mockImplementation(async () => {
+      let transactionActive = false;
       let releaseDeviceLock: (() => void) | null = null;
+      const operations: string[] = [];
+      const release = vi.fn(() => {
+        releaseDeviceLock?.();
+        releaseDeviceLock = null;
+        transactionActive = false;
+      });
       const client = {
         query: vi.fn(async (sql: unknown, params: unknown[] = []) => {
           const query = String(sql);
 
           if (query === 'BEGIN') {
+            operations.push('BEGIN');
+            transactionActive = true;
             return { rows: [] };
           }
           if (query.includes('FROM devices') && query.includes('FOR UPDATE')) {
-            const previousLock = deviceLockTail;
-            deviceLockTail = new Promise<void>((resolve) => {
-              releaseDeviceLock = resolve;
-            });
-            await previousLock;
-            return { rows: [{ current_song_id: currentSongId }] };
+            operations.push('device FOR UPDATE');
+            const releaseLock = await acquireDeviceLock();
+            const result = { rows: [{ current_song_id: currentSongId }] };
+            if (transactionActive) {
+              releaseDeviceLock = releaseLock;
+            } else {
+              releaseLock();
+            }
+            return result;
           }
           if (query.includes('FROM queue_items') && query.includes('FOR UPDATE')) {
+            operations.push('queue FOR UPDATE');
             const queueItemId = String(params[0]);
             const queueItem = queueItems.get(queueItemId)!;
             return {
@@ -1231,10 +1257,12 @@ describe('jukebox spotify kiosk routes', () => {
             };
           }
           if (query.includes("status = 'playing'") && query.includes('LIMIT 1')) {
+            operations.push('current playing SELECT');
             const playing = [...queueItems.entries()].find(([, item]) => item.status === 'playing');
             return { rows: playing ? [{ id: playing[0], song_id: playing[1].songId }] : [] };
           }
           if (query.includes("UPDATE queue_items SET status = 'playing'")) {
+            operations.push('conditional queue UPDATE');
             const queueItemId = String(params[0]);
             const queueItem = queueItems.get(queueItemId)!;
             if (queueItem.status !== 'pending') {
@@ -1245,20 +1273,26 @@ describe('jukebox spotify kiosk routes', () => {
             return { rows: [{ id: queueItemId }] };
           }
           if (query.includes('UPDATE devices SET current_song_id = $2')) {
+            operations.push('device current UPDATE');
             currentSongId = String(params[1]);
             deviceCurrentUpdates += 1;
             return { rows: [{ id: 'device-1' }] };
           }
           if (query === 'COMMIT' || query === 'ROLLBACK') {
-            releaseDeviceLock?.();
-            releaseDeviceLock = null;
+            operations.push(query);
+            if (transactionActive) {
+              releaseDeviceLock?.();
+              releaseDeviceLock = null;
+              transactionActive = false;
+            }
             return { rows: [] };
           }
 
           return { rows: [] };
         }),
-        release: vi.fn(),
+        release,
       };
+      transactionClients.push({ operations, release });
       return client;
     });
 
@@ -1280,12 +1314,34 @@ describe('jukebox spotify kiosk routes', () => {
         reportPlaying('queue-b'),
       ]);
       const playingItems = [...queueItems.entries()].filter(([, item]) => item.status === 'playing');
+      const winningClient = transactionClients.find(({ operations }) => operations.includes('conditional queue UPDATE'));
+      const losingClient = transactionClients.find(({ operations }) => !operations.includes('conditional queue UPDATE'));
 
       expect.soft(responses.map((response) => response.status).sort()).toEqual([200, 409]);
       expect.soft(playingItems).toHaveLength(1);
       expect.soft(currentSongId).toBe(playingItems[0]?.[1].songId);
       expect.soft(queueStatusUpdates).toBe(1);
       expect.soft(deviceCurrentUpdates).toBe(1);
+      expect.soft(mockDbPoolConnect).toHaveBeenCalledTimes(2);
+      expect.soft(winningClient?.operations).toEqual([
+        'BEGIN',
+        'device FOR UPDATE',
+        'queue FOR UPDATE',
+        'current playing SELECT',
+        'conditional queue UPDATE',
+        'device current UPDATE',
+        'COMMIT',
+      ]);
+      expect.soft(losingClient?.operations).toEqual([
+        'BEGIN',
+        'device FOR UPDATE',
+        'queue FOR UPDATE',
+        'current playing SELECT',
+        'ROLLBACK',
+      ]);
+      for (const transactionClient of transactionClients) {
+        expect.soft(transactionClient.release).toHaveBeenCalledTimes(1);
+      }
     } finally {
       await server.close();
     }
