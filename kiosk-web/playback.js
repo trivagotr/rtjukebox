@@ -77,7 +77,39 @@
         return Boolean(params.isPlaying || params.spotifyTrackUri);
     }
 
+    function createPlaybackStartCoordinator() {
+        let activeKey = null;
+        let startPromise = null;
+
+        return {
+            start(key, startFn) {
+                if (!key) return Promise.resolve().then(startFn);
+                if (activeKey === key) return startPromise || Promise.resolve(false);
+
+                activeKey = key;
+                startPromise = Promise.resolve()
+                    .then(startFn)
+                    .catch((error) => {
+                        if (activeKey === key) activeKey = null;
+                        throw error;
+                    })
+                    .finally(() => {
+                        startPromise = null;
+                    });
+                return startPromise;
+            },
+            complete(key) {
+                if (!key || activeKey === key) activeKey = null;
+            },
+            reset() {
+                activeKey = null;
+                startPromise = null;
+            },
+        };
+    }
+
     return {
+        createPlaybackStartCoordinator,
         getSongPlaybackPlan,
         shouldSyncNowPlayingView,
     };

@@ -8,6 +8,7 @@ class KioskApp {
         this.socket = null;
         this.device = null;
         this.queueData = { now_playing: null, queue: [] };
+        this.playbackStartCoordinator = window.KioskPlayback?.createPlaybackStartCoordinator?.() ?? null;
         this.audioPlayer = document.getElementById('audioPlayer');
         this.spotifyController = null;
         this.spotifyDeviceId = null;
@@ -607,6 +608,7 @@ class KioskApp {
 
     logout() {
         this.log('🚪 Çıkış yapılıyor...');
+        this.playbackStartCoordinator?.reset();
         this.notifyKioskLogout();
         this.stopKioskHeartbeat();
 
@@ -1014,7 +1016,7 @@ class KioskApp {
             );
 
         if (trackEnded) {
-            this.handleSpotifyTrackEnded();
+            void this.handleSpotifyTrackEnded();
             return;
         }
 
@@ -1047,7 +1049,7 @@ class KioskApp {
         }
     }
 
-    handleSpotifyTrackEnded() {
+    async handleSpotifyTrackEnded() {
         if (this.spotifyTrackEnding) {
             return;
         }
@@ -1055,15 +1057,21 @@ class KioskApp {
         this.spotifyTrackEnding = true;
         const endedSong = this.queueData?.now_playing;
         const queueItemId = this.getQueueItemIdForPlayback(endedSong);
-        if (queueItemId) {
-            this.reportKioskPlaybackState(endedSong, 'played').catch((error) => {
-                this.log(`âš ï¸ Spotify bitiÅŸ bildirimi hatasÄ±: ${error.message}`, 'error');
-            });
+        try {
+            if (queueItemId) {
+                await this.reportKioskPlaybackState(endedSong, 'played');
+            }
+            this.stopPlayback({ notifyServer: !queueItemId });
+            if (queueItemId) {
+                this.playbackStartCoordinator?.complete(queueItemId);
+            }
+        } catch (error) {
+            this.log(`âš ï¸ Spotify bitiÅŸ bildirimi hatasÄ±: ${error.message}`, 'error');
+        } finally {
+            setTimeout(() => {
+                this.spotifyTrackEnding = false;
+            }, 0);
         }
-        this.stopPlayback({ notifyServer: !queueItemId });
-        setTimeout(() => {
-            this.spotifyTrackEnding = false;
-        }, 0);
     }
 
     pauseSpotifyPlayback() {
@@ -1152,6 +1160,9 @@ class KioskApp {
                 throw new Error('Device data missing in response');
             }
 
+            if (this.device?.id && this.device.id !== deviceData.id) {
+                this.playbackStartCoordinator?.reset();
+            }
             this.device = deviceData;
             this.applyKioskSession(kioskSession || {
                 sessionId: this.kioskSessionId,
@@ -1351,10 +1362,25 @@ class KioskApp {
             return;
         }
 
-        if (!this.isPlaying && this.queueData.now_playing) {
-            this.playSong(this.queueData.now_playing);
-        } else if (!this.isPlaying && this.queueData.queue && this.queueData.queue.length > 0) {
-            this.playSong(this.queueData.queue[0]);
+        const candidate = !this.isPlaying
+            ? (this.queueData.now_playing || this.queueData.queue?.[0] || null)
+            : null;
+
+        if (candidate) {
+            const queueItemKey = this.getQueueItemIdForPlayback(candidate)
+                || candidate.song_id
+                || candidate.id;
+            const coordinator = this.playbackStartCoordinator
+                || window.KioskPlayback?.createPlaybackStartCoordinator?.();
+
+            if (!coordinator) {
+                this.log('Playback start coordinator unavailable', 'error');
+                return;
+            }
+
+            this.playbackStartCoordinator = coordinator;
+            void coordinator.start(queueItemKey, () => this.playSong(candidate))
+                .catch((error) => this.log(`Playback start failed: ${error.message}`, 'error'));
         } else if (!this.isPlaying && !this.queueData.now_playing) {
             // Trigger autoplay if nothing is playing and no now_playing exists
             this.triggerAutoplay();
@@ -1645,7 +1671,7 @@ class KioskApp {
             ? this.spotifyPlayerState.duration_ms
             : null;
 
-        return fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/playback/state`, {
+        const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/playback/state`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1660,6 +1686,13 @@ class KioskApp {
                 error_message: error?.message || null,
             })
         });
+
+        if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.error || `Kiosk playback state update failed (${response.status})`);
+        }
+
+        return response;
     }
 
     stopPlayback(options = {}) {
