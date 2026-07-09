@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import type { AddressInfo } from 'net';
 
 const {
+  mockDbPoolConnect,
   mockDbQuery,
   mockSocketEmit,
   mockSocketGetIO,
@@ -15,6 +16,7 @@ const {
   const socketTo = vi.fn(() => ({ emit: socketEmit }));
 
   return {
+    mockDbPoolConnect: vi.fn(),
     mockDbQuery: vi.fn(),
     mockSocketEmit: socketEmit,
     mockSocketGetIO: vi.fn(() => socketState.current),
@@ -26,7 +28,9 @@ const {
 vi.mock('../db', () => ({
   db: {
     query: mockDbQuery,
-    pool: {},
+    pool: {
+      connect: mockDbPoolConnect,
+    },
   },
 }));
 
@@ -71,6 +75,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  mockDbPoolConnect.mockReset();
   mockDbQuery.mockReset();
   mockSocketEmit.mockClear();
   mockSocketGetIO.mockClear();
@@ -1131,6 +1136,156 @@ describe('jukebox spotify kiosk routes', () => {
       expect.soft(currentSongId).toBe('song-current');
       expect.soft(queueStatusUpdates).toBe(0);
       expect.soft(deviceCurrentUpdates).toBe(0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('serializes concurrent pending playing reports so only one item claims the device', async () => {
+    const queueItems = new Map([
+      ['queue-a', { status: 'pending', songId: 'song-a' }],
+      ['queue-b', { status: 'pending', songId: 'song-b' }],
+    ]);
+    let currentSongId: string | null = null;
+    let queueStatusUpdates = 0;
+    let deviceCurrentUpdates = 0;
+    let initialQueueLoads = 0;
+    let releaseInitialLoads!: () => void;
+    const bothInitialLoads = new Promise<void>((resolve) => {
+      releaseInitialLoads = resolve;
+    });
+    let deviceLockTail = Promise.resolve();
+
+    mockDbQuery.mockImplementation(async (sql: unknown, params: unknown[] = []) => {
+      const query = String(sql);
+
+      if (query.includes('SELECT id, password FROM devices')) {
+        return { rows: [{ id: 'device-1', password: 'secret' }] };
+      }
+      if (query.includes('WHERE qi.id = $1 AND qi.device_id = $2')) {
+        const queueItemId = String(params[0]);
+        const queueItem = queueItems.get(queueItemId)!;
+        const snapshot = {
+          id: queueItemId,
+          device_id: 'device-1',
+          song_id: queueItem.songId,
+          added_by: 'user-1',
+          queue_reason: 'user',
+          asset_role: 'music',
+          status: queueItem.status,
+          current_song_id: currentSongId,
+        };
+
+        initialQueueLoads += 1;
+        if (initialQueueLoads === 2) {
+          releaseInitialLoads();
+        }
+        await bothInitialLoads;
+        return { rows: [snapshot] };
+      }
+      if (query.includes("UPDATE queue_items SET status = 'playing'")) {
+        const queueItemId = String(params[0]);
+        const queueItem = queueItems.get(queueItemId)!;
+        if (queueItem.status !== 'pending') {
+          return { rows: [] };
+        }
+        queueItem.status = 'playing';
+        queueStatusUpdates += 1;
+        return { rows: [{ id: queueItemId }] };
+      }
+      if (query.includes('UPDATE devices SET current_song_id = $2')) {
+        currentSongId = String(params[1]);
+        deviceCurrentUpdates += 1;
+        return { rows: [{ id: 'device-1' }] };
+      }
+
+      return { rows: [] };
+    });
+
+    mockDbPoolConnect.mockImplementation(async () => {
+      let releaseDeviceLock: (() => void) | null = null;
+      const client = {
+        query: vi.fn(async (sql: unknown, params: unknown[] = []) => {
+          const query = String(sql);
+
+          if (query === 'BEGIN') {
+            return { rows: [] };
+          }
+          if (query.includes('FROM devices') && query.includes('FOR UPDATE')) {
+            const previousLock = deviceLockTail;
+            deviceLockTail = new Promise<void>((resolve) => {
+              releaseDeviceLock = resolve;
+            });
+            await previousLock;
+            return { rows: [{ current_song_id: currentSongId }] };
+          }
+          if (query.includes('FROM queue_items') && query.includes('FOR UPDATE')) {
+            const queueItemId = String(params[0]);
+            const queueItem = queueItems.get(queueItemId)!;
+            return {
+              rows: [{
+                id: queueItemId,
+                status: queueItem.status,
+                song_id: queueItem.songId,
+              }],
+            };
+          }
+          if (query.includes("status = 'playing'") && query.includes('LIMIT 1')) {
+            const playing = [...queueItems.entries()].find(([, item]) => item.status === 'playing');
+            return { rows: playing ? [{ id: playing[0], song_id: playing[1].songId }] : [] };
+          }
+          if (query.includes("UPDATE queue_items SET status = 'playing'")) {
+            const queueItemId = String(params[0]);
+            const queueItem = queueItems.get(queueItemId)!;
+            if (queueItem.status !== 'pending') {
+              return { rows: [] };
+            }
+            queueItem.status = 'playing';
+            queueStatusUpdates += 1;
+            return { rows: [{ id: queueItemId }] };
+          }
+          if (query.includes('UPDATE devices SET current_song_id = $2')) {
+            currentSongId = String(params[1]);
+            deviceCurrentUpdates += 1;
+            return { rows: [{ id: 'device-1' }] };
+          }
+          if (query === 'COMMIT' || query === 'ROLLBACK') {
+            releaseDeviceLock?.();
+            releaseDeviceLock = null;
+            return { rows: [] };
+          }
+
+          return { rows: [] };
+        }),
+        release: vi.fn(),
+      };
+      return client;
+    });
+
+    const server = await createJukeboxRouterServer();
+    const reportPlaying = (queueItemId: string) => fetch(`${server.baseUrl}/kiosk/playback/state`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        device_id: 'device-1',
+        password: 'secret',
+        queue_item_id: queueItemId,
+        state: 'playing',
+      }),
+    });
+
+    try {
+      const responses = await Promise.all([
+        reportPlaying('queue-a'),
+        reportPlaying('queue-b'),
+      ]);
+      const playingItems = [...queueItems.entries()].filter(([, item]) => item.status === 'playing');
+
+      expect.soft(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+      expect.soft(playingItems).toHaveLength(1);
+      expect.soft(currentSongId).toBe(playingItems[0]?.[1].songId);
+      expect.soft(queueStatusUpdates).toBe(1);
+      expect.soft(deviceCurrentUpdates).toBe(1);
     } finally {
       await server.close();
     }

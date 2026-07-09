@@ -3469,32 +3469,96 @@ router.post('/kiosk/playback/state', async (req: Request, res: Response) => {
                 return sendError(res, 'Queue item playback transition conflict', 409);
             }
 
-            const transitioned = await db.query(
-                "UPDATE queue_items SET status = 'playing' WHERE id = $1 AND device_id = $2 AND status = 'pending' RETURNING id",
-                [queue_item_id, device_id]
-            );
-            if (transitioned.rows.length === 0) {
-                const latest = await db.query(
-                    `SELECT qi.status, qi.song_id, d.current_song_id
-                     FROM queue_items qi
-                     JOIN devices d ON d.id = qi.device_id
-                     WHERE qi.id = $1 AND qi.device_id = $2`,
+            const transactionClient = await db.pool.connect();
+            let transactionOpen = false;
+            try {
+                await transactionClient.query('BEGIN');
+                transactionOpen = true;
+
+                const lockedDeviceResult = await transactionClient.query(
+                    'SELECT current_song_id FROM devices WHERE id = $1 FOR UPDATE',
+                    [device_id]
+                );
+                if (lockedDeviceResult.rows.length === 0) {
+                    await transactionClient.query('ROLLBACK');
+                    transactionOpen = false;
+                    return sendError(res, 'Device not found', 404);
+                }
+
+                const lockedQueueItemResult = await transactionClient.query(
+                    `SELECT id, status, song_id
+                     FROM queue_items
+                     WHERE id = $1 AND device_id = $2
+                     FOR UPDATE`,
                     [queue_item_id, device_id]
                 );
-                const latestItem = latest.rows[0] ?? null;
-                if (
-                    latestItem?.status === 'playing'
-                    && (!latestItem.current_song_id || latestItem.current_song_id === latestItem.song_id)
-                ) {
-                    return sendSuccess(res, responseData, 'Playback state already updated');
+                if (lockedQueueItemResult.rows.length === 0) {
+                    await transactionClient.query('ROLLBACK');
+                    transactionOpen = false;
+                    return sendError(res, 'Queue item not found for device', 404);
                 }
-                return sendError(res, 'Queue item playback transition conflict', 409);
-            }
 
-            await db.query(
-                'UPDATE devices SET current_song_id = $2, last_heartbeat = NOW() WHERE id = $1',
-                [device_id, queueItem.song_id]
-            );
+                const lockedQueueItem = lockedQueueItemResult.rows[0];
+                const lockedCurrentSongId = lockedDeviceResult.rows[0]?.current_song_id ?? null;
+                const currentPlayingResult = await transactionClient.query(
+                    `SELECT id, song_id
+                     FROM queue_items
+                     WHERE device_id = $1 AND status = 'playing'
+                     ORDER BY added_at ASC
+                     LIMIT 1`,
+                    [device_id]
+                );
+                const currentPlayingItem = currentPlayingResult.rows[0] ?? null;
+
+                if (lockedQueueItem.status === 'playing') {
+                    const isCurrentItem = !currentPlayingItem || currentPlayingItem.id === queue_item_id;
+                    const hasCompatibleCurrentSong = !lockedCurrentSongId || lockedCurrentSongId === lockedQueueItem.song_id;
+                    await transactionClient.query('COMMIT');
+                    transactionOpen = false;
+                    if (isCurrentItem && hasCompatibleCurrentSong) {
+                        return sendSuccess(res, responseData, 'Playback state already updated');
+                    }
+                    return sendError(res, 'Another queue item is currently playing', 409);
+                }
+
+                if (
+                    lockedQueueItem.status !== 'pending'
+                    || (lockedCurrentSongId && lockedCurrentSongId !== lockedQueueItem.song_id)
+                    || (currentPlayingItem && currentPlayingItem.id !== queue_item_id)
+                ) {
+                    await transactionClient.query('ROLLBACK');
+                    transactionOpen = false;
+                    return sendError(res, 'Another queue item is currently playing', 409);
+                }
+
+                const transitioned = await transactionClient.query(
+                    "UPDATE queue_items SET status = 'playing' WHERE id = $1 AND device_id = $2 AND status = 'pending' RETURNING id",
+                    [queue_item_id, device_id]
+                );
+                if (transitioned.rows.length === 0) {
+                    await transactionClient.query('ROLLBACK');
+                    transactionOpen = false;
+                    return sendError(res, 'Queue item playback transition conflict', 409);
+                }
+
+                await transactionClient.query(
+                    'UPDATE devices SET current_song_id = $2, last_heartbeat = NOW() WHERE id = $1',
+                    [device_id, lockedQueueItem.song_id]
+                );
+                await transactionClient.query('COMMIT');
+                transactionOpen = false;
+            } catch (transitionError) {
+                if (transactionOpen) {
+                    try {
+                        await transactionClient.query('ROLLBACK');
+                    } catch (rollbackError) {
+                        console.error('Kiosk playback transition rollback failed:', rollbackError);
+                    }
+                }
+                throw transitionError;
+            } finally {
+                transactionClient.release();
+            }
         }
 
         const eventPayload = {
