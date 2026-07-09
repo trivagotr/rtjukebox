@@ -80,28 +80,49 @@
     function createPlaybackStartCoordinator() {
         let activeKey = null;
         let startPromise = null;
+        let generation = 0;
 
         return {
             start(key, startFn) {
                 if (!key) return Promise.resolve().then(startFn);
                 if (activeKey === key) return startPromise || Promise.resolve(false);
+                if (activeKey !== null) return Promise.resolve(false);
 
+                const startGeneration = ++generation;
                 activeKey = key;
-                startPromise = Promise.resolve()
-                    .then(startFn)
+                let pendingStart;
+                pendingStart = Promise.resolve()
+                    .then(() => {
+                        if (generation !== startGeneration || activeKey !== key) {
+                            return false;
+                        }
+                        return startFn();
+                    })
                     .catch((error) => {
-                        if (activeKey === key) activeKey = null;
+                        if (generation === startGeneration && activeKey === key) {
+                            generation += 1;
+                            activeKey = null;
+                            if (startPromise === pendingStart) startPromise = null;
+                        }
                         throw error;
                     })
                     .finally(() => {
-                        startPromise = null;
+                        if (generation === startGeneration && startPromise === pendingStart) {
+                            startPromise = null;
+                        }
                     });
-                return startPromise;
+                startPromise = pendingStart;
+                return pendingStart;
             },
             complete(key) {
-                if (!key || activeKey === key) activeKey = null;
+                if (!key || activeKey === key) {
+                    generation += 1;
+                    activeKey = null;
+                    startPromise = null;
+                }
             },
             reset() {
+                generation += 1;
                 activeKey = null;
                 startPromise = null;
             },

@@ -3,6 +3,8 @@
  * Premium Jukebox Display System
  */
 
+const PLAYBACK_COMPLETION_RETRY_DELAY_MS = 1000;
+
 class KioskApp {
     constructor() {
         this.socket = null;
@@ -20,6 +22,7 @@ class KioskApp {
         this.spotifyDeviceAuthReady = false;
         this.spotifyDeviceAuthSetupState = this.loadSpotifyDeviceAuthSetupState();
         this.spotifyTrackEnding = false;
+        this.playbackCompletionRetry = null;
         this.kioskSessionId = this.getOrCreateKioskSessionId();
         this.kioskSession = null;
         this.kioskHeartbeatInterval = null;
@@ -608,6 +611,7 @@ class KioskApp {
 
     logout() {
         this.log('🚪 Çıkış yapılıyor...');
+        this.clearPlaybackCompletionRetry();
         this.playbackStartCoordinator?.reset();
         this.notifyKioskLogout();
         this.stopKioskHeartbeat();
@@ -1049,13 +1053,43 @@ class KioskApp {
         }
     }
 
-    async handleSpotifyTrackEnded() {
+    clearPlaybackCompletionRetry(queueItemId = null) {
+        const retry = this.playbackCompletionRetry;
+        if (!retry || (queueItemId && retry.queueItemId !== queueItemId)) {
+            return;
+        }
+
+        if (retry.timeoutId !== null) {
+            clearTimeout(retry.timeoutId);
+        }
+        this.playbackCompletionRetry = null;
+    }
+
+    schedulePlaybackCompletionRetry(endedSong, queueItemId) {
+        if (!queueItemId || this.playbackCompletionRetry?.queueItemId === queueItemId) {
+            return;
+        }
+
+        this.clearPlaybackCompletionRetry();
+        const retry = { queueItemId, timeoutId: null };
+        retry.timeoutId = setTimeout(async () => {
+            if (this.playbackCompletionRetry !== retry) {
+                return;
+            }
+
+            retry.timeoutId = null;
+            await this.handleSpotifyTrackEnded({ endedSong, retryAttempt: true });
+        }, PLAYBACK_COMPLETION_RETRY_DELAY_MS);
+        this.playbackCompletionRetry = retry;
+    }
+
+    async handleSpotifyTrackEnded(options = {}) {
         if (this.spotifyTrackEnding) {
             return;
         }
 
         this.spotifyTrackEnding = true;
-        const endedSong = this.queueData?.now_playing;
+        const endedSong = options.endedSong || this.queueData?.now_playing;
         const queueItemId = this.getQueueItemIdForPlayback(endedSong);
         try {
             if (queueItemId) {
@@ -1063,10 +1097,14 @@ class KioskApp {
             }
             this.stopPlayback({ notifyServer: !queueItemId });
             if (queueItemId) {
+                this.clearPlaybackCompletionRetry(queueItemId);
                 this.playbackStartCoordinator?.complete(queueItemId);
             }
         } catch (error) {
             this.log(`âš ï¸ Spotify bitiÅŸ bildirimi hatasÄ±: ${error.message}`, 'error');
+            if (queueItemId && !options.retryAttempt) {
+                this.schedulePlaybackCompletionRetry(endedSong, queueItemId);
+            }
         } finally {
             setTimeout(() => {
                 this.spotifyTrackEnding = false;
@@ -1161,6 +1199,7 @@ class KioskApp {
             }
 
             if (this.device?.id && this.device.id !== deviceData.id) {
+                this.clearPlaybackCompletionRetry();
                 this.playbackStartCoordinator?.reset();
             }
             this.device = deviceData;

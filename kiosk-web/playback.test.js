@@ -7,6 +7,14 @@ import vm from 'vm';
 
 const { getSongPlaybackPlan, shouldSyncNowPlayingView } = playbackHelpers;
 
+function createDeferred() {
+  let resolve;
+  const promise = new Promise((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 function createKioskAppHarness({ fetchImpl } = {}) {
   const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
   const audioPlayer = {
@@ -138,6 +146,76 @@ describe('kiosk playback helpers', () => {
     expect(start).toHaveBeenCalledTimes(2);
   });
 
+  it('does not replace an unfinished active key with a different queue item', async () => {
+    const coordinator = playbackHelpers.createPlaybackStartCoordinator();
+    const firstStart = createDeferred();
+    const startFirst = vi.fn(() => firstStart.promise);
+    const startSecond = vi.fn(async () => undefined);
+
+    const firstPromise = coordinator.start('queue-1', startFirst);
+    await Promise.resolve();
+    const blockedPromise = coordinator.start('queue-2', startSecond);
+    await Promise.resolve();
+    const secondCallsBeforeCompletion = startSecond.mock.calls.length;
+    firstStart.resolve();
+    await firstPromise;
+    const blockedResult = await blockedPromise;
+
+    coordinator.complete('queue-1');
+    await coordinator.start('queue-2', startSecond);
+
+    expect(blockedResult).toBe(false);
+    expect(secondCallsBeforeCompletion).toBe(0);
+    expect(startSecond).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a newer pending promise when an older start settles', async () => {
+    const coordinator = playbackHelpers.createPlaybackStartCoordinator();
+    const firstStart = createDeferred();
+    const secondStart = createDeferred();
+    const startFirst = vi.fn(() => firstStart.promise);
+    const startSecond = vi.fn(() => secondStart.promise);
+    const duplicateSecond = vi.fn(async () => undefined);
+
+    const firstPromise = coordinator.start('queue-1', startFirst);
+    await Promise.resolve();
+    coordinator.complete('queue-1');
+    const secondPromise = coordinator.start('queue-2', startSecond);
+    await Promise.resolve();
+
+    firstStart.resolve();
+    await firstPromise;
+    const duplicatePromise = coordinator.start('queue-2', duplicateSecond);
+    secondStart.resolve();
+    await Promise.all([secondPromise, duplicatePromise]);
+
+    expect(duplicatePromise).toBe(secondPromise);
+    expect(startSecond).toHaveBeenCalledTimes(1);
+    expect(duplicateSecond).not.toHaveBeenCalled();
+  });
+
+  it('invalidates a queued stale start when reset begins a new generation', async () => {
+    const coordinator = playbackHelpers.createPlaybackStartCoordinator();
+    const freshStart = createDeferred();
+    const startStale = vi.fn(async () => undefined);
+    const startFresh = vi.fn(() => freshStart.promise);
+    const duplicateFresh = vi.fn(async () => undefined);
+
+    const stalePromise = coordinator.start('queue-1', startStale);
+    coordinator.reset();
+    const freshPromise = coordinator.start('queue-2', startFresh);
+    await Promise.resolve();
+    await stalePromise;
+    const duplicatePromise = coordinator.start('queue-2', duplicateFresh);
+    freshStart.resolve();
+    await Promise.all([freshPromise, duplicatePromise]);
+
+    expect(startStale).not.toHaveBeenCalled();
+    expect(startFresh).toHaveBeenCalledTimes(1);
+    expect(duplicatePromise).toBe(freshPromise);
+    expect(duplicateFresh).not.toHaveBeenCalled();
+  });
+
   it('routes duplicate queue updates through one playback start', async () => {
     const { context } = createKioskAppHarness();
     context.KioskApp.prototype.init = vi.fn();
@@ -160,6 +238,44 @@ describe('kiosk playback helpers', () => {
 
     expect(app.playSong).toHaveBeenCalledTimes(1);
     expect(app.playSong).toHaveBeenCalledWith(song);
+  });
+
+  it('does not start a changed queue item until the active key completes', async () => {
+    const { context } = createKioskAppHarness();
+    context.KioskApp.prototype.init = vi.fn();
+    const app = new context.KioskApp();
+    const firstSong = { queue_item_id: 'queue-1', song_id: 'song-1', title: 'First' };
+    const secondSong = { queue_item_id: 'queue-2', song_id: 'song-2', title: 'Second' };
+    const firstStart = createDeferred();
+    app.kioskSession = { role: 'active' };
+    app.queueData = { now_playing: firstSong, queue: [] };
+    app.isPlaying = false;
+    app.playSong = vi.fn((song) => (
+      song.queue_item_id === 'queue-1' ? firstStart.promise : Promise.resolve()
+    ));
+    app.log = vi.fn();
+
+    app.checkAndPlayNext();
+    await Promise.resolve();
+    app.queueData = { now_playing: secondSong, queue: [] };
+    app.checkAndPlayNext();
+    await Promise.resolve();
+    const callsBeforeCompletion = app.playSong.mock.calls.length;
+
+    firstStart.resolve();
+    await firstStart.promise;
+    await Promise.resolve();
+    app.playbackStartCoordinator.complete('queue-1');
+    app.checkAndPlayNext();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(callsBeforeCompletion).toBe(1);
+    expect(app.playSong).toHaveBeenCalledTimes(2);
+    expect(app.playSong.mock.calls.map(([song]) => song.queue_item_id)).toEqual([
+      'queue-1',
+      'queue-2',
+    ]);
   });
 
   it('rejects a non-2xx kiosk playback state response', async () => {
@@ -256,6 +372,104 @@ describe('kiosk playback helpers', () => {
     expect(start).toHaveBeenCalledTimes(1);
   });
 
+  it('retries terminal reporting once and completes only after backend acceptance', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          json: () => Promise.resolve({}),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ success: true }),
+        });
+      const { audioPlayer, context } = createKioskAppHarness({ fetchImpl });
+      const app = Object.create(context.KioskApp.prototype);
+      const coordinator = playbackHelpers.createPlaybackStartCoordinator();
+      const start = vi.fn(async () => undefined);
+      const endedSong = {
+        queue_item_id: 'queue-1',
+        song_id: 'song-1',
+        playback_type: 'spotify',
+      };
+      await coordinator.start('queue-1', start);
+      app.device = { id: 'device-1' };
+      app.kioskSessionId = 'session-1';
+      app.spotifyPlayerState = { position_ms: 180000, duration_ms: 180000 };
+      app.spotifyTrackEnding = false;
+      app.audioPlayer = audioPlayer;
+      app.queueData = { now_playing: endedSong, queue: [] };
+      app.playbackStartCoordinator = coordinator;
+      app.stopPlayback = vi.fn();
+      app.playSong = vi.fn();
+      app.log = vi.fn();
+
+      await app.handleSpotifyTrackEnded();
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(app.stopPlayback).not.toHaveBeenCalled();
+      expect(app.queueData.now_playing).toBe(endedSong);
+      await coordinator.start('queue-1', start);
+      expect(start).toHaveBeenCalledTimes(1);
+
+      await vi.runAllTimersAsync();
+
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(app.stopPlayback).toHaveBeenCalledTimes(1);
+      expect(app.stopPlayback).toHaveBeenCalledWith({ notifyServer: false });
+      await coordinator.start('queue-1', start);
+      expect(start).toHaveBeenCalledTimes(2);
+      expect(app.playSong).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('schedules at most one automatic terminal retry for a queue item', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn(() => Promise.resolve({
+        ok: false,
+        status: 503,
+        json: () => Promise.resolve({}),
+      }));
+      const { audioPlayer, context } = createKioskAppHarness({ fetchImpl });
+      const app = Object.create(context.KioskApp.prototype);
+      const coordinator = playbackHelpers.createPlaybackStartCoordinator();
+      const endedSong = {
+        queue_item_id: 'queue-1',
+        song_id: 'song-1',
+        playback_type: 'spotify',
+      };
+      await coordinator.start('queue-1', vi.fn(async () => undefined));
+      app.device = { id: 'device-1' };
+      app.kioskSessionId = 'session-1';
+      app.spotifyPlayerState = { position_ms: 180000, duration_ms: 180000 };
+      app.spotifyTrackEnding = false;
+      app.audioPlayer = audioPlayer;
+      app.queueData = { now_playing: endedSong, queue: [] };
+      app.playbackStartCoordinator = coordinator;
+      app.stopPlayback = vi.fn();
+      app.log = vi.fn();
+
+      await app.handleSpotifyTrackEnded();
+      await vi.runAllTimersAsync();
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+
+      await app.handleSpotifyTrackEnded();
+      expect(fetchImpl).toHaveBeenCalledTimes(3);
+      await vi.runAllTimersAsync();
+
+      expect(fetchImpl).toHaveBeenCalledTimes(3);
+      expect(app.stopPlayback).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('resets the playback key when the kiosk logs out', async () => {
     const { audioPlayer, context } = createKioskAppHarness();
     const app = Object.create(context.KioskApp.prototype);
@@ -313,6 +527,133 @@ describe('kiosk playback helpers', () => {
 
     expect(app.device.id).toBe('device-2');
     expect(start).toHaveBeenCalledTimes(2);
+  });
+
+  it('cancels a scheduled terminal retry when the kiosk logs out', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 503,
+          json: () => Promise.resolve({}),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ success: true }),
+        });
+      const { audioPlayer, context } = createKioskAppHarness({ fetchImpl });
+      const app = Object.create(context.KioskApp.prototype);
+      const coordinator = playbackHelpers.createPlaybackStartCoordinator();
+      const endedSong = {
+        queue_item_id: 'queue-1',
+        song_id: 'song-1',
+        playback_type: 'spotify',
+      };
+      await coordinator.start('queue-1', vi.fn(async () => undefined));
+      app.device = { id: 'device-1' };
+      app.kioskSessionId = 'session-1';
+      app.spotifyPlayerState = { position_ms: 180000, duration_ms: 180000 };
+      app.spotifyTrackEnding = false;
+      app.audioPlayer = audioPlayer;
+      app.queueData = { now_playing: endedSong, queue: [] };
+      app.playbackStartCoordinator = coordinator;
+      app.stopPlayback = vi.fn();
+      app.log = vi.fn();
+      app.notifyKioskLogout = vi.fn();
+      app.stopKioskHeartbeat = vi.fn();
+      app.socket = null;
+      app.spotifyController = null;
+      app.spotifyDeviceAuthController = null;
+      app.hideSpotifyDeviceAuthSetupOverlay = vi.fn();
+      app.showDeviceSetupOverlay = vi.fn();
+      const reportState = vi.spyOn(app, 'reportKioskPlaybackState');
+
+      await app.handleSpotifyTrackEnded();
+      expect(reportState).toHaveBeenCalledTimes(1);
+
+      app.logout();
+      await vi.runAllTimersAsync();
+
+      expect(reportState).toHaveBeenCalledTimes(1);
+      expect(app.stopPlayback).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels a scheduled terminal retry when registration changes devices', async () => {
+    vi.useFakeTimers();
+    try {
+      let playbackStateCalls = 0;
+      const fetchImpl = vi.fn((url) => {
+        if (String(url).includes('/api/v1/jukebox/kiosk/playback/state')) {
+          playbackStateCalls += 1;
+          return Promise.resolve(playbackStateCalls === 1
+            ? {
+                ok: false,
+                status: 503,
+                json: () => Promise.resolve({}),
+              }
+            : {
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve({ success: true }),
+              });
+        }
+
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({
+            success: true,
+            data: {
+              device: { id: 'device-2', name: 'Second kiosk' },
+              kioskSession: {
+                sessionId: 'session-1',
+                role: 'active',
+                activeSessionId: 'session-1',
+              },
+            },
+          }),
+        });
+      });
+      const { audioPlayer, context } = createKioskAppHarness({ fetchImpl });
+      const app = Object.create(context.KioskApp.prototype);
+      const coordinator = playbackHelpers.createPlaybackStartCoordinator();
+      const endedSong = {
+        queue_item_id: 'queue-1',
+        song_id: 'song-1',
+        playback_type: 'spotify',
+      };
+      await coordinator.start('queue-1', vi.fn(async () => undefined));
+      app.device = { id: 'device-1' };
+      app.socket = null;
+      app.kioskSessionId = 'session-1';
+      app.getOrCreateKioskSessionId = vi.fn(() => 'session-1');
+      app.applyKioskSession = vi.fn();
+      app.spotifyPlayerState = { position_ms: 180000, duration_ms: 180000 };
+      app.spotifyTrackEnding = false;
+      app.audioPlayer = audioPlayer;
+      app.queueData = { now_playing: endedSong, queue: [] };
+      app.playbackStartCoordinator = coordinator;
+      app.stopPlayback = vi.fn();
+      app.log = vi.fn();
+      const reportState = vi.spyOn(app, 'reportKioskPlaybackState');
+
+      await app.handleSpotifyTrackEnded();
+      expect(reportState).toHaveBeenCalledTimes(1);
+
+      await app.registerDevice();
+      await vi.runAllTimersAsync();
+
+      expect(app.device.id).toBe('device-2');
+      expect(reportState).toHaveBeenCalledTimes(1);
+      expect(app.stopPlayback).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('builds an absolute local audio url for local queue items', () => {
