@@ -29,6 +29,102 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS idx_users_rank ON users(rank_score DESC);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_ip INET;
+
+-- Study Sessions / Avatar Customization
+CREATE TABLE IF NOT EXISTS study_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    location VARCHAR(40) NOT NULL CHECK (location IN ('library', 'chim-alan')),
+    client_session_id VARCHAR(128) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+    session_type VARCHAR(20) NOT NULL DEFAULT 'study' CHECK (session_type IN ('study', 'pomodoro')),
+    pomodoro_target_minutes INTEGER CHECK (pomodoro_target_minutes IS NULL OR (pomodoro_target_minutes BETWEEN 5 AND 120)),
+    current_nonce_hash VARCHAR(128) NOT NULL,
+    started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    last_heartbeat_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    finished_at TIMESTAMP,
+    valid_heartbeat_count INTEGER NOT NULL DEFAULT 0,
+    eligible_seconds INTEGER NOT NULL DEFAULT 0,
+    awarded_points INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(user_id, client_session_id)
+);
+CREATE INDEX IF NOT EXISTS idx_study_sessions_user_status ON study_sessions(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_study_sessions_started_at ON study_sessions(started_at);
+ALTER TABLE study_sessions ADD COLUMN IF NOT EXISTS session_type VARCHAR(20) NOT NULL DEFAULT 'study';
+ALTER TABLE study_sessions ADD COLUMN IF NOT EXISTS pomodoro_target_minutes INTEGER;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'study_sessions_session_type_check'
+    ) THEN
+        ALTER TABLE study_sessions
+        ADD CONSTRAINT study_sessions_session_type_check CHECK (session_type IN ('study', 'pomodoro'));
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'study_sessions_pomodoro_target_minutes_check'
+    ) THEN
+        ALTER TABLE study_sessions
+        ADD CONSTRAINT study_sessions_pomodoro_target_minutes_check
+        CHECK (pomodoro_target_minutes IS NULL OR (pomodoro_target_minutes BETWEEN 5 AND 120));
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS study_session_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID NOT NULL REFERENCES study_sessions(id) ON DELETE CASCADE,
+    event_type VARCHAR(40) NOT NULL,
+    server_received_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    position_x INTEGER NOT NULL DEFAULT 0,
+    position_y INTEGER NOT NULL DEFAULT 0,
+    seat_id VARCHAR(120),
+    interaction VARCHAR(40) NOT NULL DEFAULT 'idle',
+    accepted BOOLEAN NOT NULL DEFAULT FALSE,
+    accepted_seconds INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_study_session_events_session ON study_session_events(session_id, server_received_at);
+ALTER TABLE study_session_events ADD COLUMN IF NOT EXISTS seat_id VARCHAR(120);
+
+CREATE TABLE IF NOT EXISTS avatar_items (
+    item_id VARCHAR(80) PRIMARY KEY,
+    slot VARCHAR(20) NOT NULL CHECK (slot IN ('hair', 'top', 'bottom', 'shoes', 'accessory')),
+    title VARCHAR(120) NOT NULL,
+    cost_points INTEGER NOT NULL DEFAULT 0,
+    rarity VARCHAR(20) NOT NULL DEFAULT 'common',
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS avatar_inventory (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id VARCHAR(80) NOT NULL REFERENCES avatar_items(item_id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY(user_id, item_id)
+);
+
+CREATE TABLE IF NOT EXISTS avatar_equipment (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    slot VARCHAR(20) NOT NULL CHECK (slot IN ('hair', 'top', 'bottom', 'shoes', 'accessory')),
+    item_id VARCHAR(80) NOT NULL REFERENCES avatar_items(item_id) ON DELETE CASCADE,
+    updated_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY(user_id, slot)
+);
+
+INSERT INTO avatar_items (item_id, slot, title, cost_points, rarity, is_default, enabled)
+VALUES
+    ('default-hair', 'hair', 'Default Hair', 0, 'default', true, true),
+    ('default-top', 'top', 'RadioTEDU Tee', 0, 'default', true, true),
+    ('default-bottom', 'bottom', 'Campus Jeans', 0, 'default', true, true),
+    ('default-shoes', 'shoes', 'Campus Sneakers', 0, 'default', true, true),
+    ('spark-hoodie', 'top', 'Spark Hoodie', 80, 'rare', false, true),
+    ('rock-pin', 'accessory', 'Rock Pin', 45, 'common', false, true)
+ON CONFLICT (item_id) DO NOTHING;
+
 ALTER TABLE users ADD COLUMN IF NOT EXISTS user_agent TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_super_vote_at TIMESTAMP;
 
@@ -521,6 +617,30 @@ CREATE TABLE IF NOT EXISTS listening_sessions (
     metadata JSONB DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_listening_sessions_user_started ON listening_sessions(user_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS study_room_presence (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    room_id VARCHAR(80) NOT NULL DEFAULT 'sesli-kutuphane',
+    day_key VARCHAR(10) NOT NULL,
+    avatar_style VARCHAR(80) NOT NULL DEFAULT 'classic-red',
+    position_x INTEGER NOT NULL DEFAULT 6,
+    position_y INTEGER NOT NULL DEFAULT 8,
+    studied_seconds_today INTEGER NOT NULL DEFAULT 0,
+    studied_seconds_total INTEGER NOT NULL DEFAULT 0,
+    current_session_started_at TIMESTAMP DEFAULT NOW(),
+    last_heartbeat_at TIMESTAMP DEFAULT NOW(),
+    seat_id VARCHAR(80),
+    presence_mode VARCHAR(24) NOT NULL DEFAULT 'studying' CHECK (presence_mode IN ('studying', 'break')),
+    break_zone_id VARCHAR(80),
+    equipped_outfit JSONB DEFAULT '{}',
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    metadata JSONB DEFAULT '{}',
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_study_room_presence_room_active ON study_room_presence(room_id, last_heartbeat_at DESC);
+CREATE INDEX IF NOT EXISTS idx_study_room_presence_room_seat_active ON study_room_presence(room_id, seat_id, last_heartbeat_at DESC);
+CREATE INDEX IF NOT EXISTS idx_study_room_presence_today ON study_room_presence(day_key, studied_seconds_today DESC);
+CREATE INDEX IF NOT EXISTS idx_study_room_presence_total ON study_room_presence(studied_seconds_total DESC);
 
 CREATE TABLE IF NOT EXISTS user_profile_customization (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

@@ -161,4 +161,293 @@ describe('gamification router', () => {
       201,
     );
   });
+
+  it('returns a live study room without enabling chat', async () => {
+    const handler = mockRouteHandlers.get['/study-room'];
+    expect(handler).toBeTypeOf('function');
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          user_id: 'user-2',
+          display_name: 'Ece',
+          room_id: 'sesli-kutuphane',
+          avatar_style: 'classic-blue',
+          position_x: 3,
+          position_y: 4,
+          studied_seconds_today: '7200',
+          studied_seconds_total: '18000',
+          current_session_started_at: '2026-06-24T08:00:00.000Z',
+          last_heartbeat_at: '2026-06-24T09:00:00.000Z',
+          seat_id: 'A1',
+          presence_mode: 'studying',
+          break_zone_id: null,
+          equipped_outfit: {
+            shirtId: 'radiotedu-signal-tee',
+            backpackId: 'radiotedu-backpack',
+          },
+        },
+      ],
+    });
+
+    await handler({ query: {}, user: { id: 'user-1', role: 'user' } }, {});
+
+    expect(mockDbQuery).toHaveBeenCalledWith(expect.stringContaining('study_room_presence'), ['sesli-kutuphane']);
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        room: expect.objectContaining({
+          id: 'sesli-kutuphane',
+          chat_enabled: false,
+        }),
+        seats: expect.arrayContaining([
+          expect.objectContaining({ id: 'A1', label: 'A1', position: { x: 4, y: 2 } }),
+        ]),
+        zones: expect.arrayContaining([
+          expect.objectContaining({ id: 'd-sigara', label: 'D Sigara Break Area' }),
+        ]),
+        participants: [
+          expect.objectContaining({
+            display_name: 'Ece',
+            studied_seconds_today: 7200,
+            position: { x: 3, y: 4 },
+            seat_id: 'A1',
+            presence_mode: 'studying',
+            break_zone_id: null,
+            equipped_outfit: {
+              shirtId: 'radiotedu-signal-tee',
+              backpackId: 'radiotedu-backpack',
+            },
+          }),
+        ],
+      }),
+      'Study room fetched',
+    );
+  });
+
+  it('returns Çim alan semantic seats when that room is requested', async () => {
+    const handler = mockRouteHandlers.get['/study-room'];
+    expect(handler).toBeTypeOf('function');
+    mockDbQuery.mockResolvedValueOnce({rows: []});
+
+    await handler({query: {room_id: 'chim-alan'}, user: {id: 'user-1', role: 'user'}}, {});
+
+    expect(mockDbQuery).toHaveBeenCalledWith(expect.stringContaining('study_room_presence'), ['chim-alan']);
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        room: expect.objectContaining({
+          id: 'chim-alan',
+          theme: 'semantic-amphitheatre',
+        }),
+        seats: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'chim-upper-seat-12',
+            position: {x: 12, y: 4},
+            kind: 'amphitheatre-seat',
+          }),
+        ]),
+      }),
+      'Study room fetched',
+    );
+  });
+
+  it('caps study heartbeat deltas and grid positions', async () => {
+    const handler = mockRouteHandlers.post['/study-room/heartbeat'];
+    expect(handler).toBeTypeOf('function');
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          user_id: 'user-1',
+          room_id: 'sesli-kutuphane',
+          avatar_style: 'focus-green',
+          position_x: 15,
+          position_y: 0,
+          studied_seconds_today: 300,
+          studied_seconds_total: 1200,
+          current_session_started_at: '2026-06-24T08:00:00.000Z',
+          last_heartbeat_at: '2026-06-24T09:00:00.000Z',
+        },
+      ],
+    });
+
+    await handler({
+      body: {
+        room_id: 'sesli-kutuphane',
+        avatar_style: 'focus-green',
+        position: { x: 99, y: -4 },
+        studied_seconds_delta: 9999,
+      },
+      user: { id: 'user-1', role: 'user' },
+    }, {});
+
+    const params = mockDbQuery.mock.calls[0][1];
+    expect(params[4]).toBe(15);
+    expect(params[5]).toBe(0);
+    expect(params[6]).toBe(300);
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        studied_seconds_delta: 300,
+        participant: expect.objectContaining({
+          studied_seconds_today: 300,
+        }),
+      }),
+      'Study heartbeat saved',
+    );
+  });
+
+  it('stores selected seats, break mode, break zone, and equipped outfit on heartbeat', async () => {
+    const handler = mockRouteHandlers.post['/study-room/heartbeat'];
+    expect(handler).toBeTypeOf('function');
+    mockDbQuery.mockResolvedValueOnce({ rows: [] });
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          user_id: 'user-1',
+          room_id: 'sesli-kutuphane',
+          avatar_style: 'focus-green',
+          position_x: 13,
+          position_y: 10,
+          studied_seconds_today: 300,
+          studied_seconds_total: 1200,
+          current_session_started_at: '2026-06-24T08:00:00.000Z',
+          last_heartbeat_at: '2026-06-24T09:00:00.000Z',
+          seat_id: 'Window Desk',
+          presence_mode: 'break',
+          break_zone_id: 'd-sigara',
+          equipped_outfit: {
+            shirtId: 'campus-navy-tee',
+            backpackId: 'radiotedu-backpack',
+          },
+        },
+      ],
+    });
+
+    await handler({
+      body: {
+        room_id: 'sesli-kutuphane',
+        avatar_style: 'focus-green',
+        position: { x: 13, y: 10 },
+        seat_id: 'Window Desk',
+        presence_mode: 'break',
+        break_zone_id: 'd-sigara',
+        equipped_outfit: {
+          shirtId: 'campus-navy-tee',
+          backpackId: 'radiotedu-backpack',
+          ignored: '<script>',
+        },
+        studied_seconds_delta: 120,
+      },
+      user: { id: 'user-1', role: 'user' },
+    }, {});
+
+    const params = mockDbQuery.mock.calls[1][1];
+    expect(params).toEqual(expect.arrayContaining(['Window Desk', 'break', 'd-sigara']));
+    expect(params).not.toContain('<script>');
+    expect(params[6]).toBe(0);
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        studied_seconds_delta: 0,
+        participant: expect.objectContaining({
+          seat_id: 'Window Desk',
+          presence_mode: 'break',
+          break_zone_id: 'd-sigara',
+          equipped_outfit: {
+            shirtId: 'campus-navy-tee',
+            backpackId: 'radiotedu-backpack',
+          },
+        }),
+      }),
+      'Study heartbeat saved',
+    );
+  });
+
+  it('stores Çim alan seat ids on heartbeat without falling back to null', async () => {
+    const handler = mockRouteHandlers.post['/study-room/heartbeat'];
+    expect(handler).toBeTypeOf('function');
+    mockDbQuery.mockResolvedValueOnce({rows: []});
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          user_id: 'user-1',
+          room_id: 'chim-alan',
+          avatar_style: 'classic-red',
+          position_x: 12,
+          position_y: 4,
+          studied_seconds_today: 120,
+          studied_seconds_total: 120,
+          current_session_started_at: '2026-06-24T08:00:00.000Z',
+          last_heartbeat_at: '2026-06-24T09:00:00.000Z',
+          seat_id: 'chim-upper-seat-12',
+          presence_mode: 'studying',
+          break_zone_id: null,
+          equipped_outfit: {},
+        },
+      ],
+    });
+
+    await handler({
+      body: {
+        room_id: 'chim-alan',
+        position: {x: 12, y: 5},
+        seat_id: 'chim-upper-seat-12',
+        presence_mode: 'studying',
+        studied_seconds_delta: 120,
+      },
+      user: {id: 'user-1', role: 'user'},
+    }, {});
+
+    const params = mockDbQuery.mock.calls[1][1];
+    expect(params).toEqual(expect.arrayContaining(['chim-alan', 'chim-upper-seat-12']));
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        participant: expect.objectContaining({
+          room_id: 'chim-alan',
+          seat_id: 'chim-upper-seat-12',
+          position: {x: 12, y: 4},
+        }),
+      }),
+      'Study heartbeat saved',
+    );
+  });
+
+  it('rejects seat selection when another active participant already occupies that chair', async () => {
+    const handler = mockRouteHandlers.post['/study-room/heartbeat'];
+    expect(handler).toBeTypeOf('function');
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ user_id: 'user-2' }] });
+
+    await handler({
+      body: {
+        room_id: 'sesli-kutuphane',
+        position: { x: 4, y: 2 },
+        seat_id: 'A1',
+        presence_mode: 'studying',
+        studied_seconds_delta: 60,
+      },
+      user: { id: 'user-1', role: 'user' },
+    }, {});
+
+    expect(mockSendError).toHaveBeenCalledWith({}, 'Seat already occupied', 409);
+    expect(mockDbQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let guest accounts write study room hours', async () => {
+    const handler = mockRouteHandlers.post['/study-room/heartbeat'];
+    expect(handler).toBeTypeOf('function');
+
+    await handler({
+      body: { studied_seconds_delta: 60 },
+      user: { id: 'guest-1', role: 'guest' },
+    }, {});
+
+    expect(mockSendError).toHaveBeenCalledWith({}, 'Account required', 403);
+    expect(mockDbQuery).not.toHaveBeenCalled();
+  });
+
+  it('does not register study chat endpoints', () => {
+    expect(Object.keys(mockRouteHandlers.get).some((path) => path.includes('chat'))).toBe(false);
+    expect(Object.keys(mockRouteHandlers.post).some((path) => path.includes('chat'))).toBe(false);
+  });
 });
