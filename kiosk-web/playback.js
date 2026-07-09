@@ -98,6 +98,14 @@
                         }
                         return startFn();
                     })
+                    .then((result) => {
+                        if (result === false && generation === startGeneration && activeKey === key) {
+                            generation += 1;
+                            activeKey = null;
+                            if (startPromise === pendingStart) startPromise = null;
+                        }
+                        return result;
+                    })
                     .catch((error) => {
                         if (generation === startGeneration && activeKey === key) {
                             generation += 1;

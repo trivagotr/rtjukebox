@@ -1390,6 +1390,44 @@ class KioskApp {
     }
 
     // ===== Playback Control =====
+    getPlaybackStartKey(song) {
+        return this.getQueueItemIdForPlayback(song)
+            || song?.song_id
+            || song?.id
+            || null;
+    }
+
+    startPlaybackCandidate(candidate) {
+        const queueItemKey = this.getPlaybackStartKey(candidate);
+        const coordinator = this.playbackStartCoordinator
+            || window.KioskPlayback?.createPlaybackStartCoordinator?.();
+
+        if (!coordinator) {
+            this.log('Playback start coordinator unavailable', 'error');
+            return Promise.resolve(false);
+        }
+
+        this.playbackStartCoordinator = coordinator;
+        return coordinator.start(queueItemKey, () => this.playSong(candidate))
+            .catch((error) => {
+                this.log(`Playback start failed: ${error.message}`, 'error');
+                return false;
+            });
+    }
+
+    releasePlaybackStartKey(song = this.queueData?.now_playing) {
+        if (!this.playbackStartCoordinator) {
+            return;
+        }
+
+        const queueItemKey = this.getPlaybackStartKey(song);
+        if (queueItemKey) {
+            this.playbackStartCoordinator.complete(queueItemKey);
+        } else {
+            this.playbackStartCoordinator.reset();
+        }
+    }
+
     checkAndPlayNext() {
         if (!this.isActiveKioskSession()) {
             this.log('⏸ Standby kiosk playback beklemede');
@@ -1406,20 +1444,7 @@ class KioskApp {
             : null;
 
         if (candidate) {
-            const queueItemKey = this.getQueueItemIdForPlayback(candidate)
-                || candidate.song_id
-                || candidate.id;
-            const coordinator = this.playbackStartCoordinator
-                || window.KioskPlayback?.createPlaybackStartCoordinator?.();
-
-            if (!coordinator) {
-                this.log('Playback start coordinator unavailable', 'error');
-                return;
-            }
-
-            this.playbackStartCoordinator = coordinator;
-            void coordinator.start(queueItemKey, () => this.playSong(candidate))
-                .catch((error) => this.log(`Playback start failed: ${error.message}`, 'error'));
+            void this.startPlaybackCandidate(candidate);
         } else if (!this.isPlaying && !this.queueData.now_playing) {
             // Trigger autoplay if nothing is playing and no now_playing exists
             this.triggerAutoplay();
@@ -1431,8 +1456,9 @@ class KioskApp {
             return;
         }
 
+        this.releasePlaybackStartKey();
         if (this.queueData.queue && this.queueData.queue.length > 0) {
-            this.playSong(this.queueData.queue[0]);
+            void this.startPlaybackCandidate(this.queueData.queue[0]);
         } else {
             this.log('🔄 Kuyruk bitti, otomatik şarkı isteniyor...');
             // Notify server we finished
@@ -1512,7 +1538,7 @@ class KioskApp {
     async playSong(song) {
         if (!this.isActiveKioskSession()) {
             this.log('⏸ Standby kiosk şarkı çalmıyor');
-            return;
+            return false;
         }
 
         console.log('▶️ Çalınıyor:', song.title);
@@ -1526,15 +1552,15 @@ class KioskApp {
             if (playbackPlan.kind === 'spotify') {
                 if (!this.isSpotifyDeviceAuthConnected()) {
                     this.showSpotifyDeviceAuthSetupOverlay(this.spotifyDeviceAuthSetupState?.reason || 'Spotify bağlantısı gerekli');
-                    return;
+                    return false;
                 }
                 await this.playSpotifySong(song);
-                return;
+                return true;
             }
 
             if (playbackPlan.kind !== 'local' || !playbackPlan.audioUrl) {
                 await this.skipUnsupportedSong(song, 'Geçerli bir local audio kaynağı bulunamadı');
-                return;
+                return false;
             }
 
             const audioUrl = playbackPlan.audioUrl;
@@ -1542,7 +1568,7 @@ class KioskApp {
             // Prevent loop: Don't re-play if same URL is already playing
             if (this.audioPlayer.src.includes(audioUrl) && this.isPlaying) {
                 console.log('⏭️ Şarkı zaten çalıyor, atlandı');
-                return;
+                return true;
             }
 
             this.pauseSpotifyPlayback();
@@ -1571,6 +1597,8 @@ class KioskApp {
                 }).catch(e => this.log(`⚠️ Sunucu bildirim hatası: ${e.message}`, 'error'));
             }
 
+            return true;
+
         } catch (error) {
             this.isPlaying = false;
             const authRequiredMessage = this.getSpotifyDeviceAuthRequiredMessage(error);
@@ -1579,7 +1607,7 @@ class KioskApp {
                 this.spotifyDeviceAuthReady = false;
                 this.showSpotifyDeviceAuthSetupOverlay(authRequiredMessage);
                 this.log(`⚠️ Spotify bağlantısı gerekli: ${authRequiredMessage}`, 'error');
-                return;
+                return false;
             }
             const failedPlan = window.KioskPlayback?.getSongPlaybackPlan?.(song, CONFIG.API_URL);
             if (failedPlan?.kind === 'spotify' && this.getQueueItemIdForPlayback(song)) {
@@ -1587,9 +1615,10 @@ class KioskApp {
                     this.log(`⚠️ Spotify hata durumu bildirilemedi: ${reportError.message}`, 'error');
                 });
                 this.log(`❌ Spotify çalma hatası: ${error.message}`, 'error');
-                return;
+                return false;
             }
             this.log(`❌ Beklenmedik hata: ${error.message}`, 'error');
+            return false;
         }
     }
 
