@@ -8,6 +8,7 @@
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "audit:android": "node scripts/android-publish-audit.js",
+    "package:study": "npm --prefix ../study-game run build && node scripts/package-study-game.mjs",
     "start": "react-native start",
     "test": "jest"
   },

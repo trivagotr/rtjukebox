@@ -132,4 +132,12 @@ describe('findElevatedAStarPath', () => {
       }),
     ).toEqual([])
   })
+
+  it('never routes through coordinates absent from the declared walkable geometry', () => {
+    expect(
+      findElevatedAStarPath(point(0, 0, 0), point(2, 0, 0), {
+        walkableTiles: [point(0, 0, 0), point(2, 0, 0)],
+      }),
+    ).toEqual([])
+  })
 })

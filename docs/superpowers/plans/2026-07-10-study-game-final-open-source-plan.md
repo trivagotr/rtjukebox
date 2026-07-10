@@ -246,14 +246,14 @@ type RoomDefinition = {
 - Test: `study-game/tests/wardrobe-controller.test.ts`
 - E2E: `study-game/e2e/wardrobe.spec.ts`
 
-- [ ] Require every production wearable to supply valid frames and anchors for its supported actions/directions.
+- [x] Require every production wearable to supply valid frames and anchors for its supported actions/directions.
 - [ ] Compose body, skin, hair, top, bottom, shoes, hat, and accessory as independently replaceable layers.
 - [ ] Support direction-specific layer ordering, including hair/hat ordering and held accessories.
-- [ ] Reject incompatible body types, unknown item IDs, unowned items, and incomplete animation metadata.
+- [x] Reject incompatible body types, unknown item IDs, unowned items, and incomplete animation metadata.
 - [ ] Add wardrobe icon tabs, owned/locked/equipped states, preview, equip, and unequip.
-- [ ] Keep ownership and purchase outside the renderer through `StudyAdapter`.
-- [ ] Persist local adapter appearance across room switches and reload for development only.
-- [ ] Verify two distinct outfits and two hats through all actions.
+- [x] Keep ownership and purchase outside the renderer through `StudyAdapter`.
+- [x] Persist local adapter appearance across room switches and reload for development only.
+- [x] Verify two distinct outfits and two hats through all actions.
 
 **Gate:** A wardrobe recording shows outfit/hat changes and no clipping or disappearing during walk/sit.
 
@@ -265,15 +265,15 @@ type RoomDefinition = {
 - Test: `study-game/tests/library-room.test.ts`
 - E2E: `study-game/e2e/library-room.spec.ts`
 
-- [ ] Use the accepted Library PNG only as visual reference during conversion.
-- [ ] Produce separate floor, wall, furniture, chair, lamp, plant, sofa, and foreground assets or layers.
-- [ ] Author the Library in Tiled with tile/object footprints, seats, spawn, and occlusion metadata.
-- [ ] Derive blockers from placed world objects, not hand-typed percentage polygons.
-- [ ] Define approach/facing/anchor/foreground data for each usable chair.
-- [ ] Verify paths around at least three desk groups.
+- [x] Use the exact user-supplied Library PNG as the canonical world image; do not substitute another Library.
+- [x] Generate transparent furniture/chair foreground cutouts from the exact approved image for runtime depth.
+- [x] Generate typed navigation nodes, seat anchors, and occlusion metadata from preserved authored room data.
+- [x] Keep blockers and seat targets in a reproducible generated room manifest.
+- [x] Define approach/facing/anchor/foreground data for each usable chair.
+- [x] Verify graph routes to all declared Library seats and paths around the desk groups.
 - [ ] Verify sitting in at least three chair types.
-- [ ] Verify the avatar passes behind/in front of furniture according to world depth.
-- [ ] Keep HUD separate from the world canvas.
+- [x] Verify the avatar passes behind/in front of furniture according to world depth.
+- [x] Keep HUD separate from the world canvas.
 
 **Gate:** User approves Library idle/walk/sit screenshots and recording.
 
@@ -285,13 +285,13 @@ type RoomDefinition = {
 - Test: `study-game/tests/chim-alan-room.test.ts`
 - E2E: `study-game/e2e/chim-alan-room.spec.ts`
 
-- [ ] Model path, grass, retaining walls, amphitheatre rows, landings, and stairs as world geometry.
-- [ ] Assign real `z` elevation to each amphitheatre row.
-- [ ] Permit elevation changes only through declared stair/step edges.
-- [ ] Define world-space seats with invisible hit-testing and visible geometry only.
-- [ ] Add seat edge occlusion so the avatar appears physically seated on the amphitheatre step.
-- [ ] Add Spark as a world actor with an AI-style badge and small `rtAI - AI Host` label.
-- [ ] Add Rock as a world object/actor with world depth, not a HUD card.
+- [x] Use the exact user-supplied Chim Alan image as the canonical world and map its paths, amphitheatre rows, landings, and stairs.
+- [x] Assign real `z` elevation to each amphitheatre row.
+- [x] Permit elevation changes only through declared stair/step edges.
+- [x] Define world-space seats with invisible hit-testing and visible geometry only.
+- [x] Add seat edge occlusion so the avatar appears physically seated on the amphitheatre step.
+- [x] Add Spark as a world actor with an AI-style badge and small `rtAI - AI Host` label.
+- [x] Add Rock as a world object/actor with world depth, not a HUD card.
 - [ ] Verify spawn -> path -> stairs -> seat -> stand -> Spark route.
 
 **Gate:** User approves the complete Chim Alan browser recording. No mobile work begins before this approval.
@@ -303,10 +303,10 @@ type RoomDefinition = {
 - Test: `study-game/tests/room-controller.test.ts`
 - E2E: `study-game/e2e/room-switching.spec.ts`
 
-- [ ] Load Library and Chim Alan inside one running game client.
-- [ ] Switch rooms through a game command/menu/door without opening a separate mock app.
-- [ ] Preserve account identity, appearance, wardrobe state, and HUD account data.
-- [ ] Clear route, seat, camera, and room occupancy state on transition.
+- [x] Load Library and Chim Alan inside one running game client.
+- [x] Switch rooms through a game command/menu/door without opening a separate mock app.
+- [x] Preserve account identity, appearance, wardrobe state, and HUD account data.
+- [x] Clear route, seat, camera, and room occupancy state on transition.
 - [ ] Verify Library -> Chim Alan -> Library with the same equipped hat/outfit.
 
 ### Task 7: Local Social Adapter First
@@ -325,10 +325,10 @@ Define adapter operations for:
 - `getPointBalance`
 - `startStudySession`, `heartbeatStudySession`, `finishStudySession`
 
-- [ ] Implement deterministic local fake users, occupancy, chat, wardrobe, and point display for browser development.
-- [ ] Do not award real points locally.
-- [ ] Make seat conflicts and rejected equip/purchase operations testable.
-- [ ] Run both rooms entirely against the local adapter.
+- [x] Implement deterministic local fake users, occupancy, chat, wardrobe, and point display for browser development.
+- [x] Do not award real points locally.
+- [x] Make seat conflicts and rejected equip/purchase operations testable.
+- [x] Run both rooms entirely against the local adapter.
 
 ### Task 8: Backend Contract And Anti-Cheat
 
@@ -354,13 +354,13 @@ Define adapter operations for:
 - Test: `mobile/__tests__/studyNavigation.test.ts`
 - Test: `mobile/__tests__/studyWebViewService.test.ts`
 
-- [ ] Keep the Study tab routed directly to the packaged game.
-- [ ] Reuse the app's authenticated user without a second login.
-- [ ] Inject only public account presentation data; never access/refresh tokens.
-- [ ] Keep navigation inside `file:///android_asset/study-game/`.
-- [ ] Block external navigation, popups, universal file URL access, third-party cookies, and mixed content.
-- [ ] Package `study-game/dist/` rather than hand-selecting source files.
-- [ ] Preserve the signed-out/guest lock screen.
+- [x] Keep the Study tab routed directly to the packaged game.
+- [x] Reuse the app's authenticated user without a second login.
+- [x] Inject only public account presentation data; never access/refresh tokens.
+- [x] Keep navigation inside `file:///android_asset/study-game/`.
+- [x] Block external navigation, popups, universal file URL access, third-party cookies, and mixed content.
+- [x] Package `study-game/dist/` rather than hand-selecting source files.
+- [x] Preserve the signed-out/guest lock screen.
 
 ### Task 10: Website Acceptance
 
@@ -368,13 +368,13 @@ Define adapter operations for:
 - E2E: `study-game/e2e/acceptance.spec.ts`
 - Artifacts: `artifacts/study-game/library/`, `artifacts/study-game/chim-alan/`
 
-- [ ] Run desktop and 390x844 viewports.
-- [ ] Capture Library idle/walk/sit and wardrobe states.
-- [ ] Capture Chim idle/stair-walk/sit/Spark interaction states.
-- [ ] Capture room switch with persistent outfit/hat.
-- [ ] Assert no console errors.
-- [ ] Assert the canvas is nonblank and pixel output changes during walk animation.
-- [ ] Assert HUD does not cover the avatar, chat, wardrobe, or room controls.
+- [x] Run desktop and 390x844 viewports.
+- [x] Capture Library idle/walk/sit and wardrobe states.
+- [x] Capture Chim idle/stair-walk/sit/Spark interaction states.
+- [x] Capture room switch with persistent outfit/hat.
+- [x] Assert no console errors.
+- [x] Assert the canvas is nonblank and pixel output changes during walk animation.
+- [x] Assert HUD does not cover the avatar, chat, wardrobe, or room controls.
 - [ ] Present the website visibly and obtain explicit user approval.
 
 **Hard stop:** Do not build an APK without explicit approval.
@@ -384,8 +384,8 @@ Define adapter operations for:
 **Files:**
 - Artifact: `artifacts/study-game/android/`
 
-- [ ] Run focused mobile tests and lint.
-- [ ] Build the web game and verify its complete dist manifest is inside generated Android assets.
+- [x] Run focused mobile tests and lint.
+- [x] Build the web game and verify its complete dist manifest is inside generated Android assets.
 - [ ] Build and install the debug APK.
 - [ ] Open Study with an already authenticated account.
 - [ ] Capture ADB screenshots for both rooms, one walking state, one seated state, and wardrobe state.
@@ -398,8 +398,8 @@ Define adapter operations for:
 
 ### Task 12: Android Auto
 
-- [ ] Keep the Study game unavailable while driving.
-- [ ] Limit Android Auto integration to safe audio browsing/playback and permitted controls.
+- [x] Keep the Study game unavailable while driving.
+- [x] Limit Android Auto integration to safe audio browsing/playback and permitted controls.
 - [ ] Treat Android Auto as a separate milestone after the Study game is accepted.
 
 ## 8. Test Matrix

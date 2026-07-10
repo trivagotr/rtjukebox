@@ -153,16 +153,20 @@ function buildDefaultWearables(): Record<WearableSlot, readonly WearableDefiniti
     ]),
     top: freezeReadonly([
       createWearable('radio-hoodie', 'top', REQUIRED_BODY_TYPES, { anchor: { x: 1, y: 4 } }),
+      createWearable('varsity-jacket', 'top', REQUIRED_BODY_TYPES, { anchor: { x: 1, y: 4 } }),
       createWearable('fem-dress-top', 'top', ['fem'], { anchor: { x: 1, y: 4 } }),
     ]),
     bottom: freezeReadonly([
       createWearable('jeans', 'bottom', REQUIRED_BODY_TYPES, { anchor: { x: 1, y: 5 } }),
+      createWearable('black-cargos', 'bottom', REQUIRED_BODY_TYPES, { anchor: { x: 1, y: 5 } }),
     ]),
     shoes: freezeReadonly([
       createWearable('sneakers', 'shoes', REQUIRED_BODY_TYPES, { anchor: { x: 0, y: 6 } }),
+      createWearable('boots', 'shoes', REQUIRED_BODY_TYPES, { anchor: { x: 0, y: 6 } }),
     ]),
     hat: freezeReadonly([
       createWearable('bucket-hat', 'hat', REQUIRED_BODY_TYPES, { layerByDirection: hatLayerOffsets, anchor: { x: 2, y: 1 } }),
+      createWearable('beanie', 'hat', REQUIRED_BODY_TYPES, { layerByDirection: hatLayerOffsets, anchor: { x: 2, y: 1 } }),
     ]),
     accessory: freezeReadonly([
       createWearable('headphones', 'accessory', REQUIRED_BODY_TYPES, { anchor: { x: 3, y: 2 } }),

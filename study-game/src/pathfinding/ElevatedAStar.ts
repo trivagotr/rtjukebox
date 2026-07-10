@@ -12,6 +12,7 @@ export interface DirectedStairEdge {
 export interface ElevatedAStarOptions {
   blockedTiles?: Iterable<GridPoint | string>
   stairEdges?: Iterable<DirectedStairEdge | readonly [GridPoint, GridPoint]>
+  walkableTiles?: Iterable<GridPoint | string>
 }
 
 const GRID_SIZE = 12
@@ -52,6 +53,13 @@ const buildBlockedSet = (blockedTiles?: Iterable<GridPoint | string>): Set<strin
   }
 
   return blocked
+}
+
+const buildWalkableSet = (walkableTiles?: Iterable<GridPoint | string>): Set<string> | null => {
+  if (!walkableTiles) return null
+  const walkable = new Set<string>()
+  for (const tile of walkableTiles) walkable.add(keyOf(pointFromInput(tile)))
+  return walkable
 }
 
 const buildStairMap = (
@@ -129,11 +137,12 @@ export function findElevatedAStarPath(
   }
 
   const blocked = buildBlockedSet(options.blockedTiles)
+  const walkable = buildWalkableSet(options.walkableTiles)
   const stairMap = buildStairMap(options.stairEdges)
   const startKey = keyOf(start)
   const goalKey = keyOf(goal)
 
-  if (blocked.has(startKey) || blocked.has(goalKey)) {
+  if (blocked.has(startKey) || blocked.has(goalKey) || (walkable && (!walkable.has(startKey) || !walkable.has(goalKey)))) {
     return []
   }
 
@@ -189,7 +198,7 @@ export function findElevatedAStarPath(
 
       const neighborKey = keyOf(neighbor)
 
-      if (blocked.has(neighborKey)) {
+      if (blocked.has(neighborKey) || (walkable && !walkable.has(neighborKey))) {
         continue
       }
 
@@ -213,7 +222,7 @@ export function findElevatedAStarPath(
 
       const neighborKey = keyOf(stairTarget)
 
-      if (blocked.has(neighborKey)) {
+      if (blocked.has(neighborKey) || (walkable && !walkable.has(neighborKey))) {
         continue
       }
 

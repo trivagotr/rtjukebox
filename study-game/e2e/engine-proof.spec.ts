@@ -27,7 +27,7 @@ async function captureRenderedFrame(canvas: Locator, filename: string): Promise<
 
 test('proves a visible layered avatar can walk stairs, sit, and stand', async ({ page }, testInfo) => {
   const name = testInfo.project.name
-  await page.goto('/')
+  await page.goto('/?scene=engine-proof')
   await expect(page.locator('html')).toHaveAttribute('data-engine-proof', 'ready', { timeout: 30_000 })
 
   const canvas = page.locator('#game-canvas canvas')

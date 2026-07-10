@@ -2,6 +2,10 @@
 
 This is a living release-notice file. The exact machine-readable record is `THIRD_PARTY.yml`. Entries marked reference-only are not included in the Study client.
 
+## Project-Supplied Room Art
+
+The canonical Library and Chim Alan room images were supplied and explicitly approved by the project owner on 2026-07-10. Their exact hashes and generated-cutout lineage are recorded in `docs/study-game/ASSET-PROVENANCE.md`; they are project assets, not third-party dependency art.
+
 ## Selected Software
 
 - **Phaser 4.2.1** - MIT. Source: https://github.com/phaserjs/phaser at `41be1e462bc600064e498cba370bfa8c5c055a22`.

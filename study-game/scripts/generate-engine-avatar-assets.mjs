@@ -10,6 +10,12 @@ export const FRAME_HEIGHT = 96
 export const DIRECTIONS = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
 export const LAYERS = ['body', 'skin', 'hair', 'top', 'bottom', 'shoes', 'hat']
 export const ACTION_FRAMES = { idle: 1, walk: 4, sit: 1, stand: 3 }
+export const WEARABLE_VARIANTS = Object.freeze({
+  top: Object.freeze(['radio-hoodie', 'varsity-jacket']),
+  bottom: Object.freeze(['jeans', 'black-cargos']),
+  shoes: Object.freeze(['sneakers', 'boots']),
+  hat: Object.freeze(['bucket-hat', 'beanie']),
+})
 
 const DIRECTION_VECTOR = {
   n: [0, -1],
@@ -133,23 +139,26 @@ function hairLayer(p) {
   ].join('')
 }
 
-function topLayer(p) {
-  const top = '#2f8f8a'
-  const dark = '#1f5c62'
-  const trim = '#f0e9d2'
+function topLayer(p, variant = 'radio-hoodie') {
+  const varsity = variant === 'varsity-jacket'
+  const top = varsity ? '#9e3f4f' : '#2f8f8a'
+  const dark = varsity ? '#5f2735' : '#1f5c62'
+  const trim = varsity ? '#f2dfbd' : '#f0e9d2'
   const bottom = p.hipY + 2
   return [
     polygon([[24, p.torsoY], [40, p.torsoY], [43, bottom], [21, bottom]], top, dark, 1),
-    polygon([[23, p.torsoY + 1], [28, p.torsoY + 2], [26, p.torsoY + 15], [21, p.torsoY + 14]], top, dark, 1),
-    polygon([[36, p.torsoY + 2], [41, p.torsoY + 1], [43, p.torsoY + 14], [38, p.torsoY + 15]], top, dark, 1),
+    polygon([[23, p.torsoY + 1], [28, p.torsoY + 2], [26, p.torsoY + 15], [21, p.torsoY + 14]], varsity ? trim : top, dark, 1),
+    polygon([[36, p.torsoY + 2], [41, p.torsoY + 1], [43, p.torsoY + 14], [38, p.torsoY + 15]], varsity ? trim : top, dark, 1),
     polygon([[28, p.torsoY], [32, p.torsoY + 5], [36, p.torsoY]], trim),
     rect(31, p.torsoY + 5, 2, Math.max(3, bottom - p.torsoY - 7), dark),
+    varsity ? rect(25, bottom - 4, 14, 2, trim) : '',
   ].join('')
 }
 
-function bottomLayer(p) {
-  const pants = '#24466d'
-  const shade = '#172d4d'
+function bottomLayer(p, variant = 'jeans') {
+  const cargo = variant === 'black-cargos'
+  const pants = cargo ? '#343942' : '#24466d'
+  const shade = cargo ? '#191d24' : '#172d4d'
   const waistY = p.hipY
   const legLength = 20 - p.seated * 9
   const forwardX = p.dx * p.seated * 9
@@ -161,13 +170,15 @@ function bottomLayer(p) {
     rect(22, waistY - 2, 20, 7, pants, shade, 1),
     polygon([[22, waistY + 3], [31, waistY + 3], [30 + forwardX, waistY + legLength + leftSwing + forwardY], [20 + forwardX, waistY + legLength + leftSwing + forwardY]], pants, shade, 1),
     polygon([[33, waistY + 3], [42, waistY + 3], [44 + forwardX, waistY + legLength + rightSwing + forwardY], [34 + forwardX, waistY + legLength + rightSwing + forwardY]], pants, shade, 1),
-    rect(24, waistY, 1.5, Math.max(3, legLength - 2), '#315981'),
+    rect(24, waistY, 1.5, Math.max(3, legLength - 2), cargo ? '#555e69' : '#315981'),
+    cargo ? rect(35 + forwardX, waistY + 8 + forwardY, 7, 5, '#252a31', shade, 1) : '',
   ].join('')
 }
 
-function shoesLayer(p) {
-  const shoe = '#e7d6b7'
-  const sole = '#6b5142'
+function shoesLayer(p, variant = 'sneakers') {
+  const boots = variant === 'boots'
+  const shoe = boots ? '#30333a' : '#e7d6b7'
+  const sole = boots ? '#11161c' : '#6b5142'
   const legLength = 20 - p.seated * 9
   const forwardX = p.dx * p.seated * 9
   const forwardY = Math.max(0, p.dy) * p.seated * 5
@@ -178,19 +189,27 @@ function shoesLayer(p) {
   const directionNudge = p.dx * 2
 
   return [
-    rect(18 + forwardX + directionNudge, leftY, 13, 6, shoe, sole, 1),
-    rect(33 + forwardX + directionNudge, rightY, 13, 6, shoe, sole, 1),
+    rect(18 + forwardX + directionNudge, leftY - (boots ? 2 : 0), 13, boots ? 8 : 6, shoe, sole, 1),
+    rect(33 + forwardX + directionNudge, rightY - (boots ? 2 : 0), 13, boots ? 8 : 6, shoe, sole, 1),
     rect(18 + forwardX + directionNudge, leftY + 5, 13, 2, sole),
     rect(33 + forwardX + directionNudge, rightY + 5, 13, 2, sole),
   ].join('')
 }
 
-function hatLayer(p) {
-  const crown = '#d9ad3d'
-  const band = '#243d55'
-  const brim = '#b78022'
+function hatLayer(p, variant = 'bucket-hat') {
+  const beanie = variant === 'beanie'
+  const crown = beanie ? '#8f4058' : '#d9ad3d'
+  const band = beanie ? '#5e263b' : '#243d55'
+  const brim = beanie ? '#5e263b' : '#b78022'
   const headX = 22 + p.faceOffset
   const brimOffset = p.dx * 5
+  if (beanie) {
+    return [
+      polygon([[headX + 3, p.headY - 8], [headX + 16, p.headY - 8], [headX + 20, p.headY], [headX, p.headY]], crown, band, 1),
+      rect(headX, p.headY - 2, 20, 4, band, '#351827', 1),
+      rect(headX + 8, p.headY - 10, 4, 3, '#bd6a7c'),
+    ].join('')
+  }
   return [
     polygon([[headX + 2, p.headY - 6], [headX + 17, p.headY - 6], [headX + 20, p.headY + 1], [headX, p.headY + 1]], crown, '#694c1d', 1),
     rect(headX, p.headY - 1, 20, 4, band),
@@ -209,7 +228,7 @@ const LAYER_RENDERER = {
   hat: hatLayer,
 }
 
-function createSheetSvg(layer, action, frameCount) {
+function createSheetSvg(layer, action, frameCount, variant) {
   const width = FRAME_WIDTH * frameCount
   const height = FRAME_HEIGHT * DIRECTIONS.length
   const groups = []
@@ -219,7 +238,7 @@ function createSheetSvg(layer, action, frameCount) {
     for (let frame = 0; frame < frameCount; frame += 1) {
       const x = frame * FRAME_WIDTH
       const y = row * FRAME_HEIGHT
-      groups.push(`<g transform="translate(${x} ${y})">${LAYER_RENDERER[layer](pose(direction, action, frame))}</g>`)
+      groups.push(`<g transform="translate(${x} ${y})">${LAYER_RENDERER[layer](pose(direction, action, frame), variant)}</g>`)
     }
   }
 
@@ -230,6 +249,8 @@ export async function generateAvatarAssets(outputDir) {
   await mkdir(outputDir, { recursive: true })
   const sheets = Object.fromEntries(LAYERS.map((layer) => [layer, {}]))
   const sha256 = Object.fromEntries(LAYERS.map((layer) => [layer, {}]))
+  const wearables = Object.fromEntries(Object.keys(WEARABLE_VARIANTS).map((slot) => [slot, {}]))
+  const wearableSha256 = Object.fromEntries(Object.keys(WEARABLE_VARIANTS).map((slot) => [slot, {}]))
 
   for (const layer of LAYERS) {
     for (const [action, frameCount] of Object.entries(ACTION_FRAMES)) {
@@ -242,8 +263,23 @@ export async function generateAvatarAssets(outputDir) {
     }
   }
 
+  for (const [slot, itemIds] of Object.entries(WEARABLE_VARIANTS)) {
+    for (const itemId of itemIds) {
+      wearables[slot][itemId] = {}
+      wearableSha256[slot][itemId] = {}
+      for (const [action, frameCount] of Object.entries(ACTION_FRAMES)) {
+        const fileName = `${slot}-${itemId}-${action}.png`
+        const svg = createSheetSvg(slot, action, frameCount, itemId)
+        const image = await sharp(Buffer.from(svg)).png({ compressionLevel: 9 }).toBuffer()
+        await writeFile(path.join(outputDir, fileName), image)
+        wearables[slot][itemId][action] = fileName
+        wearableSha256[slot][itemId][action] = createHash('sha256').update(image).digest('hex')
+      }
+    }
+  }
+
   const manifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     provenance: {
       generator: 'study-game/scripts/generate-engine-avatar-assets.mjs',
       license: 'RadioTEDU project-owned original procedural artwork',
@@ -255,6 +291,8 @@ export async function generateAvatarAssets(outputDir) {
     actionFrames: ACTION_FRAMES,
     sheets,
     sha256,
+    wearables,
+    wearableSha256,
   }
   const manifestPath = path.join(outputDir, 'manifest.json')
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')

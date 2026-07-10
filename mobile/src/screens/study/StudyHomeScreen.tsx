@@ -54,11 +54,7 @@ const StudyHomeScreen = () => {
               key={location.id}
               style={[styles.locationCard, locked && styles.locationCardDisabled]}
               disabled={locked}
-              onPress={() =>
-                location.id === 'library'
-                  ? navigation.navigate('LibraryStudyWeb')
-                  : navigation.navigate('StudyRoom', {locationId: location.id})
-              }>
+              onPress={() => navigation.navigate('StudyRoom', {locationId: location.id})}>
               <View style={styles.locationIcon}>
                 <Icon name={location.icon} size={26} color={COLORS.primary} />
               </View>

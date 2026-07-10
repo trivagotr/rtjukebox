@@ -5,6 +5,17 @@ Inventory root: `prototypes/library-study/assets`
 
 This inventory covers every file below the inventory root. SHA-256 values were calculated from the current worktree bytes. `approved` means cleared for production, `prototype-only` means retained for evaluation/reference but not production, `unknown-provenance` means the evidence is insufficient to make a license/origin decision, and `rejected` means explicitly excluded from production.
 
+## User-Supplied Canonical Room Images
+
+On 2026-07-10 the project owner explicitly supplied and approved exactly two room images as the canonical production visuals. They were copied byte-for-byte into the Study client. No other Library or Chim Alan room bitmap is approved by this decision.
+
+| Room | Supplied source | Production path | Dimensions | SHA-256 | Eligibility |
+|---|---|---|---:|---|---|
+| Library | `codex-clipboard-ba93683c-1587-4466-a38c-77868fa6415b.png` | `study-game/public/assets/rooms/library.png` | 941 x 1672 | `7c4b055c9ed8c5cea91e9cc7d2ce55bf718299a2804d0d1e0dc91b7027fa3828` | **approved / project-supplied** |
+| Chim Alan | `codex-clipboard-94c9a358-6027-49a2-ae57-d96eb80a69d6.png` | `study-game/public/assets/rooms/chim-alan.png` | 941 x 1672 | `1ea2ffa9252ad8cb59ddc72eae6832ad742d5c97714c4cf1cd6f2626992a1718` | **approved / project-supplied** |
+
+`study-game/scripts/generate-image-room-data.mjs` produces transparent foreground/occlusion cutouts from these exact bytes. Those generated PNGs are derivatives of the corresponding approved room image and may only be regenerated from a source whose hash matches the table above.
+
 ## Evidence Summary
 
 - `avatar-lpc/` is imported/cropped from Universal LPC Spritesheet Character Generator source files named in its README. Universal LPC has mixed per-asset licensing, including GPLv3 and attribution/share-alike obligations. These files are `prototype-only` until exact per-asset notices, source commit, author credits, and obligations are accepted.

@@ -69,6 +69,29 @@ describe('AvatarController', () => {
     expect(controller.appearance.topId).toBe('radio-hoodie')
   })
 
+  it('equips a second complete outfit and hat through every action and direction', () => {
+    const controller = new AvatarController(DEFAULT_AVATAR_ASSET_MANIFEST, BASE_APPEARANCE)
+    controller.equip('top', 'varsity-jacket')
+    controller.equip('bottom', 'black-cargos')
+    controller.equip('shoes', 'boots')
+    controller.equip('hat', 'beanie')
+
+    expect(controller.appearance).toEqual(expect.objectContaining({
+      topId: 'varsity-jacket',
+      bottomId: 'black-cargos',
+      shoesId: 'boots',
+      hatId: 'beanie',
+    }))
+
+    for (const action of ['idle', 'walk', 'sit', 'stand'] as const) {
+      for (const direction of ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] as const) {
+        const layers = composeAvatarLayers(DEFAULT_AVATAR_ASSET_MANIFEST, controller.appearance, action, direction, 0)
+        expect(layers.find((layer) => layer.slot === 'top')?.id).toBe('varsity-jacket')
+        expect(layers.find((layer) => layer.slot === 'hat')?.id).toBe('beanie')
+      }
+    }
+  })
+
   it('composes independent body, skin, hair, top, bottom, shoes, hat, and accessory layers', () => {
     const controller = new AvatarController(DEFAULT_AVATAR_ASSET_MANIFEST, BASE_APPEARANCE)
 
