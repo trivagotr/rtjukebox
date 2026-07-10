@@ -1480,6 +1480,127 @@ describe('kiosk playback helpers', () => {
     expect(requestOrder).toEqual(['playing', 'spotify-play', 'failed']);
   });
 
+  it('starts an early-broadcast successor once after a failed Spotify start is accepted', async () => {
+    const failedReportStarted = createDeferred();
+    const failedReport = createDeferred();
+    const songA = {
+      queue_item_id: 'queue-a',
+      song_id: 'song-a',
+      title: 'Spotify A',
+      playback_type: 'spotify',
+      spotify_uri: 'spotify:track:a',
+    };
+    const songB = {
+      queue_item_id: 'queue-b',
+      song_id: 'song-b',
+      title: 'Local B',
+      playback_type: 'local',
+      file_url: '/uploads/songs/b.mp3',
+    };
+    const createQueueB = () => ({ now_playing: { ...songB }, queue: [] });
+    let queueFetches = 0;
+    const fetchImpl = vi.fn((url, options = {}) => {
+      const urlString = String(url);
+      if (urlString.includes('/api/v1/jukebox/kiosk/spotify-token')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ data: { access_token: 'token-1' } }),
+        });
+      }
+      if (urlString.includes('/api/v1/jukebox/kiosk/playback/state')) {
+        const { state } = JSON.parse(options.body);
+        if (state === 'failed') {
+          failedReportStarted.resolve();
+          return failedReport.promise;
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ success: true }),
+        });
+      }
+      if (urlString.includes('https://api.spotify.com/v1/me/player/play')) {
+        return Promise.resolve({
+          ok: false,
+          status: 502,
+          json: () => Promise.resolve({ error: { message: 'Spotify rejected playback' } }),
+        });
+      }
+      if (urlString.includes('/api/v1/jukebox/queue/device-1')) {
+        queueFetches += 1;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(createQueueB()),
+        });
+      }
+      if (urlString.includes('/api/v1/jukebox/kiosk/now-playing')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ success: true }),
+        });
+      }
+      throw new Error(`Unexpected request: ${urlString}`);
+    });
+    const { audioPlayer, context } = createKioskAppHarness({ fetchImpl });
+    context.KioskApp.prototype.init = vi.fn();
+    const app = new context.KioskApp();
+    app.device = { id: 'device-1' };
+    app.kioskSession = { role: 'active' };
+    app.kioskSessionId = 'session-1';
+    app.spotifyDeviceId = 'browser-device-1';
+    app.spotifyController = {};
+    app.spotifyPlayerState = { position_ms: 0, duration_ms: 180000 };
+    app.audioPlayer = audioPlayer;
+    app.queueData = { now_playing: songA, queue: [] };
+    app.isPlaying = false;
+    app.isSpotifyDeviceAuthConnected = vi.fn(() => true);
+    app.ensureSpotifyPlaybackReady = vi.fn().mockResolvedValue(undefined);
+    app.renderQueue = vi.fn();
+    app.syncNowPlayingUi = vi.fn();
+    app.showPlayingState = vi.fn();
+    app.log = vi.fn();
+    const playSong = vi.spyOn(app, 'playSong');
+    const handlers = connectTerminalSocketHandlers(app, context);
+
+    const startA = app.startPlaybackCandidate(songA);
+    await failedReportStarted.promise;
+
+    handlers.queue_updated(createQueueB());
+    await flushPlaybackMicrotasks();
+
+    expect(playSong.mock.calls.map(([song]) => song.queue_item_id)).toEqual(['queue-a']);
+    expect(queueFetches).toBe(0);
+
+    failedReport.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ success: true }),
+    });
+    await startA;
+    await flushPlaybackMicrotasks();
+    await flushPlaybackMicrotasks();
+
+    expect(queueFetches).toBe(1);
+    expect(playSong.mock.calls.map(([song]) => song.queue_item_id)).toEqual([
+      'queue-a',
+      'queue-b',
+    ]);
+    expect(audioPlayer.play).toHaveBeenCalledTimes(1);
+
+    app.isPlaying = false;
+    handlers.queue_updated(createQueueB());
+    await flushPlaybackMicrotasks();
+
+    expect(playSong.mock.calls.map(([song]) => song.queue_item_id)).toEqual([
+      'queue-a',
+      'queue-b',
+    ]);
+    expect(audioPlayer.play).toHaveBeenCalledTimes(1);
+  });
+
   it('reports spotify queue item failure instead of falling back to local audio when web playback is not ready', async () => {
     const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
     const context = vm.createContext({

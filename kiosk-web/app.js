@@ -1649,9 +1649,13 @@ class KioskApp {
             }
             const failedPlan = window.KioskPlayback?.getSongPlaybackPlan?.(song, CONFIG.API_URL);
             if (failedPlan?.kind === 'spotify' && this.getQueueItemIdForPlayback(song)) {
-                await this.reportKioskPlaybackState(song, 'failed', error).catch((reportError) => {
+                try {
+                    await this.reportKioskPlaybackState(song, 'failed', error);
+                    this.releasePlaybackStartKey(song);
+                    await this.loadInitialQueue();
+                } catch (reportError) {
                     this.log(`⚠️ Spotify hata durumu bildirilemedi: ${reportError.message}`, 'error');
-                });
+                }
                 this.log(`❌ Spotify çalma hatası: ${error.message}`, 'error');
                 return false;
             }
