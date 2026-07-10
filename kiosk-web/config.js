@@ -65,9 +65,20 @@ const getDeviceCode = () => {
     return '';
 };
 
+const getDevicePassword = () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const passwordFromURL = urlParams.get('pwd');
+    if (passwordFromURL) {
+        localStorage.setItem('device_pwd', passwordFromURL);
+        return passwordFromURL;
+    }
+    return localStorage.getItem('device_pwd') || '';
+};
+
 const CONFIG = {
     // Cihaz kodu - dinamik olarak belirlenir
     DEVICE_CODE: getDeviceCode(),
+    DEVICE_PWD: getDevicePassword(),
 
     // Backend API URL
     API_URL: API_BASE,

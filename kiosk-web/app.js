@@ -27,6 +27,10 @@ class KioskApp {
         this.kioskSession = null;
         this.kioskHeartbeatInterval = null;
         this.kioskLifecycleHandlersBound = false;
+        this.fullscreenHandlersBound = false;
+        this.resizeHandlerBound = false;
+        this.registrationAttempt = null;
+        this.registeredStartupComplete = false;
         this.progressInterval = null;
         this.isPlaying = false;
         this.waveformCanvas = document.getElementById('waveformCanvas');
@@ -479,15 +483,58 @@ class KioskApp {
         // Setup audio player events
         this.setupAudioPlayer();
 
-        try {
-            await this.registerDevice();
-            this.setupKioskLifecycleHandlers();
-            this.startKioskHeartbeat();
-        } catch (err) {
-            this.log(`❌ Başlatma hatası: ${err.message}`, 'error');
-            this.showDeviceSetupOverlay();
-            return;
+        await this.startRegistrationFlow();
+    }
+
+    async startRegistrationFlow() {
+        if (this.registeredStartupComplete && this.device) {
+            return true;
         }
+
+        if (this.registrationAttempt) {
+            return this.registrationAttempt;
+        }
+
+        const attempt = (async () => {
+            try {
+                await this.registerDevice();
+            } catch (err) {
+                this.log(`❌ Başlatma hatası: ${err.message}`, 'error');
+                this.showDeviceSetupOverlay(err.message);
+                return false;
+            }
+
+            if (!this.device) {
+                const message = 'Kiosk cihazı çözümlenemedi';
+                this.log(`❌ Başlatma hatası: ${message}`, 'error');
+                this.showDeviceSetupOverlay(message);
+                return false;
+            }
+
+            try {
+                document.getElementById('deviceSetupOverlay')?.remove?.();
+                await this.completeRegisteredStartup();
+                this.registeredStartupComplete = true;
+                return true;
+            } catch (err) {
+                this.stopKioskHeartbeat();
+                this.log(`❌ Başlatma hatası: ${err.message}`, 'error');
+                this.showDeviceSetupOverlay(err.message);
+                return false;
+            }
+        })();
+
+        this.registrationAttempt = attempt;
+        try {
+            return await attempt;
+        } finally {
+            this.registrationAttempt = null;
+        }
+    }
+
+    async completeRegisteredStartup() {
+        this.setupKioskLifecycleHandlers();
+        this.startKioskHeartbeat();
 
         // Generate the QR code after the backend resolves the fixed kiosk device.
         this.generateQRCode();
@@ -496,8 +543,8 @@ class KioskApp {
             this.connectSocket();
             this.setupFullscreenToggle();
             this.setupLogoutButton();
-            window.addEventListener('resize', () => this.setupWaveform());
-            return;
+            this.setupWindowResizeHandler();
+            return true;
         }
 
         try {
@@ -531,7 +578,8 @@ class KioskApp {
         }
 
         // Setup window resize handler
-        window.addEventListener('resize', () => this.setupWaveform());
+        this.setupWindowResizeHandler();
+        return true;
     }
 
     showDeviceSetupOverlay(reason = '') {
@@ -548,8 +596,21 @@ class KioskApp {
             <h2 style="color:white; margin-bottom:10px;">Kiosk beklemede</h2>
             <p style="color:rgba(255,255,255,0.65); margin-bottom:20px; max-width:440px;">Bu ekran otomatik olarak RadioTEDU jukebox cihazina baglanir. Ayarlar ve sarki ekleme telefon sayfasindan yapilir.</p>
             <p style="color:rgba(255,255,255,0.42); max-width:440px; font-size:13px;">${String(reason || 'Backend default kiosk cihazi bekleniyor.').replace(/[<>&"']/g, '')}</p>
+            <button id="retryDeviceRegistration" type="button" style="margin-top:20px; padding:12px 20px; border:none; border-radius:12px; background:var(--accent-red, #dc2626); color:white; font-weight:bold; cursor:pointer;">Tekrar Dene</button>
         `;
         document.body.appendChild(div);
+
+        const retryButton = div.querySelector('#retryDeviceRegistration');
+        if (retryButton) {
+            retryButton.onclick = async () => {
+                retryButton.disabled = true;
+                try {
+                    return await this.startRegistrationFlow();
+                } finally {
+                    retryButton.disabled = false;
+                }
+            };
+        }
     }
 
     persistDeviceSetupCredentials(code, password) {
@@ -617,11 +678,16 @@ class KioskApp {
 
         // Clear device data
         this.device = null;
+        this.kioskSession = null;
         this.queueData = { now_playing: null, queue: [] };
+        this.registeredStartupComplete = false;
+        this.registrationAttempt = null;
 
         // Clear stored credentials
         localStorage.removeItem('device_code');
         localStorage.removeItem('device_pwd');
+        CONFIG.DEVICE_CODE = '';
+        CONFIG.DEVICE_PWD = '';
 
         // Show setup overlay again
         this.showDeviceSetupOverlay();
@@ -1222,10 +1288,7 @@ class KioskApp {
             if (qrContainer && qrContainer.innerHTML.includes('Oluşturuluyor')) {
                 qrContainer.innerHTML = `<div style="font-size:10px; color:gray">Backend'e ulaşılamıyor:<br>${CONFIG.API_URL}</div>`;
             }
-            // Retry after delay (only if not 404)
-            if (!error.message.includes('404')) {
-                setTimeout(() => this.registerDevice(), CONFIG.RECONNECT_INTERVAL);
-            }
+            throw error;
         }
     }
 
@@ -1946,6 +2009,11 @@ class KioskApp {
 
     // ===== Fullscreen =====
     setupFullscreenToggle() {
+        if (this.fullscreenHandlersBound) {
+            return;
+        }
+        this.fullscreenHandlersBound = true;
+
         document.addEventListener('dblclick', () => {
             if (!document.fullscreenElement) {
                 document.documentElement.requestFullscreen().catch(err => {
@@ -1959,6 +2027,14 @@ class KioskApp {
         document.addEventListener('fullscreenchange', () => {
             document.querySelector('.kiosk-app').classList.toggle('fullscreen', !!document.fullscreenElement);
         });
+    }
+
+    setupWindowResizeHandler() {
+        if (this.resizeHandlerBound) {
+            return;
+        }
+        this.resizeHandlerBound = true;
+        window.addEventListener('resize', () => this.setupWaveform());
     }
 
     // ===== Utilities =====
