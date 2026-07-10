@@ -1300,9 +1300,15 @@ class KioskApp {
             return;
         }
 
-        this.socket = io(CONFIG.WS_URL, {
+        const socketOptions = {
             path: CONFIG.SOCKET_PATH || '/socket.io',
-        });
+        };
+        if (Array.isArray(CONFIG.SOCKET_TRANSPORTS) && CONFIG.SOCKET_TRANSPORTS.length > 0) {
+            socketOptions.transports = CONFIG.SOCKET_TRANSPORTS;
+            socketOptions.upgrade = CONFIG.SOCKET_TRANSPORTS.includes('websocket');
+        }
+
+        this.socket = io(CONFIG.WS_URL, socketOptions);
 
         this.socket.on('connect', () => {
             this.log('🔌 Socket bağlandı');
