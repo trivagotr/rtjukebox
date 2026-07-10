@@ -204,19 +204,30 @@
                         ? new URL(windowScope.location.href).origin
                         : null
                 );
-            const authUrl = buildSpotifyDeviceAuthStartUrl(apiBaseUrl, deviceId, devicePassword, returnOrigin);
+            const startUrl = buildSpotifyDeviceAuthStartUrl(apiBaseUrl, deviceId, devicePassword, returnOrigin);
             const popup = windowScope?.open?.('', '_blank');
 
-            if (popup) {
-                popup.location.href = authUrl;
-                if (typeof popup.focus === 'function') {
-                    popup.focus();
+            try {
+                const payload = await fetchJson(startUrl, { method: 'POST' });
+                const authUrl = payload?.data?.authUrl || payload?.authUrl;
+                if (!authUrl) {
+                    throw new Error('Spotify authorization URL is missing');
                 }
-            } else if (windowScope?.location) {
-                windowScope.location.href = authUrl;
-            }
 
-            return authUrl;
+                if (popup) {
+                    popup.location.href = authUrl;
+                    if (typeof popup.focus === 'function') {
+                        popup.focus();
+                    }
+                } else if (windowScope?.location) {
+                    windowScope.location.href = authUrl;
+                }
+
+                return authUrl;
+            } catch (error) {
+                popup?.close?.();
+                throw error;
+            }
         }
 
         ensureMessageListener();

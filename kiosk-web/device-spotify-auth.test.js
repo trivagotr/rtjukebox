@@ -128,7 +128,17 @@ describe('kiosk device spotify auth helper', () => {
       close: vi.fn(),
     };
     const open = vi.fn(() => popup);
-    const fetch = vi.fn();
+    const fetch = vi.fn(async (url, init) => {
+      expect(String(url)).toBe('http://127.0.0.1:3000/api/v1/jukebox/kiosk/spotify-device-auth/start?device_id=device-1&device_pwd=secret&return_origin=http%3A%2F%2F127.0.0.1%3A4180');
+      expect(init).toEqual(expect.objectContaining({ method: 'POST' }));
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: { authUrl: 'https://accounts.spotify.com/authorize?state=device-state' },
+        }),
+      };
+    });
 
     const controller = createSpotifyDeviceAuthController({
       apiBaseUrl: 'http://127.0.0.1:3000',
@@ -152,8 +162,8 @@ describe('kiosk device spotify auth helper', () => {
     await controller.openConnectFlow();
 
     expect(open).toHaveBeenCalledWith('', '_blank');
-    expect(fetch).not.toHaveBeenCalled();
-    expect(popup.location.href).toBe('http://127.0.0.1:3000/api/v1/jukebox/kiosk/spotify-device-auth/start?device_id=device-1&device_pwd=secret&return_origin=http%3A%2F%2F127.0.0.1%3A4180');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(popup.location.href).toBe('https://accounts.spotify.com/authorize?state=device-state');
     expect(popup.focus).toHaveBeenCalledTimes(1);
   });
 
@@ -166,7 +176,10 @@ describe('kiosk device spotify auth helper', () => {
     };
     const open = vi.fn(() => popup);
 
-    const fetch = vi.fn();
+    let resolveFetch;
+    const fetch = vi.fn(() => new Promise((resolve) => {
+      resolveFetch = resolve;
+    }));
 
     const controller = createSpotifyDeviceAuthController({
       apiBaseUrl: 'http://127.0.0.1:3000',
@@ -187,11 +200,22 @@ describe('kiosk device spotify auth helper', () => {
       },
     });
 
-    await controller.openConnectFlow();
+    const connectPromise = controller.openConnectFlow();
 
     expect(open).toHaveBeenCalledWith('', '_blank');
-    expect(fetch).not.toHaveBeenCalled();
-    expect(popup.location.href).toBe('http://127.0.0.1:3000/api/v1/jukebox/kiosk/spotify-device-auth/start?device_id=device-1&device_pwd=secret&return_origin=http%3A%2F%2F127.0.0.1%3A4180');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(popup.location.href).toBe('');
+
+    resolveFetch({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { authUrl: 'https://accounts.spotify.com/authorize?state=device-state' },
+      }),
+    });
+    await connectPromise;
+
+    expect(popup.location.href).toBe('https://accounts.spotify.com/authorize?state=device-state');
   });
 
   it('refreshes and exits setup after a successful auth success message', async () => {
