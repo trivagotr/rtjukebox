@@ -1135,6 +1135,7 @@ class KioskApp {
             if (queueItemId) {
                 this.clearPlaybackCompletionRetry(queueItemId);
                 this.playbackStartCoordinator?.complete(queueItemId);
+                await this.loadInitialQueue();
             }
         } catch (error) {
             this.log(`âš ï¸ Spotify bitiÅŸ bildirimi hatasÄ±: ${error.message}`, 'error');
@@ -1748,6 +1749,7 @@ class KioskApp {
             throw new Error('Spotify Web Playback device is not ready');
         }
 
+        const playbackStateResponse = await this.reportKioskPlaybackState(song, 'playing');
         const playResponse = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${encodeURIComponent(this.spotifyDeviceId)}`, {
             method: 'PUT',
             headers: {
@@ -1761,7 +1763,7 @@ class KioskApp {
             throw new Error(errData?.error?.message || `Spotify playback start failed (${playResponse.status})`);
         }
 
-        return this.reportKioskPlaybackState(song, 'playing');
+        return playbackStateResponse;
     }
 
     async reportKioskPlaybackState(song, state, error = null) {

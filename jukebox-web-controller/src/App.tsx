@@ -22,6 +22,7 @@ import {
 import { AdminDashboard, type DeviceSummary } from './AdminDashboard';
 import { buildQueueRequestPayload, getSearchResultKey, type CatalogSearchSong } from './jukeboxCatalog';
 import { buildGuestQueueHeaders } from './guestFingerprint';
+import { parseDeviceCodeFromSearch } from './deviceQuery';
 import {
   getDisplayedSongScore,
   hasSupervoteAvailableToday,
@@ -760,8 +761,7 @@ function App() {
   }, [progress]);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
+    const code = parseDeviceCodeFromSearch(window.location.search);
     if (code) setDeviceCode(code);
 
     const savedUser = localStorage.getItem('user');

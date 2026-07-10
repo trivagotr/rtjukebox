@@ -10,10 +10,11 @@ function loadConfig({
   protocol = 'http:',
   returnHarness = false,
   search = '?code=FALLBACK1',
+  storedValues = [],
   runtimeConfig,
 }) {
   const source = fs.readFileSync(path.resolve(__dirname, './config.js'), 'utf8');
-  const storage = new Map();
+  const storage = new Map(storedValues);
   const localStorage = {
     getItem: vi.fn((key) => storage.get(key) ?? null),
     setItem: vi.fn((key, value) => storage.set(key, value)),
@@ -321,6 +322,76 @@ describe('kiosk configuration', () => {
       session_id: 'session-1',
     });
     expect(config.DEVICE_CODE).toBe('FIXED1');
+  });
+
+  it('prefers the canonical device query over legacy and stored device codes', () => {
+    const { config, localStorage } = loadConfig({
+      hostname: 'radiotedu.com',
+      origin: 'https://radiotedu.com',
+      pathname: '/kiosk/',
+      protocol: 'https:',
+      returnHarness: true,
+      search: '?code=LEGACY1&device=CANON1',
+      storedValues: [['device_code', 'STORED1']],
+    });
+
+    expect(config.DEVICE_CODE).toBe('CANON1');
+    expect(localStorage.setItem).toHaveBeenCalledWith('device_code', 'CANON1');
+  });
+
+  it('restores stored protected-kiosk credentials when the URL has no device code', async () => {
+    const { config, localStorage } = loadConfig({
+      hostname: 'radiotedu.com',
+      origin: 'https://radiotedu.com',
+      pathname: '/kiosk/',
+      protocol: 'https:',
+      returnHarness: true,
+      search: '',
+      storedValues: [
+        ['device_code', 'STORED1'],
+        ['device_pwd', 'stored-secret'],
+      ],
+    });
+    const fetchImpl = vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        success: true,
+        data: {
+          device: {
+            id: 'device-1',
+            device_code: 'STORED1',
+            name: 'Protected kiosk',
+            location: 'Studio',
+          },
+          kioskSession: {
+            sessionId: 'session-1',
+            role: 'active',
+            activeSessionId: 'session-1',
+          },
+        },
+      }),
+    }));
+    const KioskApp = loadKioskAppClass(config, { fetchImpl, localStorage });
+    const app = Object.create(KioskApp.prototype);
+    app.socket = null;
+    app.device = null;
+    app.playbackStartCoordinator = null;
+    app.getOrCreateKioskSessionId = () => 'session-1';
+    app.clearPlaybackCompletionRetry = vi.fn();
+    app.applyKioskSession = vi.fn();
+    app.log = vi.fn();
+    app.updateConnectionStatus = vi.fn();
+
+    await app.registerDevice();
+
+    expect(config.DEVICE_CODE).toBe('STORED1');
+    expect(config.DEVICE_PWD).toBe('stored-secret');
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({
+      device_code: 'STORED1',
+      password: 'stored-secret',
+      session_id: 'session-1',
+    });
   });
 
   it('persists a fresh URL password and sends it with device registration', async () => {

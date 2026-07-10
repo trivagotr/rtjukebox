@@ -57,12 +57,12 @@ const QR_LINK_BASE = trimTrailingSlash(
 
 const getDeviceCode = () => {
     const urlParams = new URLSearchParams(window.location.search);
-    const codeFromURL = urlParams.get('code');
+    const codeFromURL = urlParams.get('device') || urlParams.get('code');
     if (codeFromURL) {
         localStorage.setItem('device_code', codeFromURL);
         return codeFromURL;
     }
-    return '';
+    return localStorage.getItem('device_code') || '';
 };
 
 const getDevicePassword = () => {

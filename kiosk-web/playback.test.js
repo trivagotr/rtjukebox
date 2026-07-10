@@ -480,6 +480,7 @@ describe('kiosk playback helpers', () => {
     app.queueData = { now_playing: endedSong, queue: [] };
     app.playbackStartCoordinator = coordinator;
     app.stopPlayback = vi.fn();
+    app.loadInitialQueue = vi.fn().mockResolvedValue(undefined);
     app.log = vi.fn();
 
     const completion = app.handleSpotifyTrackEnded();
@@ -499,6 +500,83 @@ describe('kiosk playback helpers', () => {
 
     await coordinator.start('queue-1', start);
     expect(start).toHaveBeenCalledTimes(2);
+  });
+
+  it('starts an early-broadcast next item once after terminal completion is accepted', async () => {
+    const reportDeferred = createDeferred();
+    const currentSong = {
+      queue_item_id: 'queue-1',
+      song_id: 'song-1',
+      playback_type: 'spotify',
+      title: 'Current Song',
+    };
+    const nextSong = {
+      queue_item_id: 'queue-2',
+      song_id: 'song-2',
+      playback_type: 'local',
+      file_url: '/uploads/songs/next.mp3',
+      title: 'Next Song',
+    };
+    const createAuthoritativeQueue = () => ({ now_playing: { ...nextSong }, queue: [] });
+    const fetchImpl = vi.fn((url) => {
+      const urlString = String(url);
+      if (urlString.includes('/api/v1/jukebox/kiosk/playback/state')) {
+        return reportDeferred.promise;
+      }
+      if (urlString.includes('/api/v1/jukebox/queue/device-1')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(createAuthoritativeQueue()),
+        });
+      }
+      throw new Error(`Unexpected request: ${urlString}`);
+    });
+    const { audioPlayer, context } = createKioskAppHarness({ fetchImpl });
+    context.KioskApp.prototype.init = vi.fn();
+    const app = new context.KioskApp();
+    const coordinator = playbackHelpers.createPlaybackStartCoordinator();
+    await coordinator.start('queue-1', vi.fn(async () => true));
+    const startNext = vi.fn(async () => true);
+
+    app.device = { id: 'device-1' };
+    app.kioskSession = { role: 'active' };
+    app.kioskSessionId = 'session-1';
+    app.spotifyPlayerState = { position_ms: 180000, duration_ms: 180000 };
+    app.spotifyTrackEnding = false;
+    app.audioPlayer = audioPlayer;
+    app.queueData = { now_playing: currentSong, queue: [] };
+    app.isPlaying = true;
+    app.playbackStartCoordinator = coordinator;
+    app.playSong = startNext;
+    app.renderQueue = vi.fn();
+    app.syncNowPlayingUi = vi.fn();
+    app.showIdleState = vi.fn();
+    app.log = vi.fn();
+    const handlers = connectTerminalSocketHandlers(app, context);
+
+    const completion = app.handleSpotifyTrackEnded();
+    handlers.queue_updated(createAuthoritativeQueue());
+    await flushPlaybackMicrotasks();
+
+    expect(app.isPlaying).toBe(true);
+    expect(startNext).not.toHaveBeenCalled();
+
+    reportDeferred.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ success: true }),
+    });
+    await completion;
+    await flushPlaybackMicrotasks();
+
+    expect(startNext).toHaveBeenCalledTimes(1);
+    expect(startNext).toHaveBeenCalledWith(nextSong);
+
+    handlers.queue_updated(createAuthoritativeQueue());
+    await flushPlaybackMicrotasks();
+
+    expect(startNext).toHaveBeenCalledTimes(1);
   });
 
   it('preserves playback identity when terminal state reporting fails', async () => {
@@ -565,6 +643,7 @@ describe('kiosk playback helpers', () => {
       app.queueData = { now_playing: endedSong, queue: [] };
       app.playbackStartCoordinator = coordinator;
       app.stopPlayback = vi.fn();
+      app.loadInitialQueue = vi.fn().mockResolvedValue(undefined);
       app.playSong = vi.fn();
       app.log = vi.fn();
 
@@ -1327,6 +1406,78 @@ describe('kiosk playback helpers', () => {
       queue_item_id: 'queue-item-spotify',
       state: 'playing',
     });
+  });
+
+  it('claims a queue item before Spotify play and reports a failed external start afterward', async () => {
+    const playingReport = createDeferred();
+    const requestOrder = [];
+    const fetchImpl = vi.fn((url, options) => {
+      const urlString = String(url);
+      if (urlString.includes('/api/v1/jukebox/kiosk/spotify-token')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ data: { access_token: 'token-1' } }),
+        });
+      }
+      if (urlString.includes('/api/v1/jukebox/kiosk/playback/state')) {
+        const { state } = JSON.parse(options.body);
+        requestOrder.push(state);
+        if (state === 'playing') {
+          return playingReport.promise;
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ success: true }),
+        });
+      }
+      if (urlString.includes('https://api.spotify.com/v1/me/player/play')) {
+        requestOrder.push('spotify-play');
+        return Promise.resolve({
+          ok: false,
+          status: 502,
+          json: () => Promise.resolve({ error: { message: 'Spotify rejected playback' } }),
+        });
+      }
+      throw new Error(`Unexpected request: ${urlString}`);
+    });
+    const { audioPlayer, context } = createKioskAppHarness({ fetchImpl });
+    context.KioskApp.prototype.init = vi.fn();
+    const app = new context.KioskApp();
+    const song = {
+      queue_item_id: 'queue-item-spotify',
+      song_id: 'song-spotify-1',
+      title: 'Spotify Song',
+      playback_type: 'spotify',
+      spotify_uri: 'spotify:track:456',
+    };
+    app.device = { id: 'device-1' };
+    app.kioskSession = { role: 'active' };
+    app.kioskSessionId = 'session-1';
+    app.spotifyDeviceId = 'browser-device-1';
+    app.spotifyController = {};
+    app.spotifyPlayerState = { position_ms: 0, duration_ms: 180000 };
+    app.audioPlayer = audioPlayer;
+    app.isSpotifyDeviceAuthConnected = vi.fn(() => true);
+    app.ensureSpotifyPlaybackReady = vi.fn().mockResolvedValue(undefined);
+    app.showPlayingState = vi.fn();
+    app.log = vi.fn();
+
+    const playback = app.playSong(song);
+    await flushPlaybackMicrotasks();
+    await flushPlaybackMicrotasks();
+
+    expect(requestOrder).toEqual(['playing']);
+
+    playingReport.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ success: true }),
+    });
+    await expect(playback).resolves.toBe(false);
+
+    expect(requestOrder).toEqual(['playing', 'spotify-play', 'failed']);
   });
 
   it('reports spotify queue item failure instead of falling back to local audio when web playback is not ready', async () => {
