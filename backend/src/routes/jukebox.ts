@@ -3099,31 +3099,60 @@ router.post('/admin/process-song', authMiddleware, async (req: Request, res: Res
 router.post('/kiosk/register', async (req: Request, res: Response) => {
     try {
         const { device_code, password } = req.body;
+        const requestedDeviceCode = typeof device_code === 'string' ? device_code.trim() : '';
         const sessionId = readKioskSessionId(req);
 
         if (!sessionId) {
             return sendError(res, 'Missing session_id', 400);
         }
 
-        const deviceCheck = await db.query(
-            `SELECT id,
-                    device_code,
-                    password,
-                    active_kiosk_session_id,
-                    active_kiosk_heartbeat_at
-             FROM devices
-             WHERE device_code = $1`,
-            [device_code]
-        );
+        const deviceCheck = requestedDeviceCode
+            ? await db.query(
+                `SELECT id,
+                        device_code,
+                        password,
+                        active_kiosk_session_id,
+                        active_kiosk_heartbeat_at
+                 FROM devices
+                 WHERE device_code = $1`,
+                [requestedDeviceCode]
+            )
+            : await db.query(
+                `SELECT id,
+                        device_code,
+                        password,
+                        active_kiosk_session_id,
+                        active_kiosk_heartbeat_at
+                 FROM devices
+                 WHERE is_active = TRUE
+                   AND COALESCE(password, '') = ''
+                 ORDER BY created_at ASC
+                 LIMIT 2`
+            );
+
         if (deviceCheck.rows.length === 0) {
-            console.log(`[KIOSK REGISTER] Device not found: ${device_code}`);
+            if (!requestedDeviceCode) {
+                console.log('[KIOSK REGISTER] No active passwordless kiosk device found');
+                return sendError(res, 'No active passwordless kiosk device found', 404);
+            }
+
+            console.log(`[KIOSK REGISTER] Device not found: ${requestedDeviceCode}`);
             return sendError(res, 'Device code invalid', 404);
+        }
+
+        if (!requestedDeviceCode && deviceCheck.rows.length > 1) {
+            console.log('[KIOSK REGISTER] Multiple active passwordless kiosk devices found');
+            return sendError(
+                res,
+                'Multiple active passwordless kiosk devices found; complete setup with a device code',
+                409
+            );
         }
 
         const device = deviceCheck.rows[0];
 
         if (device.password && device.password !== password) {
-            console.log(`[KIOSK REGISTER] Password mismatch for device_code="${device_code}"`);
+            console.log(`[KIOSK REGISTER] Password mismatch for device_code="${requestedDeviceCode}"`);
             return sendError(res, 'Invalid device password for registration', 403, 'INVALID_PASSWORD');
         }
 

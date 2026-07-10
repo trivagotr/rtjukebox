@@ -66,6 +66,15 @@ async function createJukeboxRouterServer() {
   };
 }
 
+function isFixedKioskDiscoveryQuery(sql: unknown) {
+  const query = String(sql);
+
+  return query.includes('WHERE is_active = TRUE')
+    && query.includes("AND COALESCE(password, '') = ''")
+    && query.includes('ORDER BY created_at ASC')
+    && query.includes('LIMIT 2');
+}
+
 beforeAll(async () => {
   process.env.SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID || 'test-client';
   process.env.SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET || 'test-secret';
@@ -192,6 +201,161 @@ describe('jukebox spotify kiosk routes', () => {
     }
   });
 
+  it('registers the sole active passwordless kiosk when device_code is omitted', async () => {
+    const server = await createJukeboxRouterServer();
+    const eligibleDevice = {
+      id: 'fixed-device-1',
+      device_code: 'FIXED-KIOSK',
+      password: null,
+      active_kiosk_session_id: null,
+      active_kiosk_heartbeat_at: null,
+    };
+    const registeredDevice = {
+      ...eligibleDevice,
+      active_kiosk_session_id: 'fixed-session',
+      active_kiosk_heartbeat_at: new Date('2026-07-10T10:00:00.000Z'),
+      is_active: true,
+    };
+
+    mockDbQuery.mockImplementation(async (sql: unknown) => {
+      const query = String(sql);
+
+      if (isFixedKioskDiscoveryQuery(query)) {
+        return { rows: [eligibleDevice] };
+      }
+      if (query.includes('UPDATE devices') && query.includes('active_kiosk_session_id = $2')) {
+        return { rows: [registeredDevice] };
+      }
+
+      return { rows: [] };
+    });
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: 'fixed-session' }),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.data.device).toEqual({
+        ...registeredDevice,
+        active_kiosk_heartbeat_at: registeredDevice.active_kiosk_heartbeat_at.toISOString(),
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects ambiguous no-code registration when multiple active passwordless devices exist', async () => {
+    const server = await createJukeboxRouterServer();
+    mockDbQuery.mockImplementation(async (sql: unknown) => {
+      const query = String(sql);
+
+      if (isFixedKioskDiscoveryQuery(query)) {
+        return {
+          rows: [
+            {
+              id: 'fixed-device-1',
+              device_code: 'FIXED-KIOSK-1',
+              password: null,
+              active_kiosk_session_id: null,
+              active_kiosk_heartbeat_at: null,
+            },
+            {
+              id: 'fixed-device-2',
+              device_code: 'FIXED-KIOSK-2',
+              password: '',
+              active_kiosk_session_id: null,
+              active_kiosk_heartbeat_at: null,
+            },
+          ],
+        };
+      }
+
+      return { rows: [] };
+    });
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: 'ambiguous-session' }),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(payload.error).toBe(
+        'Multiple active passwordless kiosk devices found; complete setup with a device code'
+      );
+      expect(mockDbQuery.mock.calls.some(([sql]) => String(sql).includes('UPDATE devices'))).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('returns not found when no active passwordless kiosk is eligible for no-code registration', async () => {
+    const server = await createJukeboxRouterServer();
+    mockDbQuery.mockResolvedValue({ rows: [] });
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: 'missing-device-session' }),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(404);
+      expect(payload.error).toBe('No active passwordless kiosk device found');
+      expect(mockDbQuery).toHaveBeenCalledTimes(1);
+      expect(isFixedKioskDiscoveryQuery(mockDbQuery.mock.calls[0]?.[0])).toBe(true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('preserves explicit device-code lookup and password rejection', async () => {
+    const server = await createJukeboxRouterServer();
+    mockDbQuery.mockImplementation(async (sql: unknown, values?: unknown[]) => {
+      const query = String(sql);
+
+      if (query.includes('WHERE device_code = $1') && values?.[0] === 'LOCKED-KIOSK') {
+        return {
+          rows: [{
+            id: 'locked-device',
+            device_code: 'LOCKED-KIOSK',
+            password: 'correct-password',
+            active_kiosk_session_id: null,
+            active_kiosk_heartbeat_at: null,
+          }],
+        };
+      }
+
+      return { rows: [] };
+    });
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          device_code: 'LOCKED-KIOSK',
+          password: 'wrong-password',
+          session_id: 'locked-session',
+        }),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(403);
+      expect(payload.error).toBe('Invalid device password for registration');
+      expect(mockDbQuery).toHaveBeenCalledTimes(1);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('registers a kiosk session as the active player when no live active session exists', async () => {
     const server = await createJukeboxRouterServer();
     const heartbeatAt = new Date('2026-07-03T10:00:00.000Z');
@@ -200,7 +364,7 @@ describe('jukebox spotify kiosk routes', () => {
         rows: [{
           id: 'device-1',
           device_code: 'KOLEJ',
-          password: null,
+          password: 'correct-password',
           active_kiosk_session_id: null,
           active_kiosk_heartbeat_at: null,
         }],
@@ -219,7 +383,11 @@ describe('jukebox spotify kiosk routes', () => {
       const response = await fetch(`${server.baseUrl}/kiosk/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_code: 'KOLEJ', session_id: 'session-a' }),
+        body: JSON.stringify({
+          device_code: 'KOLEJ',
+          password: 'correct-password',
+          session_id: 'session-a',
+        }),
       });
       const payload = await response.json();
 
