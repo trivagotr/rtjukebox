@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-10",
+  "generator": {
+    "name": "Universal LPC Spritesheet Character Generator",
+    "repository": "https://github.com/liberatedpixelcup/Universal-LPC-Spritesheet-Character-Generator",
+    "commit": "72624ebc8c758c6e439aea90ef9a68eb7366a992",
+    "url": "https://liberatedpixelcup.github.io/Universal-LPC-Spritesheet-Character-Generator/"
+  },
+  "selection": [
+    "Body Color (light)",
+    "Human Male (light)",
+    "Neutral (light)",
+    "Idol (gold)",
+    "Cardigan (teal)",
+    "Cuffed Pants (navy)",
+    "Basic Shoes (black)",
+    "Leather Cap (black)"
+  ],
+  "productionApproved": false,
+  "productionApprovalReason": "Pipeline evidence only; each selected layer still requires final release review and an accessible in-app credits record.",
+  "assets": [
+    {
+      "asset": "body/bodies/male/walk.png",
+      "description": "see details at https://opengameart.org/content/lpc-character-bases; 'Thick' Male Revised Run/Climb by JaidynReiman (based on ElizaWy's LPC Revised)",
+      "licenses": ["OGA-BY 3.0", "CC-BY-SA 3.0", "GPL 3.0"],
+      "authors": ["bluecarrot16", "JaidynReiman", "Benjamin K. Smith (BenCreating)", "Evert", "Eliza Wyatt (ElizaWy)", "TheraHedwig", "MuffinElZangano", "Durrani", "Johannes Sjölund (wulax)", "Stephen Challener (Redshrike)"]
+    },
+    {
+      "asset": "head/heads/human/male/walk.png",
+      "description": "original head by Redshrike, tweaks by BenCreating, modular version by bluecarrot16",
+      "licenses": ["OGA-BY 3.0", "CC-BY-SA 3.0", "GPL 3.0"],
+      "authors": ["bluecarrot16", "Benjamin K. Smith (BenCreating)", "Stephen Challener (Redshrike)"]
+    },
+    {
+      "asset": "head/faces/male/neutral/walk.png",
+      "description": "Original by Redshrike, Expressions by ElizaWy, mapped to all frames by JaidynReiman",
+      "licenses": ["OGA-BY 3.0"],
+      "authors": ["JaidynReiman", "ElizaWy", "Stephen Challener (Redshrike)"]
+    },
+    {
+      "asset": "hair/idol/adult/walk.png",
+      "description": "Original CC0 by Thecilekli. Edited by bluecarrot16 and ElizaWy. Animated by ElizaWy.",
+      "licenses": ["CC0"],
+      "authors": ["thecilekli", "bluecarrot16"]
+    },
+    {
+      "asset": "torso/clothes/longsleeve/longsleeve2_cardigan/male/walk.png",
+      "description": "original by ElizaWy; spellcast/thrust/shoot/hurt/male adapted from original by JaidynReiman",
+      "licenses": ["OGA-BY 3.0"],
+      "authors": ["ElizaWy", "JaidynReiman", "Stephen Challener (Redshrike)", "Johannes Sjölund (wulax)"]
+    },
+    {
+      "asset": "legs/cuffed/male/walk.png",
+      "description": "Original bases by Redshrike, thrust/shoot bases by Wulax, original overalls by ElizaWy, base animations adapted from v3 overalls by bluecarrot16, pants by JaidynReiman",
+      "licenses": ["OGA-BY 3.0", "GPL 3.0"],
+      "authors": ["JaidynReiman", "ElizaWy", "Bluecarrot16", "Johannes Sjölund (wulax)", "Stephen Challener (Redshrike)"]
+    },
+    {
+      "asset": "feet/shoes/basic/male/walk.png",
+      "description": "original by wulax, edited for v3 base by bluecarrot16, Jump/Sit/Emote/Run/Revised Combat by JaidynReiman",
+      "licenses": ["OGA-BY 3.0", "CC-BY-SA 3.0", "GPL 3.0"],
+      "authors": ["JaidynReiman", "bluecarrot16", "Johannes Sjölund (wulax)"]
+    },
+    {
+      "asset": "hat/cloth/leather_cap/adult/walk/black.png",
+      "description": "original by Johannes Sjölund (wulax), female by Matthew Krohn, mapped to all frames w/recolors by JaidynReiman",
+      "licenses": ["OGA-BY 3.0", "CC-BY-SA 3.0", "GPL 3.0"],
+      "authors": ["Johannes Sjölund (wulax)", "Matthew Krohn (Makrohn)", "JaidynReiman"]
+    }
+  ]
+}

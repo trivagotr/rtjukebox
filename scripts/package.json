@@ -1,0 +1,11 @@
+{
+  "name": "@radiotedu/repository-scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test *.test.mjs"
+  },
+  "dependencies": {
+    "yaml": "2.9.0"
+  }
+}

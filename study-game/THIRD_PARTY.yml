@@ -1,0 +1,267 @@
+schema_version: 1
+updated_at: 2026-07-10
+policy:
+  product_license: GPL-3.0-compatible open-source web client
+  university_exception_assumed: false
+  habbo_assets_allowed: false
+  production_import_roots:
+    - study-game/src/vendor
+    - study-game/public/assets/third-party
+entries:
+  - id: phaser
+    name: Phaser
+    source_type: git
+    origin: https://github.com/phaserjs/phaser
+    repository: https://github.com/phaserjs/phaser
+    version: 4.2.1
+    commit: 41be1e462bc600064e498cba370bfa8c5c055a22
+    license: MIT
+    notice_requirements: Retain the Phaser MIT copyright and license notice in source and distributed notices.
+    intended_use: Selected production renderer and game runtime.
+    production_status: selected
+    imported_files: []
+    copied_files: []
+    modifications: none; npm dependency only
+    source_publication_obligation: none beyond MIT notice
+  - id: rex-board
+    name: Rex Phaser Board plugins
+    source_type: git
+    origin: https://github.com/rexrainbow/phaser3-rex-notes
+    repository: https://github.com/rexrainbow/phaser3-rex-notes
+    version: 4.2.0
+    commit: 12d1ed131105e47515fc429ef0ba8abc93fb025f
+    license: MIT
+    notice_requirements: Retain the Rex plugins MIT copyright and license notice in source and distributed notices.
+    intended_use: Selected isometric grid, occupancy, pathfinding, and movement helpers.
+    production_status: selected
+    imported_files: []
+    copied_files: []
+    modifications: none; npm dependency only
+    source_publication_obligation: none beyond MIT notice
+  - id: tiled
+    name: Tiled Map Editor
+    source_type: git
+    origin: https://github.com/mapeditor/tiled
+    repository: https://github.com/mapeditor/tiled
+    version: 1.12.2
+    commit: 8bd35d5100f8f87ade0ad24c9e011a95e5f4c5a2
+    license: GPL-2.0 for editor; libtiled and utilities have file-specific BSD licenses
+    notice_requirements: Development tool only; do not redistribute Tiled binaries without the applicable GPL and bundled notices.
+    intended_use: Optional room-authoring tool; exported map data is project-authored content.
+    production_status: development-tool-only
+    imported_files: []
+    copied_files: []
+    modifications: none
+    source_publication_obligation: none while the editor is not redistributed
+  - id: pixijs
+    name: PixiJS
+    source_type: git
+    origin: https://github.com/pixijs/pixijs
+    repository: https://github.com/pixijs/pixijs
+    version: 8.19.0
+    commit: 497a53ca60e3c46ca01cd3efbb9ca0a4f37e3b10
+    license: MIT
+    notice_requirements: Retain the PixiJS MIT copyright and license notice if included directly or transitively in a shipped bundle.
+    intended_use: Renderer benchmark and Nitro dependency context; not selected directly.
+    production_status: benchmark-only
+    imported_files: []
+    copied_files: []
+    modifications: none
+    source_publication_obligation: none beyond MIT notice
+  - id: nitro-renderer
+    name: Nitro Renderer
+    source_type: git
+    origin: https://github.com/billsonnn/nitro-renderer
+    repository: https://github.com/billsonnn/nitro-renderer
+    version: 1.6.6
+    commit: 9e9a62385b61957645d0899518a9e1293e865fe8
+    license: GPL-3.0
+    notice_requirements: A shipped derivative must include GPL-3.0 notices, installation information where applicable, complete corresponding source, and a modification record.
+    intended_use: Evaluated Habbo-like renderer; not selected for v1 because it requires external converted assets and a compatible hotel protocol.
+    production_status: rejected-for-v1-reference-only
+    imported_files: []
+    copied_files: []
+    modifications: none; research clone built unmodified outside product source
+    source_publication_obligation: complete corresponding source required for any future shipped GPL-derived module
+  - id: nitro-react
+    name: Nitro React
+    source_type: git
+    origin: https://github.com/billsonnn/nitro-react
+    repository: https://github.com/billsonnn/nitro-react
+    version: 2.1.1
+    commit: 75ff874b73d5fc5672a38c536444efa0f0d27e8f
+    license: unconfirmed; no root license file detected at the pinned commit
+    notice_requirements: Do not copy, modify, or distribute until the repository license is confirmed by the rights holder.
+    intended_use: Evaluated as the Nitro UI shell and configuration reference.
+    production_status: rejected-license-and-infrastructure-blocked
+    imported_files: []
+    copied_files: []
+    modifications: none
+    source_publication_obligation: not applicable because use is prohibited pending license confirmation
+  - id: kaetram-open
+    name: Kaetram-Open
+    source_type: git
+    origin: https://github.com/Kaetram/Kaetram-Open
+    repository: https://github.com/Kaetram/Kaetram-Open
+    version: develop
+    commit: 4bdbd6d50d36d86f7bff28830945b240f8ab2799
+    license: MPL-2.0 code; bundled assets have separate licenses
+    notice_requirements: Any copied MPL file must retain notices and remain available under MPL-2.0; assets require separate file-level clearance.
+    intended_use: Social, region, chat, and inventory architecture reference.
+    production_status: reference-only-no-files-copied
+    imported_files: []
+    copied_files: []
+    modifications: none
+    source_publication_obligation: file-level source publication only if MPL files are later copied and shipped
+  - id: phaserquest
+    name: PhaserQuest
+    source_type: git
+    origin: https://github.com/Jerenaux/phaserquest
+    repository: https://github.com/Jerenaux/phaserquest
+    version: untagged
+    commit: 128fe1051cc056dd60b805a1380e7b257b2e04b3
+    license: MIT for repository code; bundled maps and art remain separately unverified
+    notice_requirements: Retain the MIT notice for copied code and clear each asset separately before use.
+    intended_use: Socket.IO room and server flow reference.
+    production_status: reference-only-no-files-copied
+    imported_files: []
+    copied_files: []
+    modifications: none
+    source_publication_obligation: none beyond MIT notice for any future copied code
+  - id: universal-lpc
+    name: Universal LPC Spritesheet Character Generator
+    source_type: git
+    origin: https://github.com/liberatedpixelcup/Universal-LPC-Spritesheet-Character-Generator
+    repository: https://github.com/liberatedpixelcup/Universal-LPC-Spritesheet-Character-Generator
+    version: master
+    commit: 72624ebc8c758c6e439aea90ef9a68eb7366a992
+    license: GPL-3.0 generator code; sprite assets are mixed CC0, CC-BY, CC-BY-SA, OGA-BY, and GPL
+    notice_requirements: Export and ship exact per-asset authors, origin URLs, and license terms; comply with share-alike and GPL terms selected for each sprite layer.
+    intended_use: Wardrobe pipeline research; no LPC sprite is cleared for production by the repository-level record alone.
+    production_status: evaluated-asset-by-asset-only
+    imported_files: []
+    copied_files: []
+    modifications: none; hosted generator used for the recorded evidence avatar
+    source_publication_obligation: depends on each selected asset license; the generated evidence includes its exact machine-readable credits
+  - id: kenney-isometric-blocks
+    name: Kenney Isometric Blocks
+    source_type: archive
+    origin: https://www.kenney.nl/media/pages/assets/isometric-blocks/86a0152f5b-1677662261/kenney_isometric-blocks.zip
+    repository: not-applicable-static-archive
+    version: 1.0
+    commit: not-applicable-static-archive
+    archive_sha256: 018f705cc4bbb8e5c9216e2e6d1f4e0090813de22f314e25a1915484b55b1729
+    license: CC0-1.0
+    notice_requirements: Attribution is not required; credit Kenney as a courtesy and preserve the archive hash in provenance.
+    intended_use: Candidate room-block reference and lawful temporary spike art.
+    production_status: cleared-archive-no-files-imported-yet
+    imported_files: []
+    copied_files: []
+    modifications: none
+    source_publication_obligation: none
+  - id: socket-io
+    name: Socket.IO
+    source_type: git
+    origin: https://github.com/socketio/socket.io
+    repository: https://github.com/socketio/socket.io
+    version: 4.8.3
+    commit: d2d753fed4435015c2d83fe62e676b44e07fa3f7
+    license: MIT
+    notice_requirements: Retain the Socket.IO MIT copyright and license notice in distributed notices.
+    intended_use: Future server-authoritative social adapter transport.
+    production_status: candidate-not-yet-imported
+    imported_files: []
+    copied_files: []
+    modifications: none
+    source_publication_obligation: none beyond MIT notice
+  - id: playwright
+    name: Playwright
+    source_type: git
+    origin: https://github.com/microsoft/playwright
+    repository: https://github.com/microsoft/playwright
+    version: 1.61.1
+    commit: 39e3553a4f283a41134d75d7e404484bd9e6865a
+    license: Apache-2.0
+    notice_requirements: Preserve the Apache-2.0 license and NOTICE obligations in development distributions where applicable.
+    intended_use: Browser screenshot and interaction verification.
+    production_status: development-only
+    imported_files: []
+    copied_files: []
+    modifications: none
+    source_publication_obligation: none
+  - id: vitest
+    name: Vitest
+    source_type: git
+    origin: https://github.com/vitest-dev/vitest
+    repository: https://github.com/vitest-dev/vitest
+    version: 4.1.10
+    commit: b60605ca76c44b699d4d9153a5bd658c360c8dee
+    license: MIT
+    notice_requirements: Retain the Vitest MIT copyright and license notice if redistributed.
+    intended_use: Study game unit and domain tests.
+    production_status: development-only
+    imported_files: []
+    copied_files: []
+    modifications: none
+    source_publication_obligation: none beyond MIT notice
+  - id: vite
+    name: Vite
+    source_type: git
+    origin: https://github.com/vitejs/vite
+    repository: https://github.com/vitejs/vite
+    version: 8.1.4
+    commit: d2e467d8b68525ea111d7c3f6bae24ebd7afe672
+    license: MIT
+    notice_requirements: Retain the Vite MIT copyright and license notice if redistributed.
+    intended_use: Study game development server and production bundler.
+    production_status: selected-development-tool
+    imported_files: []
+    copied_files: []
+    modifications: none
+    source_publication_obligation: none beyond MIT notice
+  - id: typescript
+    name: TypeScript
+    source_type: git
+    origin: https://github.com/microsoft/TypeScript
+    repository: https://github.com/microsoft/TypeScript
+    version: 7.0.2
+    commit: 2bd066d87f5bafd315be9f40889d0a60b9e58e0b
+    license: Apache-2.0
+    notice_requirements: Retain the Apache-2.0 license and notices in development distributions where applicable.
+    intended_use: Study game static type checking and compilation.
+    production_status: development-only
+    imported_files: []
+    copied_files: []
+    modifications: none
+    source_publication_obligation: none
+  - id: sharp
+    name: Sharp
+    source_type: git
+    origin: https://github.com/lovell/sharp
+    repository: https://github.com/lovell/sharp
+    version: 0.35.3
+    commit: 1018449164723ba0203c1beffaba0e21f7829c18
+    license: Apache-2.0
+    notice_requirements: Retain the Apache-2.0 license and notices in development distributions where applicable; account for bundled libvips notices.
+    intended_use: Development-only deterministic generation and inspection of original avatar sprite sheets.
+    production_status: development-only
+    imported_files: []
+    copied_files: []
+    modifications: none
+    source_publication_obligation: none
+  - id: types-node
+    name: Node.js type definitions
+    source_type: archive
+    origin: https://registry.npmjs.org/@types/node/-/node-26.1.1.tgz
+    repository: https://github.com/DefinitelyTyped/DefinitelyTyped
+    version: 26.1.1
+    commit: not-applicable-static-archive
+    archive_sha256: cb0bc3624d2e6bc233ec332a3aea6ac317c0aadb3301bfb797a34864546c1401
+    license: MIT
+    notice_requirements: Retain the package MIT copyright and license notice if redistributed.
+    intended_use: Development-only Node.js types for asset scripts and Playwright tests.
+    production_status: development-only
+    imported_files: []
+    copied_files: []
+    modifications: none
+    source_publication_obligation: none beyond MIT notice

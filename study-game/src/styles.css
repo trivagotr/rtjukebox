@@ -1,0 +1,158 @@
+:root {
+  color: #e9f3ef;
+  background: #071116;
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-synthesis: none;
+  letter-spacing: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #071116;
+}
+
+button,
+output {
+  font: inherit;
+  letter-spacing: 0;
+}
+
+#study-game {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 420px;
+  overflow: hidden;
+  background: #0b151b;
+}
+
+#game-canvas {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+#game-canvas canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  image-rendering: pixelated;
+  touch-action: none;
+}
+
+#game-ui {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.game-brand {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  left: max(18px, env(safe-area-inset-left));
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: #eef8f4;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+}
+
+.game-brand strong {
+  font-family: Consolas, monospace;
+  font-size: 15px;
+}
+
+.game-brand span {
+  color: #8eb0b0;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+}
+
+.game-status {
+  position: absolute;
+  top: max(18px, env(safe-area-inset-top));
+  right: max(18px, env(safe-area-inset-right));
+  color: #a9c2bd;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+}
+
+.game-status[data-state="walking"],
+.game-status[data-state="stair"] {
+  color: #f0cf70;
+}
+
+.game-status[data-state="seated"] {
+  color: #8ed4b8;
+}
+
+.game-controls {
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.icon-button {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #547078;
+  border-radius: 6px;
+  color: #f3f7f4;
+  background: rgba(11, 26, 33, 0.9);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+}
+
+.icon-button:hover,
+.icon-button:focus-visible {
+  border-color: #d7b857;
+  color: #f0cf70;
+  outline: none;
+}
+
+.icon-button:active {
+  transform: translateY(1px);
+}
+
+@media (max-width: 600px) {
+  #study-game {
+    min-height: 320px;
+  }
+
+  .game-brand {
+    top: max(10px, env(safe-area-inset-top));
+    left: max(12px, env(safe-area-inset-left));
+  }
+
+  .game-status {
+    top: max(12px, env(safe-area-inset-top));
+    right: max(12px, env(safe-area-inset-right));
+  }
+
+  .game-controls {
+    right: max(10px, env(safe-area-inset-right));
+    bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
+  .icon-button {
+    width: 40px;
+    height: 40px;
+  }
+}

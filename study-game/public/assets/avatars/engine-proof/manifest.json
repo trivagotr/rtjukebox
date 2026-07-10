@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "generator": "study-game/scripts/generate-engine-avatar-assets.mjs",
+    "license": "RadioTEDU project-owned original procedural artwork",
+    "thirdPartyArtwork": false
+  },
+  "frame": {
+    "width": 64,
+    "height": 96
+  },
+  "directions": [
+    "n",
+    "ne",
+    "e",
+    "se",
+    "s",
+    "sw",
+    "w",
+    "nw"
+  ],
+  "layers": [
+    "body",
+    "skin",
+    "hair",
+    "top",
+    "bottom",
+    "shoes",
+    "hat"
+  ],
+  "actionFrames": {
+    "idle": 1,
+    "walk": 4,
+    "sit": 1,
+    "stand": 3
+  },
+  "sheets": {
+    "body": {
+      "idle": "body-idle.png",
+      "walk": "body-walk.png",
+      "sit": "body-sit.png",
+      "stand": "body-stand.png"
+    },
+    "skin": {
+      "idle": "skin-idle.png",
+      "walk": "skin-walk.png",
+      "sit": "skin-sit.png",
+      "stand": "skin-stand.png"
+    },
+    "hair": {
+      "idle": "hair-idle.png",
+      "walk": "hair-walk.png",
+      "sit": "hair-sit.png",
+      "stand": "hair-stand.png"
+    },
+    "top": {
+      "idle": "top-idle.png",
+      "walk": "top-walk.png",
+      "sit": "top-sit.png",
+      "stand": "top-stand.png"
+    },
+    "bottom": {
+      "idle": "bottom-idle.png",
+      "walk": "bottom-walk.png",
+      "sit": "bottom-sit.png",
+      "stand": "bottom-stand.png"
+    },
+    "shoes": {
+      "idle": "shoes-idle.png",
+      "walk": "shoes-walk.png",
+      "sit": "shoes-sit.png",
+      "stand": "shoes-stand.png"
+    },
+    "hat": {
+      "idle": "hat-idle.png",
+      "walk": "hat-walk.png",
+      "sit": "hat-sit.png",
+      "stand": "hat-stand.png"
+    }
+  },
+  "sha256": {
+    "body": {
+      "idle": "cd8ed6beabef437d72ef6d60f632cb9c2066e387cc0d7952128cb76def1e028b",
+      "walk": "5950b5f86633d78252c0258c272a67c15d2be3d1063344e4c70d6045ce82ca81",
+      "sit": "f33e037b0fbbfdaee5762f0cf4c8f22b7dbabd57f7fa32ba3860555c5072967b",
+      "stand": "575d56f81b0442a6deb2ceaeae45caf11427ca9b4bd61a469acda8891da44436"
+    },
+    "skin": {
+      "idle": "814ede82ddbe841f1682e13cb0c6ebd87dc236e20361c5f430af9eef719ea892",
+      "walk": "072897834a3bdccbe640ad87afb0d7e720b5ecd03e8069cdcc937f0490bfe1c3",
+      "sit": "0a69da55a9fa8a7426bfd3a88db9d6eeefd0634fade28b322e7a3420a4d2e6c2",
+      "stand": "0cf64b11bf3beaba6ddbf836d177c65216595534bcb430e965f3930d238431bf"
+    },
+    "hair": {
+      "idle": "59fd612db3028266731d983c553379837643d12ad63d8b16c54eb74b331de30d",
+      "walk": "0a10388d673c784e89b8f3c3d078ccab851e92e8a18d8c660a6368e9f4de2689",
+      "sit": "7935eb95a157b7c38fa1b3b540ea0dc5adc2b00c59a6bb2c8b679e6e1e2b9af1",
+      "stand": "ec1e4165da5469540f126fb323403bdb0add96ada58a20be5ee5908fe14f3e74"
+    },
+    "top": {
+      "idle": "8843bfcb327965319cc1d39f9a84498af8b054c82703c32267e2319e9f088f47",
+      "walk": "96f729ee3a1529eae80f93b1d72f6f44d66ee83fa6f981f3e2546366acfb802c",
+      "sit": "c8694fc0bed646eea5a1cf3ecd419199f22a55dca761fc3dda53aa398af0c3c3",
+      "stand": "08c949348590126f52f9b7f5c30b63dd5d10cbf76fc4b7e937a1eefdb1c4a211"
+    },
+    "bottom": {
+      "idle": "29718cca389491d75bd6d7e3a90134176e1c206639a0a398cd35e33c39753ac4",
+      "walk": "8e66cd7cbfaa647378f57866c93f0452d3b2a20c2db43e7f29a5e2c7a0517a08",
+      "sit": "95881644c24729591b1f7b865720e90e03a37166a096c18c5cd6f295dc68561b",
+      "stand": "746dabbf7e07f46e7e4e6327cd135e335c8feea8e14645f02ca439b36b5b5e68"
+    },
+    "shoes": {
+      "idle": "0cfc749109794dba46ec7c75657e0705bfca73eedd8ee0d54dd98fae652df871",
+      "walk": "77a458c53072f1a550beb351e1a0fbc27d3809bd1a460ab8e1db5c35616c90ee",
+      "sit": "68fa46e78b7f62f415a0ed37c0701b38bf9d7fb1f91e8e76a69957c40a5a611c",
+      "stand": "c51d1c12ccb9dcfd42aaf5f045c2a332bf597470837ad3818b7558986ac44bdb"
+    },
+    "hat": {
+      "idle": "b82b5b27dacbbf6c07114abab9e75e11b8220d13d0a80074347346f578235318",
+      "walk": "0e7c8ef441eb3fb12eb3dfb4c3d5e19e8a2975830d18dbdf6a7b1f1e255dfda1",
+      "sit": "e3df86c6c16a68d77133112ecfc8233d6a38700a4ef031886bec49adac5635c0",
+      "stand": "e7cd87ab08597d308632616155a46ebc2c7600601c73233ffb0c71c286e281f1"
+    }
+  }
+}

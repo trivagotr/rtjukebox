@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>RadioTEDU Library Study Prototype</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="prototype-shell" aria-label="RadioTEDU living Library prototype">
+      <section class="phone-scene" aria-label="Interactive Library scene">
+        <div class="scene-art" aria-hidden="true"></div>
+        <div class="seat-state-layer" id="seatStateLayer" aria-hidden="true" hidden></div>
+        <div class="night-sheen" aria-hidden="true"></div>
+        <div class="lamp-glow glow-a" aria-hidden="true"></div>
+        <div class="lamp-glow glow-b" aria-hidden="true"></div>
+        <div class="lamp-glow glow-c" aria-hidden="true"></div>
+        <div class="dust-field" aria-hidden="true"></div>
+        <svg class="map-debug-layer" id="mapDebugLayer" aria-hidden="true" hidden></svg>
+
+        <div class="step-marker" id="stepMarker" aria-hidden="true"></div>
+        <div class="student-avatar" data-posture="std" aria-label="Your avatar">
+          <span class="avatar-shadow"></span>
+          <span class="avatar-sprite" data-layer="sprite"></span>
+          <span class="avatar-cosmetic avatar-shirt" data-layer="shirt"></span>
+          <span class="avatar-cosmetic avatar-hat" data-layer="hat"></span>
+          <span class="pixel body" data-layer="base"></span>
+          <span class="pixel head" data-layer="skin"></span>
+          <span class="pixel hair" data-layer="hair"></span>
+          <span class="pixel scarf" data-layer="top"></span>
+          <span class="pixel bag" data-layer="accessory"></span>
+          <span class="pixel hat" data-layer="hat"></span>
+          <span class="pixel leg leg-left"></span>
+          <span class="pixel leg leg-right"></span>
+        </div>
+        <div class="seat-occluder" id="seatOccluder" aria-hidden="true" hidden></div>
+
+        <button
+          class="closet-toggle"
+          id="closetToggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="closetDrawer"
+          aria-label="Change clothes">
+          <span></span>
+        </button>
+
+        <div class="closet-drawer" id="closetDrawer" aria-label="Clothes" hidden>
+          <div class="shop-balance" aria-label="Gold balance">
+            <span>Gold</span>
+            <strong id="goldBalance">240</strong>
+          </div>
+          <div class="avatar-type-tabs" aria-label="Avatar type">
+            <button class="is-selected" data-avatar-type="masc" type="button">M</button>
+            <button data-avatar-type="fem" type="button">F</button>
+          </div>
+          <div class="shop-grid" aria-label="Merch shop">
+            <button class="shop-item is-selected" data-clothing="classic" data-cosmetic="classic-shirt" type="button" aria-label="Wear classic study fit">
+              <span class="swatch shirt-classic"></span>
+              <small>Owned</small>
+            </button>
+            <button class="shop-item" data-clothing="radio" data-cosmetic="radio-hoodie" type="button" aria-label="Buy or wear RadioTEDU hoodie">
+              <span class="swatch shirt-radio"></span>
+              <small>120g</small>
+            </button>
+            <button class="shop-item" data-clothing="night" data-cosmetic="night-hoodie" type="button" aria-label="Buy or wear night hoodie">
+              <span class="swatch shirt-night"></span>
+              <small>160g</small>
+            </button>
+            <button class="shop-item" data-clothing="break" data-cosmetic="break-shirt" type="button" aria-label="Buy or wear break shirt">
+              <span class="swatch shirt-break"></span>
+              <small>90g</small>
+            </button>
+            <button class="shop-item" data-cosmetic="tedu-cap" type="button" aria-label="Buy or wear TEDU cap">
+              <span class="swatch hat-tedu"></span>
+              <small>80g</small>
+            </button>
+          </div>
+        </div>
+
+        <div class="zoom-controls" aria-label="Map zoom">
+          <button id="zoomInButton" type="button" aria-label="Zoom in">+</button>
+          <button id="zoomOutButton" type="button" aria-label="Zoom out">-</button>
+        </div>
+
+        <div class="break-scene" id="breakScene" aria-hidden="true">
+          <div class="break-photo"></div>
+          <div class="break-copy">
+            <p>Break at Çim Amfi</p>
+            <button id="returnButton" type="button">Return to Library</button>
+          </div>
+        </div>
+
+        <div class="hud-layer" aria-live="polite">
+          <div class="top-hud">
+            <div class="hud-chip status-chip">
+              <span id="sceneTitle">Find a chair</span>
+              <small id="sceneCaption">Tap a chair. Floor taps stay on aisles.</small>
+            </div>
+            <div class="hud-chip online-chip">
+              <strong id="playerCount">1</strong>
+              <span>online</span>
+            </div>
+          </div>
+
+          <div class="floating-counts" id="floatingCounts" aria-hidden="true"></div>
+
+          <section class="chat-panel" aria-label="Room chat">
+            <div class="chat-log" id="chatLog" aria-live="polite"></div>
+            <form class="chat-form" id="chatForm">
+              <input id="chatInput" type="text" maxlength="80" autocomplete="off" placeholder="Say something..." aria-label="Message" />
+              <button class="hud-action chat-send" type="submit">Send</button>
+            </form>
+          </section>
+
+          <div class="bottom-hud">
+            <div class="xp-meter">
+              <div class="meter-row">
+                <span id="studyTimer">00:00</span>
+                <strong id="todayScore">00:00</strong>
+              </div>
+              <div class="meter-track">
+                <span class="meter-fill" id="studyFill"></span>
+              </div>
+              <div class="meter-labels">
+                <span>now</span>
+                <span>today</span>
+              </div>
+            </div>
+            <div class="streak-chip">
+              <span>Now</span>
+              <strong id="currentStreak">0</strong>
+            </div>
+            <button class="hud-action break-action" id="breakButton" type="button" aria-label="Open Chim Alan">Chim Alan</button>
+            <button
+              class="hud-action leaderboard-action"
+              id="leaderboardToggle"
+              type="button"
+              aria-expanded="false"
+              aria-controls="leaderboardPanel">
+              Rank
+            </button>
+          </div>
+
+          <div class="leaderboard-popover" id="leaderboardPanel" hidden>
+            <div class="leaderboard-title">Study Rank</div>
+            <ol class="leaderboard-list" id="leaderboardList" aria-label="Study leaderboard"></ol>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script src="./app.js?v=20260710-seat-visibility"></script>
+  </body>
+</html>

@@ -36,6 +36,9 @@ docker_export/
 # Tooling cache
 .vite/
 */.vite/
+test-results/
+artifacts/**/.last-run.json
+artifacts/**/*-inspection.jpg
 
 # OS
 .DS_Store

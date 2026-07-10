@@ -1,0 +1,254 @@
+[
+  {
+    "seatId": "front-left",
+    "source": "assets/chair-crops/front-left.png",
+    "marked": "assets/chair-crops/front-left-marked.png",
+    "leftPx": 339,
+    "topPx": 383,
+    "widthPx": 184,
+    "heightPx": 220,
+    "anchorPx": {
+      "x": 435,
+      "y": 493
+    },
+    "anchorInCropPx": {
+      "x": 96,
+      "y": 110
+    },
+    "leftPercent": 36.02550478214665,
+    "topPercent": 22.9066985645933,
+    "widthPercent": 19.55366631243358,
+    "heightPercent": 13.157894736842104
+  },
+  {
+    "seatId": "front-desk",
+    "source": "assets/chair-crops/front-desk.png",
+    "marked": "assets/chair-crops/front-desk-marked.png",
+    "leftPx": 443,
+    "topPx": 559,
+    "widthPx": 184,
+    "heightPx": 220,
+    "anchorPx": {
+      "x": 539,
+      "y": 669
+    },
+    "anchorInCropPx": {
+      "x": 96,
+      "y": 110
+    },
+    "leftPercent": 47.07757704569607,
+    "topPercent": 33.433014354066984,
+    "widthPercent": 19.55366631243358,
+    "heightPercent": 13.157894736842104
+  },
+  {
+    "seatId": "front-right",
+    "source": "assets/chair-crops/front-right.png",
+    "marked": "assets/chair-crops/front-right-marked.png",
+    "leftPx": 516,
+    "topPx": 505,
+    "widthPx": 184,
+    "heightPx": 220,
+    "anchorPx": {
+      "x": 612,
+      "y": 615
+    },
+    "anchorInCropPx": {
+      "x": 96,
+      "y": 110
+    },
+    "leftPercent": 54.83528161530287,
+    "topPercent": 30.20334928229665,
+    "widthPercent": 19.55366631243358,
+    "heightPercent": 13.157894736842104
+  },
+  {
+    "seatId": "lamp-left",
+    "source": "assets/chair-crops/lamp-left.png",
+    "marked": "assets/chair-crops/lamp-left-marked.png",
+    "leftPx": 155,
+    "topPx": 636,
+    "widthPx": 184,
+    "heightPx": 220,
+    "anchorPx": {
+      "x": 251,
+      "y": 746
+    },
+    "anchorInCropPx": {
+      "x": 96,
+      "y": 110
+    },
+    "leftPercent": 16.47183846971307,
+    "topPercent": 38.038277511961724,
+    "widthPercent": 19.55366631243358,
+    "heightPercent": 13.157894736842104
+  },
+  {
+    "seatId": "lamp-desk",
+    "source": "assets/chair-crops/lamp-desk.png",
+    "marked": "assets/chair-crops/lamp-desk-marked.png",
+    "leftPx": 219,
+    "topPx": 564,
+    "widthPx": 184,
+    "heightPx": 220,
+    "anchorPx": {
+      "x": 315,
+      "y": 674
+    },
+    "anchorInCropPx": {
+      "x": 96,
+      "y": 110
+    },
+    "leftPercent": 23.273113708820404,
+    "topPercent": 33.73205741626794,
+    "widthPercent": 19.55366631243358,
+    "heightPercent": 13.157894736842104
+  },
+  {
+    "seatId": "lamp-right",
+    "source": "assets/chair-crops/lamp-right.png",
+    "marked": "assets/chair-crops/lamp-right-marked.png",
+    "leftPx": 323,
+    "topPx": 871,
+    "widthPx": 184,
+    "heightPx": 220,
+    "anchorPx": {
+      "x": 419,
+      "y": 981
+    },
+    "anchorInCropPx": {
+      "x": 96,
+      "y": 110
+    },
+    "leftPercent": 34.32518597236982,
+    "topPercent": 52.0933014354067,
+    "widthPercent": 19.55366631243358,
+    "heightPercent": 13.157894736842104
+  },
+  {
+    "seatId": "middle-left",
+    "source": "assets/chair-crops/middle-left.png",
+    "marked": "assets/chair-crops/middle-left-marked.png",
+    "leftPx": 301,
+    "topPx": 978,
+    "widthPx": 184,
+    "heightPx": 220,
+    "anchorPx": {
+      "x": 397,
+      "y": 1088
+    },
+    "anchorInCropPx": {
+      "x": 96,
+      "y": 110
+    },
+    "leftPercent": 31.987247608926673,
+    "topPercent": 58.49282296650718,
+    "widthPercent": 19.55366631243358,
+    "heightPercent": 13.157894736842104
+  },
+  {
+    "seatId": "middle-row",
+    "source": "assets/chair-crops/middle-row.png",
+    "marked": "assets/chair-crops/middle-row-marked.png",
+    "leftPx": 362,
+    "topPx": 1014,
+    "widthPx": 184,
+    "heightPx": 220,
+    "anchorPx": {
+      "x": 458,
+      "y": 1124
+    },
+    "anchorInCropPx": {
+      "x": 96,
+      "y": 110
+    },
+    "leftPercent": 38.46971307120085,
+    "topPercent": 60.64593301435407,
+    "widthPercent": 19.55366631243358,
+    "heightPercent": 13.157894736842104
+  },
+  {
+    "seatId": "middle-right",
+    "source": "assets/chair-crops/middle-right.png",
+    "marked": "assets/chair-crops/middle-right-marked.png",
+    "leftPx": 555,
+    "topPx": 1015,
+    "widthPx": 184,
+    "heightPx": 220,
+    "anchorPx": {
+      "x": 651,
+      "y": 1125
+    },
+    "anchorInCropPx": {
+      "x": 96,
+      "y": 110
+    },
+    "leftPercent": 58.979808714133895,
+    "topPercent": 60.705741626794264,
+    "widthPercent": 19.55366631243358,
+    "heightPercent": 13.157894736842104
+  },
+  {
+    "seatId": "lower-left",
+    "source": "assets/chair-crops/lower-left.png",
+    "marked": "assets/chair-crops/lower-left-marked.png",
+    "leftPx": 239,
+    "topPx": 940,
+    "widthPx": 184,
+    "heightPx": 220,
+    "anchorPx": {
+      "x": 335,
+      "y": 1050
+    },
+    "anchorInCropPx": {
+      "x": 96,
+      "y": 110
+    },
+    "leftPercent": 25.398512221041447,
+    "topPercent": 56.2200956937799,
+    "widthPercent": 19.55366631243358,
+    "heightPercent": 13.157894736842104
+  },
+  {
+    "seatId": "lower-row",
+    "source": "assets/chair-crops/lower-row.png",
+    "marked": "assets/chair-crops/lower-row-marked.png",
+    "leftPx": 425,
+    "topPx": 1052,
+    "widthPx": 184,
+    "heightPx": 220,
+    "anchorPx": {
+      "x": 521,
+      "y": 1162
+    },
+    "anchorInCropPx": {
+      "x": 96,
+      "y": 110
+    },
+    "leftPercent": 45.16471838469713,
+    "topPercent": 62.91866028708134,
+    "widthPercent": 19.55366631243358,
+    "heightPercent": 13.157894736842104
+  },
+  {
+    "seatId": "lower-right",
+    "source": "assets/chair-crops/lower-right.png",
+    "marked": "assets/chair-crops/lower-right-marked.png",
+    "leftPx": 487,
+    "topPx": 1089,
+    "widthPx": 184,
+    "heightPx": 220,
+    "anchorPx": {
+      "x": 583,
+      "y": 1199
+    },
+    "anchorInCropPx": {
+      "x": 96,
+      "y": 110
+    },
+    "leftPercent": 51.75345377258236,
+    "topPercent": 65.13157894736842,
+    "widthPercent": 19.55366631243358,
+    "heightPercent": 13.157894736842104
+  }
+]

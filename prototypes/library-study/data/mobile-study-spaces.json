@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "source": "shared/social/socialSpaces.ts",
+  "generatedFrom": "TEDU 360 rotated refs",
+  "notes": [
+    "Shared social-space contract for the web prototype and mobile Study room model.",
+    "Private/special venues are intentionally excluded from this shared social-space contract.",
+    "Rooms use original pixel/game layouts derived from public TEDU 360 references, not operational floor plans."
+  ],
+  "spaces": [
+    {
+      "id": "welcome",
+      "title": "Welcome",
+      "kind": "spawn-lobby",
+      "seatStrategy": "standing-first",
+      "mobileLocationId": "chim-alan",
+      "references": [
+        "tedu-360-rotated-refs/01-welcome-center.png",
+        "tedu-360-rotated-refs/01-welcome-look-right.png",
+        "tedu-360-rotated-refs/01-welcome-look-left.png",
+        "tedu-360-rotated-refs/01-welcome-look-back.png"
+      ],
+      "seatPatterns": ["standing-cluster", "bench-slot"],
+      "habboLikeMechanics": ["tap-to-walk", "presence", "chat"]
+    },
+    {
+      "id": "chim-alan",
+      "title": "Cim alan",
+      "kind": "outdoor-quad",
+      "seatStrategy": "seat-slots",
+      "mobileLocationId": "chim-alan",
+      "references": [
+        "tedu-360-rotated-refs/03-social-areas-quad-center.png",
+        "tedu-360-rotated-refs/03-social-areas-quad-look-right.png",
+        "tedu-360-rotated-refs/03-social-areas-quad-look-left.png",
+        "tedu-360-rotated-refs/03-social-areas-quad-look-back.png"
+      ],
+      "seatPatterns": ["grass-sit", "bench-slot", "step-edge"],
+      "habboLikeMechanics": ["tap-to-walk", "presence", "chat", "seat-slot"]
+    },
+    {
+      "id": "grass-amphitheatre",
+      "title": "Grass Amphitheatre",
+      "kind": "outdoor-amphi",
+      "seatStrategy": "seat-slots",
+      "mobileLocationId": "chim-alan",
+      "references": [
+        "tedu-360-rotated-refs/04-social-areas-grass-amphitheatre-center.png",
+        "tedu-360-rotated-refs/04-social-areas-grass-amphitheatre-look-right.png",
+        "tedu-360-rotated-refs/04-social-areas-grass-amphitheatre-look-left.png",
+        "tedu-360-rotated-refs/04-social-areas-grass-amphitheatre-look-back.png"
+      ],
+      "seatPatterns": ["amphi-step", "grass-sit"],
+      "habboLikeMechanics": ["tap-to-walk", "presence", "chat", "seat-slot"]
+    },
+    {
+      "id": "library",
+      "title": "Library",
+      "kind": "indoor-study",
+      "seatStrategy": "seat-slots",
+      "mobileLocationId": "library",
+      "references": [
+        "tedu-360-rotated-refs/06-libraries-block-a-library-center.png",
+        "tedu-360-rotated-refs/06-libraries-block-a-library-look-right.png",
+        "tedu-360-rotated-refs/06-libraries-block-a-library-look-left.png",
+        "tedu-360-rotated-refs/06-libraries-block-a-library-look-back.png"
+      ],
+      "seatPatterns": ["long-table-slot", "sofa-slot", "quiet-bench"],
+      "habboLikeMechanics": ["tap-to-walk", "presence", "chat", "seat-slot"]
+    }
+  ]
+}

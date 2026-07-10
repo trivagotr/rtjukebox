@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>RadioTEDU Study - Chim Alan</title>
+    <link rel="stylesheet" href="./chim.css" />
+  </head>
+  <body>
+    <main class="chim-shell" aria-label="RadioTEDU Study">
+      <section class="chim-scene" id="chimScene" aria-label="Interactive Chim Alan amphitheatre">
+        <div class="chim-art" aria-hidden="true"></div>
+        <div class="chim-shade" aria-hidden="true"></div>
+        <div class="path-marker" id="pathMarker" aria-hidden="true"></div>
+
+        <button class="seat-hotspot" data-seat-id="amfi-a1" data-node-id="row-1-left" style="--x: 48%; --y: 48%" type="button" aria-label="Amphitheatre seat A1"></button>
+        <button class="seat-hotspot" data-seat-id="amfi-a2" data-node-id="row-1-mid" style="--x: 63%; --y: 47%" type="button" aria-label="Amphitheatre seat A2"></button>
+        <button class="seat-hotspot" data-seat-id="amfi-a3" data-node-id="row-1-right" style="--x: 77%; --y: 46%" type="button" aria-label="Amphitheatre seat A3"></button>
+        <button class="seat-hotspot" data-seat-id="amfi-b1" data-node-id="row-2-left" style="--x: 48%; --y: 41%" type="button" aria-label="Amphitheatre seat B1"></button>
+        <button class="seat-hotspot" data-seat-id="amfi-b2" data-node-id="row-2-mid" style="--x: 63%; --y: 40%" type="button" aria-label="Amphitheatre seat B2"></button>
+        <button class="seat-hotspot" data-seat-id="amfi-b3" data-node-id="row-2-right" style="--x: 77%; --y: 39%" type="button" aria-label="Amphitheatre seat B3"></button>
+        <button class="seat-hotspot" data-seat-id="amfi-c1" data-node-id="row-3-left" style="--x: 49%; --y: 34%" type="button" aria-label="Amphitheatre seat C1"></button>
+        <button class="seat-hotspot" data-seat-id="amfi-c2" data-node-id="row-3-mid" style="--x: 64%; --y: 33%" type="button" aria-label="Amphitheatre seat C2"></button>
+        <button class="seat-hotspot" data-seat-id="amfi-c3" data-node-id="row-3-right" style="--x: 78%; --y: 32%" type="button" aria-label="Amphitheatre seat C3"></button>
+
+        <button class="spark-host" id="sparkHost" type="button" aria-label="Spark, rtAI AI Host">
+          <span class="spark-logo" aria-hidden="true"><i></i></span>
+          <span class="host-copy"><strong>Spark</strong><small>rtAI - AI Host</small></span>
+        </button>
+
+        <button class="rock-marker" id="rockMarker" type="button" aria-label="Rock">
+          <span aria-hidden="true"></span>
+          <strong>Rock</strong>
+        </button>
+
+        <div class="chim-avatar" id="chimAvatar" data-posture="standing" data-outfit="classic" aria-label="Your avatar"></div>
+
+        <button class="closet-toggle" id="chimClosetToggle" type="button" aria-expanded="false" aria-controls="chimCloset" aria-label="Clothes" title="Clothes">
+          <span aria-hidden="true"></span>
+        </button>
+        <div class="closet-menu" id="chimCloset" hidden>
+          <div class="closet-heading"><strong>Clothes</strong><small id="chimAccountName">RadioTEDU</small></div>
+          <div class="outfit-options" aria-label="Outfits">
+            <button class="outfit-option is-selected" data-outfit="classic" type="button"><span class="classic-swatch"></span>Classic</button>
+            <button class="outfit-option" data-outfit="radio" type="button"><span class="radio-swatch"></span>Radio</button>
+            <button class="outfit-option" data-outfit="night" type="button"><span class="night-swatch"></span>Night</button>
+            <button class="outfit-option" data-outfit="break" type="button"><span class="break-swatch"></span>Break</button>
+          </div>
+        </div>
+
+        <div class="chim-hud" aria-live="polite">
+          <div class="chim-topbar">
+            <div class="room-status">
+              <strong id="chimSceneTitle">Chim Alan</strong>
+              <small id="chimSceneCaption">Open-air study</small>
+            </div>
+            <div class="online-count"><strong>4</strong><span>online</span></div>
+          </div>
+
+          <section class="chim-chat" aria-label="Room chat">
+            <div class="chim-chat-log" id="chimChatLog" aria-live="polite"></div>
+            <form class="chim-chat-form" id="chimChatForm">
+              <input id="chimChatInput" maxlength="80" autocomplete="off" placeholder="Say something..." aria-label="Message" />
+              <button type="submit">Send</button>
+            </form>
+          </section>
+
+          <div class="chim-bottombar">
+            <div class="study-meter">
+              <div><span id="chimStudyTimer">00:00</span><strong id="chimPointBalance">Points --</strong></div>
+              <span class="study-track"><i id="chimStudyFill"></i></span>
+            </div>
+            <button id="libraryButton" type="button">Library</button>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script src="./chim.js?v=20260710-web-room"></script>
+  </body>
+</html>
