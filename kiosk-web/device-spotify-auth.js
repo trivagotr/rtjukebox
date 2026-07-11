@@ -157,7 +157,7 @@
         let messageListener = null;
 
         async function fetchJson(url, init = {}) {
-            const response = await options.fetch(url, {
+            const response = await options.fetch.call(windowScope, url, {
                 ...init,
                 headers: {
                     'Content-Type': 'application/json',

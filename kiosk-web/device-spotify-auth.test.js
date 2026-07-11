@@ -168,6 +168,44 @@ describe('kiosk device spotify auth helper', () => {
     expect(popup.focus).toHaveBeenCalledTimes(1);
   });
 
+  it('calls native-style fetch with the browser window as its receiver', async () => {
+    const documentStub = createDocumentStub();
+    const popup = {
+      location: { href: '' },
+      focus: vi.fn(),
+    };
+    const windowScope = {
+      open: vi.fn(() => popup),
+      location: { href: 'https://radiotedu.com/kiosk', origin: 'https://radiotedu.com' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    const fetch = vi.fn(function () {
+      if (this !== windowScope) {
+        throw new TypeError('Illegal invocation');
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: { authUrl: 'https://accounts.spotify.com/authorize?state=bound-fetch' },
+        }),
+      });
+    });
+    const controller = createSpotifyDeviceAuthController({
+      apiBaseUrl: 'https://radiotedu.com/jukebox',
+      deviceId: 'device-1',
+      document: documentStub,
+      fetch,
+      window: windowScope,
+    });
+
+    await controller.openConnectFlow();
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(popup.location.href).toBe('https://accounts.spotify.com/authorize?state=bound-fetch');
+  });
+
   it('opens the popup synchronously before awaiting the auth url request', async () => {
     const documentStub = createDocumentStub();
     const popup = {
