@@ -11,6 +11,7 @@ import { NavigationGraph, type NavigationNode } from '../pathfinding/NavigationG
 import { IMAGE_ROOMS, roomPointToPixel, type ImageRoomDefinition, type ImageRoomId, type ImageRoomSeat } from '../rooms/ImageRoomDefinition'
 import { AvatarController } from './AvatarController'
 import { calculateOverviewZoom } from './CameraFraming'
+import { buildMotionPath, sampleMotionPath } from './PathMotion'
 
 const ACTION_FRAMES: Record<AvatarAction, number> = { idle: 1, walk: 4, sit: 1, stand: 3 }
 const RENDERED_LAYERS: AvatarLayerSlot[] = ['body', 'skin', 'hair', 'top', 'bottom', 'shoes', 'hat']
@@ -58,6 +59,7 @@ export class ImageRoomScene extends Phaser.Scene {
   #currentNodeId = this.#room.spawnNodeId
   #state: GameState = 'ready'
   #routeToken = 0
+  #routeTween: Phaser.Tweens.Tween | null = null
   #seatedSeat: ImageRoomSeat | null = null
   #background!: Phaser.GameObjects.Image
   #avatar!: Phaser.GameObjects.Container
@@ -161,6 +163,8 @@ export class ImageRoomScene extends Phaser.Scene {
 
   #renderRoom(roomId: ImageRoomId): void {
     this.#routeToken += 1
+    this.#routeTween?.stop()
+    this.#routeTween = null
     this.tweens.killTweensOf([this.#avatar, this.#shadow])
     this.#clearRoomObjects()
     this.#roomId = roomId
@@ -307,55 +311,61 @@ export class ImageRoomScene extends Phaser.Scene {
   }
 
   async #walkToNode(targetId: string): Promise<void> {
+    if (this.#routeTween) return
     if (this.#seatedSeat) await this.stand()
     const path = this.#graph.findPath(this.#currentNodeId, targetId)
     if (path.length < 2) return
     const token = ++this.#routeToken
-    for (let index = 1; index < path.length; index += 1) {
-      if (token !== this.#routeToken) return
-      const from = this.#graph.node(path[index - 1]!)!
-      const to = this.#graph.node(path[index]!)!
-      await this.#walkSegment(from, to, token)
-      this.#currentNodeId = to.id
+    const motion = buildMotionPath(path.map((id) => {
+      const node = this.#graph.node(id)!
+      const pixel = roomPointToPixel(this.#room, node)
+      return { id, x: pixel.x, y: pixel.y, z: node.z }
+    }))
+    if (motion.totalLength === 0) return
+    const travel = { distance: 0 }
+    let activeSegmentIndex = -1
+    const updateMotion = () => {
+      const sample = sampleMotionPath(motion, travel.distance)
+      if (sample.segmentIndex !== activeSegmentIndex) {
+        activeSegmentIndex = sample.segmentIndex
+        this.#currentNodeId = sample.from.id
+        this.#avatarController.applyMovement({ x: sample.to.x - sample.from.x, y: sample.to.y - sample.from.y })
+        this.#setState(sample.from.z !== sample.to.z ? 'stair' : 'walking')
+      }
+      this.#avatar.setPosition(sample.x, sample.y)
+      this.#shadow.setPosition(sample.x, sample.y + 5)
+      this.#updateAvatarFrame(Math.floor(travel.distance / 18) % ACTION_FRAMES.walk)
+      this.#setAvatarDepth((sample.y / this.#room.image.height) * 100)
     }
-    if (token !== this.#routeToken) return
-    this.#avatarController.applyMovement({ x: 0, y: 0 })
-    this.#updateAvatarFrame(0)
-    this.#setState('ready')
-  }
-
-  async #walkSegment(from: NavigationNode, to: NavigationNode, token: number): Promise<void> {
-    const fromPixel = roomPointToPixel(this.#room, from)
-    const toPixel = roomPointToPixel(this.#room, to)
-    const dx = toPixel.x - fromPixel.x
-    const dy = toPixel.y - fromPixel.y
-    this.#avatarController.applyMovement({ x: dx, y: dy })
-    this.#setState(from.z !== to.z ? 'stair' : 'walking')
-    const distance = Math.hypot(dx, dy)
-    const duration = Phaser.Math.Clamp(Math.round(distance * 3.2), 260, from.z !== to.z ? 900 : 760)
-    const progress = { value: 0 }
+    updateMotion()
     await new Promise<void>((resolve) => {
-      this.tweens.add({
-        targets: progress,
-        value: 1,
-        duration,
+      this.#routeTween = this.tweens.add({
+        targets: travel,
+        distance: motion.totalLength,
+        duration: Phaser.Math.Clamp(Math.round(motion.totalLength * 3.2), 320, 8_000),
         ease: 'Linear',
-        onUpdate: (tween) => {
-          this.#avatar.setPosition(
-            Phaser.Math.Linear(fromPixel.x, toPixel.x, progress.value),
-            Phaser.Math.Linear(fromPixel.y, toPixel.y, progress.value),
-          )
-          this.#shadow.setPosition(this.#avatar.x, this.#avatar.y + 5)
-          const frame = Math.floor(tween.progress * ACTION_FRAMES.walk) % ACTION_FRAMES.walk
-          this.#updateAvatarFrame(frame)
-          this.#setAvatarDepth(Phaser.Math.Linear(from.y, to.y, tween.progress))
+        onUpdate: () => {
+          if (token !== this.#routeToken) {
+            this.#routeTween?.stop()
+            return
+          }
+          updateMotion()
         },
-        onComplete: () => resolve(),
-        onStop: () => resolve(),
+        onComplete: () => {
+          this.#routeTween = null
+          resolve()
+        },
+        onStop: () => {
+          this.#routeTween = null
+          resolve()
+        },
       })
     })
     if (token !== this.#routeToken) return
-    this.#setAvatarDepth(to.y)
+    this.#currentNodeId = targetId
+    this.#avatarController.applyMovement({ x: 0, y: 0 })
+    this.#updateAvatarFrame(0)
+    this.#setState('ready')
   }
 
   async walkToSeat(seatId: string): Promise<void> {
