@@ -62,9 +62,9 @@
     "assets/avatars/engine-proof/top-varsity-jacket-stand.png": "5dc4db4a6a671bde1fa8a351260ecadd44a80db43fd56ffff003a17ff014b176",
     "assets/avatars/engine-proof/top-varsity-jacket-walk.png": "b0f4c3bcc7f23f63ec6f68cb4fbc14e18cbced323077cf7016aeb2690277bb7a",
     "assets/avatars/engine-proof/top-walk.png": "96f729ee3a1529eae80f93b1d72f6f44d66ee83fa6f981f3e2546366acfb802c",
+    "assets/index-B0a3ad2W.js": "e04c512a196ece187cd0d32a32fcebcbe19c0338018a61b76c0661aaf279ea49",
+    "assets/index-B0a3ad2W.js.map": "a04204684b440ad92e32c6e2ca1331d6200ddbb3e9250f6de0eecd047f10e421",
     "assets/index-DZUP_R6J.css": "6b6acc5a7a42e8eb2c65283875f73dbc21004e38ddc684a27da42f652cc7dc10",
-    "assets/index-DeM316wd.js": "84ef10b520ff3f444fbf1da793cd59fab7e103c6b8fc2127f24b6229cbaa5ebf",
-    "assets/index-DeM316wd.js.map": "7d7e1547a4e13f695d4c3ecdb33f87241d084c037d857f26bd6e94fe0c31d486",
     "assets/rooms/chim-alan.png": "1ea2ffa9252ad8cb59ddc72eae6832ad742d5c97714c4cf1cd6f2626992a1718",
     "assets/rooms/library.png": "7c4b055c9ed8c5cea91e9cc7d2ce55bf718299a2804d0d1e0dc91b7027fa3828",
     "assets/rooms/occlusion/chim-alan/object-amphi-row-front-1.png": "fa6587f8bc198897af3dcf0315feaa252c499cde2ca090ceed15d401c25d5dcd",
@@ -142,6 +142,6 @@
     "assets/rooms/occlusion/library/seat-upper-near-left.png": "8ba91666c2330b8c5149400deca384ef2fb41d6a14ecabbce2f0847d466de85b",
     "assets/rooms/occlusion/library/seat-upper-near-mid.png": "e235382edc3d833aec246cd05d1e509a3863492a38f6f42d1c15a30b784b858b",
     "assets/rooms/occlusion/library/seat-upper-near-right.png": "38ae1282e4c13e2653fe2f2f64b3fc45dcbe65052984c2eb1230036ccb3fcbb9",
-    "index.html": "ae2f377cc5046908bcc598aa0a61d01c66850543ff37af608978e63ac98c5c39"
+    "index.html": "f069b6f36943ff640693a1d264dbccc3bc3fe8dea4d9bcf6bae151dedc7792a8"
   }
 }

@@ -10,6 +10,7 @@ import { WardrobeController } from '../inventory/WardrobeController'
 import { NavigationGraph, type NavigationNode } from '../pathfinding/NavigationGraph'
 import { IMAGE_ROOMS, roomPointToPixel, type ImageRoomDefinition, type ImageRoomId, type ImageRoomSeat } from '../rooms/ImageRoomDefinition'
 import { AvatarController } from './AvatarController'
+import { calculateOverviewZoom } from './CameraFraming'
 
 const ACTION_FRAMES: Record<AvatarAction, number> = { idle: 1, walk: 4, sit: 1, stand: 3 }
 const RENDERED_LAYERS: AvatarLayerSlot[] = ['body', 'skin', 'hair', 'top', 'bottom', 'shoes', 'hat']
@@ -184,18 +185,17 @@ export class ImageRoomScene extends Phaser.Scene {
     this.#adapter.enterRoom(this.#roomId, this.#currentNodeId)
 
     this.cameras.main.stopFollow()
-    this.cameras.main.setBounds(0, 0, this.#room.image.width, this.#room.image.height)
+    this.cameras.main.removeBounds()
     this.#fitCamera()
-    this.cameras.main.centerOn(pixel.x, pixel.y)
-    this.cameras.main.startFollow(this.#avatar, false, 0.08, 0.08)
     this.#setState('ready')
     this.#syncHud()
   }
 
   #fitCamera(): void {
     const viewport = this.scale.gameSize
-    const zoom = Math.max(viewport.width / 941, viewport.height / 760)
+    const zoom = calculateOverviewZoom(viewport, this.#room.image)
     this.cameras.main.setZoom(zoom)
+    this.cameras.main.centerOn(this.#room.image.width / 2, this.#room.image.height / 2)
   }
 
   #createOcclusionLayers(): void {
@@ -487,6 +487,12 @@ export class ImageRoomScene extends Phaser.Scene {
         hatId: this.#avatarController.appearance.hatId,
         topId: this.#avatarController.appearance.topId,
         sparkLabel: this.#room.actors.spark?.label ?? null,
+        camera: {
+          zoom: this.cameras.main.zoom,
+          worldViewWidth: this.cameras.main.worldView.width,
+          worldViewHeight: this.cameras.main.worldView.height,
+        },
+        roomSize: { width: this.#room.image.width, height: this.#room.image.height },
       }),
     }
   }
@@ -507,6 +513,8 @@ declare global {
         hatId: string | null
         topId: string
         sparkLabel: string | null
+        camera: { zoom: number; worldViewWidth: number; worldViewHeight: number }
+        roomSize: { width: number; height: number }
       }
     }
   }

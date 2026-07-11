@@ -19,6 +19,9 @@ test('plays the two exact user-supplied rooms with persistent wardrobe and eleva
   await page.goto('/')
   await expect(page.locator('html')).toHaveAttribute('data-study-ready', 'true', { timeout: 30_000 })
   await expect(page.locator('html')).toHaveAttribute('data-room-id', 'library')
+  const libraryOverview = await page.evaluate(() => window.__STUDY_GAME_APP__.snapshot())
+  expect(libraryOverview.camera.worldViewWidth).toBeGreaterThanOrEqual(libraryOverview.roomSize.width - 1)
+  expect(libraryOverview.camera.worldViewHeight).toBeGreaterThanOrEqual(libraryOverview.roomSize.height - 1)
 
   const canvas = page.locator('#game-canvas canvas')
   await expect(canvas).toBeVisible()
