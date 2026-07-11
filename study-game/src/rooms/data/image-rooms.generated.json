@@ -829,6 +829,21 @@
           "kind": "walk"
         },
         {
+          "from": "middle-left-aisle",
+          "to": "upper-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "lower-right-aisle",
+          "to": "right-spine-lower",
+          "kind": "walk"
+        },
+        {
+          "from": "middle-center-aisle",
+          "to": "upper-center-aisle",
+          "kind": "walk"
+        },
+        {
           "from": "approach:front-left",
           "to": "upper-left-aisle",
           "kind": "walk"

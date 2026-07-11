@@ -143,6 +143,11 @@ function libraryRoomData(appSource, mapMask) {
       if (walkableTiles[neighbor]) edges.push({ from: id, to: neighbor, kind: 'walk' })
     }
   }
+  // The preserved prototype omitted three visible aisle connections, forcing
+  // A* to detour through the entrance or loop around the furniture rows.
+  edges.push({ from: 'middle-left-aisle', to: 'upper-left-aisle', kind: 'walk' })
+  edges.push({ from: 'lower-right-aisle', to: 'right-spine-lower', kind: 'walk' })
+  edges.push({ from: 'upper-center-aisle', to: 'middle-center-aisle', kind: 'walk' })
 
   const seats = chairTargets.map((seat) => {
     const approachNodeId = `approach:${seat.seatId}`
