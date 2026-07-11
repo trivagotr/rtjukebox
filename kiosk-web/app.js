@@ -319,18 +319,35 @@ class KioskApp {
     }
 
     async openSpotifyDeviceAuthSetup() {
-        if (!this.spotifyDeviceAuthController) {
-            await this.setupSpotifyDeviceAuthFlow();
-        }
-
-        if (!this.spotifyDeviceAuthController) {
-            this.log('⚠️ Spotify device auth flow not available', 'error');
-            return;
-        }
+        const popup = window.open?.('', '_blank') || null;
+        window.KioskDeviceSpotifyAuth?.renderSpotifyDeviceAuthPopup?.(popup, {
+            title: 'Spotify açılıyor',
+            message: 'Kiosk bağlantısı hazırlanıyor…',
+        });
 
         try {
-            await this.spotifyDeviceAuthController.openConnectFlow();
+            if (!this.spotifyDeviceAuthController) {
+                const setupPromise = this.setupSpotifyDeviceAuthFlow();
+                if (this.spotifyDeviceAuthController) {
+                    setupPromise.catch((error) => {
+                        this.log(`⚠️ Spotify bağlantı durumu yenilenemedi: ${error.message}`, 'error');
+                    });
+                } else {
+                    await setupPromise;
+                }
+            }
+
+            if (!this.spotifyDeviceAuthController) {
+                throw new Error('Spotify device auth flow not available');
+            }
+
+            await this.spotifyDeviceAuthController.openConnectFlow(popup);
         } catch (error) {
+            window.KioskDeviceSpotifyAuth?.renderSpotifyDeviceAuthPopup?.(popup, {
+                title: 'Spotify bağlantısı açılamadı',
+                message: error?.message || 'Spotify giriş sayfası açılamadı.',
+                isError: true,
+            });
             this.log(`⚠️ Spotify bağlantı akışı açılamadı: ${error.message}`, 'error');
         }
     }

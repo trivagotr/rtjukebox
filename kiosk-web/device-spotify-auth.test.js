@@ -3,6 +3,7 @@ import {
   buildSpotifyDeviceAuthStartUrl,
   buildSpotifyDeviceAuthEndpoints,
   createSpotifyDeviceAuthController,
+  renderSpotifyDeviceAuthPopup,
   renderSpotifyDeviceAuthSetup,
   removeSpotifyDeviceAuthSetup,
 } from './device-spotify-auth.js';
@@ -216,6 +217,63 @@ describe('kiosk device spotify auth helper', () => {
     await connectPromise;
 
     expect(popup.location.href).toBe('https://accounts.spotify.com/authorize?state=device-state');
+  });
+
+  it('keeps a pre-opened popup visible with the request error', async () => {
+    const documentStub = createDocumentStub();
+    const popupDocument = {
+      open: vi.fn(),
+      write: vi.fn(),
+      close: vi.fn(),
+    };
+    const popup = {
+      document: popupDocument,
+      location: { href: '' },
+      focus: vi.fn(),
+      close: vi.fn(),
+    };
+    const open = vi.fn();
+    const fetch = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: 'Invalid device password' }),
+    }));
+    const controller = createSpotifyDeviceAuthController({
+      apiBaseUrl: 'http://127.0.0.1:3000',
+      deviceId: 'device-1',
+      devicePassword: 'wrong-secret',
+      document: documentStub,
+      fetch,
+      window: {
+        open,
+        location: { href: 'http://127.0.0.1:4180/' },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+
+    await expect(controller.openConnectFlow(popup)).rejects.toThrow('Invalid device password');
+
+    expect(open).not.toHaveBeenCalled();
+    expect(popup.close).not.toHaveBeenCalled();
+    expect(popupDocument.write).toHaveBeenLastCalledWith(expect.stringContaining('Invalid device password'));
+    expect(popupDocument.write).toHaveBeenLastCalledWith(expect.stringContaining('Spotify bağlantısı açılamadı'));
+  });
+
+  it('renders a connecting state in an existing popup', () => {
+    const popupDocument = {
+      open: vi.fn(),
+      write: vi.fn(),
+      close: vi.fn(),
+    };
+
+    renderSpotifyDeviceAuthPopup({ document: popupDocument }, {
+      title: 'Spotify açılıyor',
+      message: 'Kiosk bağlantısı hazırlanıyor…',
+    });
+
+    expect(popupDocument.write).toHaveBeenCalledWith(expect.stringContaining('Spotify açılıyor'));
+    expect(popupDocument.write).toHaveBeenCalledWith(expect.stringContaining('Kiosk bağlantısı hazırlanıyor…'));
   });
 
   it('refreshes and exits setup after a successful auth success message', async () => {

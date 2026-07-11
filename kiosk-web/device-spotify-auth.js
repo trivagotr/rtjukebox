@@ -101,6 +101,50 @@
             .replace(/'/g, '&#39;');
     }
 
+    function renderSpotifyDeviceAuthPopup(popup, options = {}) {
+        const documentScope = popup?.document;
+        if (!documentScope) {
+            return;
+        }
+
+        const title = escapeHtml(options.title || 'Spotify bağlantısı');
+        const message = escapeHtml(options.message || 'Lütfen bekleyin.');
+        const accent = options.isError ? '#ef4444' : '#1db954';
+        const html = `
+            <!DOCTYPE html>
+            <html lang="tr">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>${title}</title>
+            </head>
+            <body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#111827;color:#f9fafb;font-family:Arial,sans-serif;">
+                <main style="width:min(520px,calc(100% - 48px));padding:36px;border:1px solid #374151;border-radius:20px;background:#1f2937;text-align:center;box-shadow:0 24px 70px rgba(0,0,0,.45);">
+                    <div style="width:54px;height:54px;margin:0 auto 20px;border-radius:50%;background:${accent};display:grid;place-items:center;font-size:28px;">♪</div>
+                    <h1 style="margin:0 0 14px;font-size:24px;">${title}</h1>
+                    <p style="margin:0;color:#d1d5db;line-height:1.6;">${message}</p>
+                </main>
+            </body>
+            </html>
+        `;
+
+        try {
+            if (typeof documentScope.open === 'function') {
+                documentScope.open();
+            }
+            if (typeof documentScope.write === 'function') {
+                documentScope.write(html);
+            } else if (documentScope.body) {
+                documentScope.body.innerHTML = html;
+            }
+            if (typeof documentScope.close === 'function') {
+                documentScope.close();
+            }
+        } catch (error) {
+            // The popup may already have navigated cross-origin. Navigation can continue normally.
+        }
+    }
+
     function createSpotifyDeviceAuthController(options = {}) {
         const documentScope = options.document;
         const windowScope = options.window || (typeof globalThis !== 'undefined' ? globalThis : this);
@@ -196,7 +240,7 @@
             return currentStatus;
         }
 
-        async function openConnectFlow() {
+        async function openConnectFlow(existingPopup = null) {
             const returnOrigin = typeof windowScope?.location?.origin === 'string'
                 ? windowScope.location.origin
                 : (
@@ -205,7 +249,13 @@
                         : null
                 );
             const startUrl = buildSpotifyDeviceAuthStartUrl(apiBaseUrl, deviceId, devicePassword, returnOrigin);
-            const popup = windowScope?.open?.('', '_blank');
+            const popup = existingPopup || windowScope?.open?.('', '_blank');
+            if (popup) {
+                renderSpotifyDeviceAuthPopup(popup, {
+                    title: 'Spotify açılıyor',
+                    message: 'Güvenli Spotify giriş sayfasına yönlendiriliyorsunuz…',
+                });
+            }
 
             try {
                 const payload = await fetchJson(startUrl, { method: 'POST' });
@@ -215,7 +265,11 @@
                 }
 
                 if (popup) {
-                    popup.location.href = authUrl;
+                    if (typeof popup.location?.replace === 'function') {
+                        popup.location.replace(authUrl);
+                    } else {
+                        popup.location.href = authUrl;
+                    }
                     if (typeof popup.focus === 'function') {
                         popup.focus();
                     }
@@ -225,7 +279,13 @@
 
                 return authUrl;
             } catch (error) {
-                popup?.close?.();
+                if (popup) {
+                    renderSpotifyDeviceAuthPopup(popup, {
+                        title: 'Spotify bağlantısı açılamadı',
+                        message: error?.message || 'Spotify giriş sayfası açılamadı.',
+                        isError: true,
+                    });
+                }
                 throw error;
             }
         }
@@ -249,6 +309,7 @@
         buildSpotifyDeviceAuthEndpoints,
         buildSpotifyDeviceAuthStartUrl,
         createSpotifyDeviceAuthController,
+        renderSpotifyDeviceAuthPopup,
         renderSpotifyDeviceAuthSetup,
         removeSpotifyDeviceAuthSetup,
     };
