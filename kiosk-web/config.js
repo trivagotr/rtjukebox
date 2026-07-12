@@ -24,6 +24,16 @@ const normalizePathBase = (value) => {
     return path.startsWith('/') ? path : `/${path}`;
 };
 
+const normalizeSocketTransports = (value) => {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+
+    return value
+        .map((transport) => String(transport || '').trim().toLowerCase())
+        .filter((transport) => ['polling', 'websocket'].includes(transport));
+};
+
 const getUrlParts = (value) => {
     try {
         const parsed = new URL(value, window.location.origin);
@@ -88,6 +98,7 @@ const CONFIG = {
         || (IS_LOCAL_DEV ? API_BASE : API_PARTS.origin),
     SOCKET_PATH: PUBLIC_RUNTIME_CONFIG.SOCKET_PATH
         || `${API_PARTS.pathBase || PUBLIC_BASE_PATH || ''}/socket.io`,
+    SOCKET_TRANSPORTS: normalizeSocketTransports(PUBLIC_RUNTIME_CONFIG.SOCKET_TRANSPORTS),
 
     // QR kod için web URL formatı
     // Kullanıcı bu URL'yi tarayarak şarkı ekleyecek

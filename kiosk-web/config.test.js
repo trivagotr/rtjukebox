@@ -43,11 +43,12 @@ function loadConfig({
 }
 
 function loadKioskAppClass(config, {
-  clearInterval: clearIntervalOverride,
-  document: documentOverride,
-  fetchImpl,
-  localStorage,
-  window: windowOverride,
+    clearInterval: clearIntervalOverride,
+    document: documentOverride,
+    fetchImpl,
+    io: ioOverride,
+    localStorage,
+    window: windowOverride,
 } = {}) {
   const source = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
   const windowObject = {
@@ -69,6 +70,7 @@ function loadKioskAppClass(config, {
     CONFIG: config,
     localStorage: storage,
     fetch: fetchImpl || vi.fn(),
+    io: ioOverride,
     console,
     setTimeout,
     clearTimeout,
@@ -137,6 +139,7 @@ describe('kiosk configuration', () => {
       API_BASE_URL: 'https://radiotedu.com/jukebox',
       PUBLIC_SITE_BASE_URL: 'https://radiotedu.com',
       QR_LINK_BASE_URL: 'https://radiotedu.com/jukebox',
+      SOCKET_TRANSPORTS: ['polling'],
     });
 
     const indexHtml = fs.readFileSync(path.resolve(__dirname, './index.html'), 'utf8');
@@ -156,16 +159,46 @@ describe('kiosk configuration', () => {
         API_BASE_URL: 'https://radiotedu.com/jukebox',
         PUBLIC_SITE_BASE_URL: 'https://radiotedu.com',
         QR_LINK_BASE_URL: 'https://radiotedu.com/jukebox',
+        SOCKET_TRANSPORTS: ['polling'],
       },
     });
 
     expect(config.API_URL).toBe('https://radiotedu.com/jukebox');
     expect(config.WS_URL).toBe('https://radiotedu.com');
     expect(config.SOCKET_PATH).toBe('/jukebox/socket.io');
+    expect(config.SOCKET_TRANSPORTS).toEqual(['polling']);
     expect(config.QR_LINK_FORMAT).toBe('https://radiotedu.com/jukebox?device={DEVICE_CODE}');
     expect(config.RECONNECT_INTERVAL).toBe(5000);
     expect(config.UI_UPDATE_INTERVAL).toBe(100);
     expect(config.SOCKET_EMIT_INTERVAL).toBe(5000);
+  });
+
+  it('uses the production polling transport without attempting a websocket upgrade', () => {
+    const config = loadConfig({
+      hostname: 'radiotedu.com',
+      origin: 'https://radiotedu.com',
+      pathname: '/kiosk/',
+      protocol: 'https:',
+      search: '',
+      runtimeConfig: {
+        API_BASE_URL: 'https://radiotedu.com/jukebox',
+        PUBLIC_SITE_BASE_URL: 'https://radiotedu.com',
+        QR_LINK_BASE_URL: 'https://radiotedu.com/jukebox',
+        SOCKET_TRANSPORTS: ['polling'],
+      },
+    });
+    const socket = { on: vi.fn() };
+    const io = vi.fn(() => socket);
+    const KioskApp = loadKioskAppClass(config, { io });
+    const app = Object.create(KioskApp.prototype);
+
+    app.connectSocket();
+
+    expect(io).toHaveBeenCalledWith('https://radiotedu.com', {
+      path: '/jukebox/socket.io',
+      transports: ['polling'],
+      upgrade: false,
+    });
   });
 
   it('points local QR scans at the phone jukebox page', () => {

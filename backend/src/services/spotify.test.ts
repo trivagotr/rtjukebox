@@ -268,6 +268,67 @@ describe('SpotifyService', () => {
     ]);
   });
 
+  it('loads device autoplay playlists with the kiosk token instead of global admin auth', async () => {
+    const service = new SpotifyService();
+    const getAccessTokenSpy = vi.spyOn(service, 'getAccessToken');
+    const getKioskPlaybackTokenSpy = vi.spyOn(service, 'getKioskPlaybackToken').mockResolvedValue({
+      accessToken: 'device-playlist-token',
+      tokenExpiresAt: new Date('2026-07-12T12:00:00.000Z'),
+      scopes: 'streaming user-modify-playback-state user-read-playback-state',
+    });
+
+    mockAxiosGet.mockResolvedValue({
+      data: {
+        items: [
+          {
+            item: {
+              type: 'track',
+              id: 'device-track-1',
+              name: 'Device Playlist Song',
+              artists: [{ id: 'artist-1', name: 'Device Artist' }],
+              album: {
+                id: 'album-1',
+                name: 'Device Album',
+                images: [],
+              },
+              duration_ms: 180000,
+              uri: 'spotify:track:device-track-1',
+              preview_url: null,
+              explicit: false,
+              external_urls: { spotify: 'https://open.spotify.com/track/device-track-1' },
+            },
+          },
+        ],
+      },
+    });
+
+    const tracks = await service.getDevicePlaylistTracks(
+      'device-1',
+      'spotify:playlist:playlist-1',
+      'TR',
+      25
+    );
+
+    expect(getKioskPlaybackTokenSpy).toHaveBeenCalledWith('device-1');
+    expect(getAccessTokenSpy).not.toHaveBeenCalled();
+    expect(mockAxiosGet).toHaveBeenCalledWith(
+      'https://api.spotify.com/v1/playlists/playlist-1/items',
+      {
+        headers: { Authorization: 'Bearer device-playlist-token' },
+        params: {
+          market: 'TR',
+          limit: 25,
+        },
+      }
+    );
+    expect(tracks).toEqual([
+      expect.objectContaining({
+        spotify_uri: 'spotify:track:device-track-1',
+        title: 'Device Playlist Song',
+      }),
+    ]);
+  });
+
   it('maps playlist item payloads from the current Spotify items endpoint', async () => {
     const service = new SpotifyService();
     vi.spyOn(service, 'getAccessToken').mockResolvedValue('user-access-token');
@@ -424,6 +485,52 @@ describe('SpotifyService', () => {
     );
     expect(mockAxiosPost.mock.calls[0][1]).toContain('redirect_uri=http%3A%2F%2F127.0.0.1%3A3000%2Fapi%2Fv1%2Fspotify%2Fcallback');
     expect(mockDbQuery.mock.calls.some(([sql]) => String(sql).includes('spotify_device_auth'))).toBe(true);
+  });
+
+  it('explains Spotify development-mode requirements when the profile request returns 403', async () => {
+    const service = new SpotifyService();
+    const state = new URL(await service.getDeviceAuthStartUrl('device-1')).searchParams.get('state');
+    const forbiddenError = Object.assign(new Error('Request failed with status code 403'), {
+      response: { status: 403 },
+    });
+
+    mockAxiosPost.mockResolvedValueOnce({
+      data: {
+        access_token: 'device-access-token',
+        refresh_token: 'device-refresh-token',
+        expires_in: 3600,
+        scope: 'streaming user-modify-playback-state',
+      },
+    });
+    mockAxiosGet.mockRejectedValueOnce(forbiddenError);
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(service.handleDeviceAuthCallback('auth-code', state!)).rejects.toThrow(
+      /Users Management.*Spotify Premium/
+    );
+    expect(mockDbQuery.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO spotify_device_auth'))).toBe(false);
+  });
+
+  it('explains Spotify development-mode requirements when the token exchange returns 403', async () => {
+    const service = new SpotifyService();
+    const state = new URL(await service.getDeviceAuthStartUrl('device-1')).searchParams.get('state');
+    const forbiddenError = Object.assign(new Error('Request failed with status code 403'), {
+      response: { status: 403 },
+    });
+
+    mockAxiosPost.mockRejectedValueOnce(forbiddenError);
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(service.handleDeviceAuthCallback('auth-code', state!)).rejects.toThrow(
+      /Users Management.*Spotify Premium/
+    );
+    expect(mockAxiosGet).not.toHaveBeenCalled();
   });
 
   it('preserves an existing device refresh token when spotify omits a new one on reconnect', async () => {

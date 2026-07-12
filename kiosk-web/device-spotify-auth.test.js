@@ -3,6 +3,7 @@ import {
   buildSpotifyDeviceAuthStartUrl,
   buildSpotifyDeviceAuthEndpoints,
   createSpotifyDeviceAuthController,
+  renderSpotifyDeviceAuthPopup,
   renderSpotifyDeviceAuthSetup,
   removeSpotifyDeviceAuthSetup,
 } from './device-spotify-auth.js';
@@ -128,7 +129,17 @@ describe('kiosk device spotify auth helper', () => {
       close: vi.fn(),
     };
     const open = vi.fn(() => popup);
-    const fetch = vi.fn();
+    const fetch = vi.fn(async (url, init) => {
+      expect(String(url)).toBe('http://127.0.0.1:3000/api/v1/jukebox/kiosk/spotify-device-auth/start?device_id=device-1&device_pwd=secret&return_origin=http%3A%2F%2F127.0.0.1%3A4180');
+      expect(init).toEqual(expect.objectContaining({ method: 'POST' }));
+      return {
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: { authUrl: 'https://accounts.spotify.com/authorize?state=device-state' },
+        }),
+      };
+    });
 
     const controller = createSpotifyDeviceAuthController({
       apiBaseUrl: 'http://127.0.0.1:3000',
@@ -152,9 +163,47 @@ describe('kiosk device spotify auth helper', () => {
     await controller.openConnectFlow();
 
     expect(open).toHaveBeenCalledWith('', '_blank');
-    expect(fetch).not.toHaveBeenCalled();
-    expect(popup.location.href).toBe('http://127.0.0.1:3000/api/v1/jukebox/kiosk/spotify-device-auth/start?device_id=device-1&device_pwd=secret&return_origin=http%3A%2F%2F127.0.0.1%3A4180');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(popup.location.href).toBe('https://accounts.spotify.com/authorize?state=device-state');
     expect(popup.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls native-style fetch with the browser window as its receiver', async () => {
+    const documentStub = createDocumentStub();
+    const popup = {
+      location: { href: '' },
+      focus: vi.fn(),
+    };
+    const windowScope = {
+      open: vi.fn(() => popup),
+      location: { href: 'https://radiotedu.com/kiosk', origin: 'https://radiotedu.com' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    const fetch = vi.fn(function () {
+      if (this !== windowScope) {
+        throw new TypeError('Illegal invocation');
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: { authUrl: 'https://accounts.spotify.com/authorize?state=bound-fetch' },
+        }),
+      });
+    });
+    const controller = createSpotifyDeviceAuthController({
+      apiBaseUrl: 'https://radiotedu.com/jukebox',
+      deviceId: 'device-1',
+      document: documentStub,
+      fetch,
+      window: windowScope,
+    });
+
+    await controller.openConnectFlow();
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(popup.location.href).toBe('https://accounts.spotify.com/authorize?state=bound-fetch');
   });
 
   it('opens the popup synchronously before awaiting the auth url request', async () => {
@@ -166,7 +215,10 @@ describe('kiosk device spotify auth helper', () => {
     };
     const open = vi.fn(() => popup);
 
-    const fetch = vi.fn();
+    let resolveFetch;
+    const fetch = vi.fn(() => new Promise((resolve) => {
+      resolveFetch = resolve;
+    }));
 
     const controller = createSpotifyDeviceAuthController({
       apiBaseUrl: 'http://127.0.0.1:3000',
@@ -187,11 +239,79 @@ describe('kiosk device spotify auth helper', () => {
       },
     });
 
-    await controller.openConnectFlow();
+    const connectPromise = controller.openConnectFlow();
 
     expect(open).toHaveBeenCalledWith('', '_blank');
-    expect(fetch).not.toHaveBeenCalled();
-    expect(popup.location.href).toBe('http://127.0.0.1:3000/api/v1/jukebox/kiosk/spotify-device-auth/start?device_id=device-1&device_pwd=secret&return_origin=http%3A%2F%2F127.0.0.1%3A4180');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(popup.location.href).toBe('');
+
+    resolveFetch({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { authUrl: 'https://accounts.spotify.com/authorize?state=device-state' },
+      }),
+    });
+    await connectPromise;
+
+    expect(popup.location.href).toBe('https://accounts.spotify.com/authorize?state=device-state');
+  });
+
+  it('keeps a pre-opened popup visible with the request error', async () => {
+    const documentStub = createDocumentStub();
+    const popupDocument = {
+      open: vi.fn(),
+      write: vi.fn(),
+      close: vi.fn(),
+    };
+    const popup = {
+      document: popupDocument,
+      location: { href: '' },
+      focus: vi.fn(),
+      close: vi.fn(),
+    };
+    const open = vi.fn();
+    const fetch = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: 'Invalid device password' }),
+    }));
+    const controller = createSpotifyDeviceAuthController({
+      apiBaseUrl: 'http://127.0.0.1:3000',
+      deviceId: 'device-1',
+      devicePassword: 'wrong-secret',
+      document: documentStub,
+      fetch,
+      window: {
+        open,
+        location: { href: 'http://127.0.0.1:4180/' },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+
+    await expect(controller.openConnectFlow(popup)).rejects.toThrow('Invalid device password');
+
+    expect(open).not.toHaveBeenCalled();
+    expect(popup.close).not.toHaveBeenCalled();
+    expect(popupDocument.write).toHaveBeenLastCalledWith(expect.stringContaining('Invalid device password'));
+    expect(popupDocument.write).toHaveBeenLastCalledWith(expect.stringContaining('Spotify bağlantısı açılamadı'));
+  });
+
+  it('renders a connecting state in an existing popup', () => {
+    const popupDocument = {
+      open: vi.fn(),
+      write: vi.fn(),
+      close: vi.fn(),
+    };
+
+    renderSpotifyDeviceAuthPopup({ document: popupDocument }, {
+      title: 'Spotify açılıyor',
+      message: 'Kiosk bağlantısı hazırlanıyor…',
+    });
+
+    expect(popupDocument.write).toHaveBeenCalledWith(expect.stringContaining('Spotify açılıyor'));
+    expect(popupDocument.write).toHaveBeenCalledWith(expect.stringContaining('Kiosk bağlantısı hazırlanıyor…'));
   });
 
   it('refreshes and exits setup after a successful auth success message', async () => {

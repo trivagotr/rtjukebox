@@ -1735,7 +1735,7 @@ export async function enqueueAutoplayForDevice(params: {
 }) {
     const deps: AutoplayAutomationDeps = {
         loadEffectiveConfig: loadEffectiveRadioProfileConfig,
-        getPlaylistTracks: (playlistUri) => spotifyService.getPlaylistTracks(playlistUri, 'TR', 50),
+        getPlaylistTracks: (playlistUri) => spotifyService.getDevicePlaylistTracks(params.deviceId, playlistUri, 'TR', 50),
         filterTracks: async (tracks) => createDefaultFilterService().filterTracks(tracks),
         loadAutoplayStats: (radioProfileId, spotifyUris) => loadAutoplayStatsForProfile({ radioProfileId, spotifyUris }),
         upsertTrack: upsertSpotifyTrack,

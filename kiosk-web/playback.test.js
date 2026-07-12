@@ -3636,3 +3636,70 @@ describe('kiosk playback helpers', () => {
     expect(fetch.mock.calls.some(([url]) => String(url).includes('/api/v1/jukebox/kiosk/spotify-token'))).toBe(false);
   });
 });
+
+describe('spotify connect popup startup race', () => {
+  it('starts oauth in the pre-opened popup without waiting for status refresh', async () => {
+    const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
+    const popup = { location: { href: '' } };
+    const openConnectFlow = vi.fn().mockResolvedValue('https://accounts.spotify.com/authorize');
+    const refreshStatus = vi.fn(() => new Promise(() => {}));
+    const renderSpotifyDeviceAuthPopup = vi.fn();
+    const windowStub = {
+      open: vi.fn(() => popup),
+      location: { protocol: 'https:', hostname: 'radiotedu.com', search: '' },
+      localStorage: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+      },
+      KioskDeviceSpotifyAuth: {
+        createSpotifyDeviceAuthController: vi.fn(() => ({
+          refreshStatus,
+          openConnectFlow,
+          destroy: vi.fn(),
+          getStatus: vi.fn(() => null),
+        })),
+        renderSpotifyDeviceAuthPopup,
+        renderSpotifyDeviceAuthSetup: vi.fn(),
+      },
+    };
+    const documentStub = {
+      addEventListener: vi.fn(),
+      getElementById: vi.fn(() => null),
+    };
+    const context = vm.createContext({
+      window: windowStub,
+      document: documentStub,
+      localStorage: windowStub.localStorage,
+      console,
+      setTimeout,
+      clearTimeout,
+      setInterval,
+      clearInterval,
+      fetch: vi.fn(),
+      CONFIG: {
+        API_URL: 'https://radiotedu.com/jukebox',
+        DEVICE_PWD: '',
+      },
+      module: { exports: {} },
+      exports: {},
+      require,
+    });
+
+    vm.runInContext(appSource, context);
+    const app = Object.create(context.KioskApp.prototype);
+    app.device = { id: 'device-1' };
+    app.spotifyDeviceAuthController = null;
+    app.log = vi.fn();
+
+    const connectPromise = app.openSpotifyDeviceAuthSetup();
+
+    expect(windowStub.open).toHaveBeenCalledWith('', '_blank');
+    await connectPromise;
+    expect(refreshStatus).toHaveBeenCalledTimes(1);
+    expect(openConnectFlow).toHaveBeenCalledWith(popup);
+    expect(renderSpotifyDeviceAuthPopup).toHaveBeenCalledWith(popup, expect.objectContaining({
+      title: 'Spotify açılıyor',
+    }));
+  });
+});
