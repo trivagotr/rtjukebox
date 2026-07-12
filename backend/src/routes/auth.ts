@@ -19,10 +19,15 @@ const IS_TEST_ENV = process.env.NODE_ENV === 'test' || Boolean(process.env.VITES
 // default is only allowed under tests so the suite can run without secrets.
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || (IS_TEST_ENV ? 'test-refresh-secret-key' : '');
 
+const SUPPORTED_ONBOARDING_LANGUAGES = ['en', 'tr', 'ru', 'ar', 'de', 'nl'] as const;
+const CURRENT_YEAR = new Date().getUTCFullYear();
+
 const registerSchema = z.object({
     email: z.string().email(),
     password: z.string().min(6),
-    display_name: z.string().min(2).max(100)
+    display_name: z.string().min(2).max(100),
+    birth_year: z.number().int().min(1900).max(CURRENT_YEAR).optional(),
+    preferred_language: z.enum(SUPPORTED_ONBOARDING_LANGUAGES).optional(),
 });
 
 const ALLOWED_REGISTRATION_EMAIL_DOMAINS = new Set([
@@ -64,9 +69,14 @@ export function mapCurrentUserProfile(row: Record<string, unknown>) {
         avatar_url: row.avatar_url ?? null,
         rank_score: Number(row.rank_score ?? 0),
         monthly_rank_score: Number(row.monthly_rank_score ?? 0),
+        is_guest: Boolean(row.is_guest),
         total_songs_added: Number(row.total_songs_added ?? 0),
+        total_upvotes_received: Number(row.total_upvotes_received ?? 0),
         role: row.role,
         last_super_vote_at: row.last_super_vote_at ?? null,
+        birth_year: row.birth_year ?? null,
+        preferred_language: row.preferred_language ?? null,
+        gold_balance: Number(row.gold_balance ?? 0),
     };
 }
 
@@ -83,6 +93,9 @@ export function mapAuthSessionUser(row: Record<string, unknown>) {
         total_songs_added: Number(row.total_songs_added ?? 0),
         total_upvotes_received: Number(row.total_upvotes_received ?? 0),
         last_super_vote_at: row.last_super_vote_at ?? null,
+        birth_year: row.birth_year ?? null,
+        preferred_language: row.preferred_language ?? null,
+        gold_balance: Number(row.gold_balance ?? 0),
     };
 }
 
@@ -118,7 +131,7 @@ async function createAuthSession(userId: string, email: string, role: string) {
 
 router.post('/register', async (req: Request, res: Response) => {
     try {
-        const { email, password, display_name } = registerSchema.parse(req.body);
+        const { email, password, display_name, birth_year, preferred_language } = registerSchema.parse(req.body);
         const normalizedEmail = email.trim().toLowerCase();
         const normalizedDisplayName = normalizeDisplayNameInput(display_name);
 
@@ -139,9 +152,9 @@ router.post('/register', async (req: Request, res: Response) => {
         const hashedPassword = await bcrypt.hash(password, 10);
 
         const result = await db.query(
-            `INSERT INTO users (email, password_hash, display_name, role, last_ip, user_agent)
-             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-            [normalizedEmail, hashedPassword, normalizedDisplayName, ROLES.USER, req.ip, req.headers['user-agent']]
+            `INSERT INTO users (email, password_hash, display_name, role, last_ip, user_agent, birth_year, preferred_language)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+            [normalizedEmail, hashedPassword, normalizedDisplayName, ROLES.USER, req.ip, req.headers['user-agent'], birth_year ?? null, preferred_language ?? null]
         );
 
         const user = result.rows[0];
@@ -263,14 +276,20 @@ export async function handleCurrentUserProfileRequest(req: AuthRequest, res: Res
                     u.email,
                     u.display_name,
                     u.avatar_url,
+                    u.is_guest,
                     u.rank_score,
                     u.total_songs_added,
+                    u.total_upvotes_received,
                     u.role,
                     u.last_super_vote_at,
+                    u.birth_year,
+                    u.preferred_language,
+                    COALESCE(up.spendable_points, 0) AS gold_balance,
                     COALESCE(ums.score, 0) AS monthly_rank_score
              FROM users u
              LEFT JOIN user_monthly_rank_scores ums
                ON ums.user_id = u.id AND ums.year_month = $2
+             LEFT JOIN user_points up ON up.user_id = u.id
              WHERE u.id = $1`,
             [req.user?.id, currentYearMonth]
         );
@@ -286,6 +305,70 @@ export async function handleCurrentUserProfileRequest(req: AuthRequest, res: Res
 }
 
 router.get('/me', authMiddleware, handleCurrentUserProfileRequest);
+
+export async function handleUnifiedAccountSessionRequest(req: AuthRequest, res: Response) {
+    try {
+        const currentYearMonth = getIstanbulYearMonth(new Date());
+        const result = await db.query(
+            `SELECT u.id,
+                    u.email,
+                    u.display_name,
+                    u.avatar_url,
+                    u.is_guest,
+                    u.rank_score,
+                    u.total_songs_added,
+                    u.total_upvotes_received,
+                    u.role,
+                    u.last_super_vote_at,
+                    u.birth_year,
+                    u.preferred_language,
+                    COALESCE(ums.score, 0) AS monthly_rank_score,
+                    COALESCE(up.spendable_points, 0) AS gold_balance,
+                    COALESCE(up.lifetime_points, 0) AS lifetime_gold_earned
+             FROM users u
+             LEFT JOIN user_monthly_rank_scores ums
+               ON ums.user_id = u.id AND ums.year_month = $2
+             LEFT JOIN user_points up
+               ON up.user_id = u.id
+             WHERE u.id = $1`,
+            [req.user?.id, currentYearMonth]
+        );
+
+        const row = result.rows[0] as Record<string, unknown> | undefined;
+        if (!row) {
+            return sendError(res, 'User not found', 404);
+        }
+
+        return sendSuccess(res, {
+            user: mapCurrentUserProfile(row),
+            account: {
+                scope: 'radiotedu',
+                surfaces: {
+                    mobile: true,
+                    social: true,
+                    jukebox: true,
+                    'study-library': true,
+                    spark: false,
+                    rock: false,
+                },
+            },
+            points: {
+                gold_balance: Number(row.gold_balance ?? 0),
+                lifetime_gold_earned: Number(row.lifetime_gold_earned ?? 0),
+            },
+            endpoints: {
+                social: '/social/',
+                auth: '/api/v1/auth',
+                study: '/api/v1/study',
+                jukebox: '/api/v1/jukebox',
+            },
+        });
+    } catch (error) {
+        return sendError(res, 'Failed to fetch account session', 500);
+    }
+}
+
+router.get('/session', authMiddleware, handleUnifiedAccountSessionRequest);
 
 router.post('/upload-avatar', authMiddleware, upload.single('avatar'), async (req: AuthRequest, res: Response) => {
     try {

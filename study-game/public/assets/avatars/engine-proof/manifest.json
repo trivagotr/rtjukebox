@@ -1,0 +1,241 @@
+{
+  "schemaVersion": 2,
+  "provenance": {
+    "generator": "study-game/scripts/generate-engine-avatar-assets.mjs",
+    "license": "RadioTEDU project-owned original procedural artwork",
+    "thirdPartyArtwork": false
+  },
+  "frame": {
+    "width": 64,
+    "height": 96
+  },
+  "directions": [
+    "n",
+    "ne",
+    "e",
+    "se",
+    "s",
+    "sw",
+    "w",
+    "nw"
+  ],
+  "layers": [
+    "body",
+    "skin",
+    "hair",
+    "top",
+    "bottom",
+    "shoes",
+    "hat"
+  ],
+  "actionFrames": {
+    "idle": 1,
+    "walk": 4,
+    "sit": 1,
+    "stand": 3
+  },
+  "sheets": {
+    "body": {
+      "idle": "body-idle.png",
+      "walk": "body-walk.png",
+      "sit": "body-sit.png",
+      "stand": "body-stand.png"
+    },
+    "skin": {
+      "idle": "skin-idle.png",
+      "walk": "skin-walk.png",
+      "sit": "skin-sit.png",
+      "stand": "skin-stand.png"
+    },
+    "hair": {
+      "idle": "hair-idle.png",
+      "walk": "hair-walk.png",
+      "sit": "hair-sit.png",
+      "stand": "hair-stand.png"
+    },
+    "top": {
+      "idle": "top-idle.png",
+      "walk": "top-walk.png",
+      "sit": "top-sit.png",
+      "stand": "top-stand.png"
+    },
+    "bottom": {
+      "idle": "bottom-idle.png",
+      "walk": "bottom-walk.png",
+      "sit": "bottom-sit.png",
+      "stand": "bottom-stand.png"
+    },
+    "shoes": {
+      "idle": "shoes-idle.png",
+      "walk": "shoes-walk.png",
+      "sit": "shoes-sit.png",
+      "stand": "shoes-stand.png"
+    },
+    "hat": {
+      "idle": "hat-idle.png",
+      "walk": "hat-walk.png",
+      "sit": "hat-sit.png",
+      "stand": "hat-stand.png"
+    }
+  },
+  "sha256": {
+    "body": {
+      "idle": "cd8ed6beabef437d72ef6d60f632cb9c2066e387cc0d7952128cb76def1e028b",
+      "walk": "5950b5f86633d78252c0258c272a67c15d2be3d1063344e4c70d6045ce82ca81",
+      "sit": "f33e037b0fbbfdaee5762f0cf4c8f22b7dbabd57f7fa32ba3860555c5072967b",
+      "stand": "575d56f81b0442a6deb2ceaeae45caf11427ca9b4bd61a469acda8891da44436"
+    },
+    "skin": {
+      "idle": "814ede82ddbe841f1682e13cb0c6ebd87dc236e20361c5f430af9eef719ea892",
+      "walk": "072897834a3bdccbe640ad87afb0d7e720b5ecd03e8069cdcc937f0490bfe1c3",
+      "sit": "0a69da55a9fa8a7426bfd3a88db9d6eeefd0634fade28b322e7a3420a4d2e6c2",
+      "stand": "0cf64b11bf3beaba6ddbf836d177c65216595534bcb430e965f3930d238431bf"
+    },
+    "hair": {
+      "idle": "59fd612db3028266731d983c553379837643d12ad63d8b16c54eb74b331de30d",
+      "walk": "0a10388d673c784e89b8f3c3d078ccab851e92e8a18d8c660a6368e9f4de2689",
+      "sit": "7935eb95a157b7c38fa1b3b540ea0dc5adc2b00c59a6bb2c8b679e6e1e2b9af1",
+      "stand": "ec1e4165da5469540f126fb323403bdb0add96ada58a20be5ee5908fe14f3e74"
+    },
+    "top": {
+      "idle": "8843bfcb327965319cc1d39f9a84498af8b054c82703c32267e2319e9f088f47",
+      "walk": "96f729ee3a1529eae80f93b1d72f6f44d66ee83fa6f981f3e2546366acfb802c",
+      "sit": "c8694fc0bed646eea5a1cf3ecd419199f22a55dca761fc3dda53aa398af0c3c3",
+      "stand": "08c949348590126f52f9b7f5c30b63dd5d10cbf76fc4b7e937a1eefdb1c4a211"
+    },
+    "bottom": {
+      "idle": "29718cca389491d75bd6d7e3a90134176e1c206639a0a398cd35e33c39753ac4",
+      "walk": "8e66cd7cbfaa647378f57866c93f0452d3b2a20c2db43e7f29a5e2c7a0517a08",
+      "sit": "95881644c24729591b1f7b865720e90e03a37166a096c18c5cd6f295dc68561b",
+      "stand": "746dabbf7e07f46e7e4e6327cd135e335c8feea8e14645f02ca439b36b5b5e68"
+    },
+    "shoes": {
+      "idle": "0cfc749109794dba46ec7c75657e0705bfca73eedd8ee0d54dd98fae652df871",
+      "walk": "77a458c53072f1a550beb351e1a0fbc27d3809bd1a460ab8e1db5c35616c90ee",
+      "sit": "68fa46e78b7f62f415a0ed37c0701b38bf9d7fb1f91e8e76a69957c40a5a611c",
+      "stand": "c51d1c12ccb9dcfd42aaf5f045c2a332bf597470837ad3818b7558986ac44bdb"
+    },
+    "hat": {
+      "idle": "b82b5b27dacbbf6c07114abab9e75e11b8220d13d0a80074347346f578235318",
+      "walk": "0e7c8ef441eb3fb12eb3dfb4c3d5e19e8a2975830d18dbdf6a7b1f1e255dfda1",
+      "sit": "e3df86c6c16a68d77133112ecfc8233d6a38700a4ef031886bec49adac5635c0",
+      "stand": "e7cd87ab08597d308632616155a46ebc2c7600601c73233ffb0c71c286e281f1"
+    }
+  },
+  "wearables": {
+    "top": {
+      "radio-hoodie": {
+        "idle": "top-radio-hoodie-idle.png",
+        "walk": "top-radio-hoodie-walk.png",
+        "sit": "top-radio-hoodie-sit.png",
+        "stand": "top-radio-hoodie-stand.png"
+      },
+      "varsity-jacket": {
+        "idle": "top-varsity-jacket-idle.png",
+        "walk": "top-varsity-jacket-walk.png",
+        "sit": "top-varsity-jacket-sit.png",
+        "stand": "top-varsity-jacket-stand.png"
+      }
+    },
+    "bottom": {
+      "jeans": {
+        "idle": "bottom-jeans-idle.png",
+        "walk": "bottom-jeans-walk.png",
+        "sit": "bottom-jeans-sit.png",
+        "stand": "bottom-jeans-stand.png"
+      },
+      "black-cargos": {
+        "idle": "bottom-black-cargos-idle.png",
+        "walk": "bottom-black-cargos-walk.png",
+        "sit": "bottom-black-cargos-sit.png",
+        "stand": "bottom-black-cargos-stand.png"
+      }
+    },
+    "shoes": {
+      "sneakers": {
+        "idle": "shoes-sneakers-idle.png",
+        "walk": "shoes-sneakers-walk.png",
+        "sit": "shoes-sneakers-sit.png",
+        "stand": "shoes-sneakers-stand.png"
+      },
+      "boots": {
+        "idle": "shoes-boots-idle.png",
+        "walk": "shoes-boots-walk.png",
+        "sit": "shoes-boots-sit.png",
+        "stand": "shoes-boots-stand.png"
+      }
+    },
+    "hat": {
+      "bucket-hat": {
+        "idle": "hat-bucket-hat-idle.png",
+        "walk": "hat-bucket-hat-walk.png",
+        "sit": "hat-bucket-hat-sit.png",
+        "stand": "hat-bucket-hat-stand.png"
+      },
+      "beanie": {
+        "idle": "hat-beanie-idle.png",
+        "walk": "hat-beanie-walk.png",
+        "sit": "hat-beanie-sit.png",
+        "stand": "hat-beanie-stand.png"
+      }
+    }
+  },
+  "wearableSha256": {
+    "top": {
+      "radio-hoodie": {
+        "idle": "8843bfcb327965319cc1d39f9a84498af8b054c82703c32267e2319e9f088f47",
+        "walk": "96f729ee3a1529eae80f93b1d72f6f44d66ee83fa6f981f3e2546366acfb802c",
+        "sit": "c8694fc0bed646eea5a1cf3ecd419199f22a55dca761fc3dda53aa398af0c3c3",
+        "stand": "08c949348590126f52f9b7f5c30b63dd5d10cbf76fc4b7e937a1eefdb1c4a211"
+      },
+      "varsity-jacket": {
+        "idle": "5bafc8ebd213d49fb0f3f233cfa0100591c4049469a85deea1496c1770f6da26",
+        "walk": "b0f4c3bcc7f23f63ec6f68cb4fbc14e18cbced323077cf7016aeb2690277bb7a",
+        "sit": "340d58cb1d95b948aeebea74adb014f93a839b4ff7fc6e70cd8912b1c9f7bb2d",
+        "stand": "5dc4db4a6a671bde1fa8a351260ecadd44a80db43fd56ffff003a17ff014b176"
+      }
+    },
+    "bottom": {
+      "jeans": {
+        "idle": "29718cca389491d75bd6d7e3a90134176e1c206639a0a398cd35e33c39753ac4",
+        "walk": "8e66cd7cbfaa647378f57866c93f0452d3b2a20c2db43e7f29a5e2c7a0517a08",
+        "sit": "95881644c24729591b1f7b865720e90e03a37166a096c18c5cd6f295dc68561b",
+        "stand": "746dabbf7e07f46e7e4e6327cd135e335c8feea8e14645f02ca439b36b5b5e68"
+      },
+      "black-cargos": {
+        "idle": "cce0b206e6a671167334ad665f22c3d8b48c5bf2b2deef96f630286a999b4f1d",
+        "walk": "0b4c264f233812a830417e768befda9d8e59ba42d1a3af7efe4156746432ce0a",
+        "sit": "5c407c3d72d358121a0fa7b8075f0f4da037efc63cf8ba6e6f97337d1b1af7d4",
+        "stand": "744199e29d424a91d19f15a1840be84ceab12f9615d13f970aba3468aaeb5f24"
+      }
+    },
+    "shoes": {
+      "sneakers": {
+        "idle": "0cfc749109794dba46ec7c75657e0705bfca73eedd8ee0d54dd98fae652df871",
+        "walk": "77a458c53072f1a550beb351e1a0fbc27d3809bd1a460ab8e1db5c35616c90ee",
+        "sit": "68fa46e78b7f62f415a0ed37c0701b38bf9d7fb1f91e8e76a69957c40a5a611c",
+        "stand": "c51d1c12ccb9dcfd42aaf5f045c2a332bf597470837ad3818b7558986ac44bdb"
+      },
+      "boots": {
+        "idle": "9eb53707f1ded89e210f459fd745870c88c679701e7c968302dfe80ea78cd2cb",
+        "walk": "a8bbb6241373ded9f52c26034cbe172dfb247aca4191f67a3b778aabcead9e99",
+        "sit": "42db03f7b92a2b2970ad9b0bf2ba30c2cbc28c1e6d6f04178bbb6a9e93bf9ab1",
+        "stand": "7811a836dedbca3746d69faee36f4672d85fec988dc1dee2ec6b15102591e3aa"
+      }
+    },
+    "hat": {
+      "bucket-hat": {
+        "idle": "b82b5b27dacbbf6c07114abab9e75e11b8220d13d0a80074347346f578235318",
+        "walk": "0e7c8ef441eb3fb12eb3dfb4c3d5e19e8a2975830d18dbdf6a7b1f1e255dfda1",
+        "sit": "e3df86c6c16a68d77133112ecfc8233d6a38700a4ef031886bec49adac5635c0",
+        "stand": "e7cd87ab08597d308632616155a46ebc2c7600601c73233ffb0c71c286e281f1"
+      },
+      "beanie": {
+        "idle": "f97b071df582b59aad5186cd22978fc8965f2494b77600b99fb110c3b0239d43",
+        "walk": "d6995fa14eec27b7ac5a9f244f5b14b973bb57d5c31d1c12d8786dcf7a86e23d",
+        "sit": "5eea1dc93b09e38d3f6a145a45b7bf6579444acb4cffc52f83a7220d5c0b197a",
+        "stand": "46f7f9b0c9f41dde3e0ccabd471b696e9a91cd67b4f72548a0f22fa19bdcefed"
+      }
+    }
+  }
+}

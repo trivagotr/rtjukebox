@@ -4,7 +4,13 @@
     "radio": "Yayın",
     "podcasts": "Podcastler",
     "jukebox": "Jukebox",
-    "leaderboard": "Sıralama"
+    "leaderboard": "Sıralama",
+    "study": "Çalış"
+  },
+  "onboarding": {
+    "birthYear": "Doğum yılı",
+    "birthYearInvalid": "Geçerli bir doğum yılı girin.",
+    "errorTitle": "Bilgilerinizi kontrol edin"
   },
   "common": {
     "play": "Oynat",

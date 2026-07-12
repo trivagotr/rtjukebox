@@ -4,7 +4,13 @@
     "radio": "Radio",
     "podcasts": "Podcasts",
     "jukebox": "Jukebox",
-    "leaderboard": "Ranglijst"
+    "leaderboard": "Ranglijst",
+    "study": "Studie"
+  },
+  "onboarding": {
+    "birthYear": "Geboortejaar",
+    "birthYearInvalid": "Vul een geldig geboortejaar in.",
+    "errorTitle": "Controleer je gegevens"
   },
   "common": {
     "play": "Afspelen",

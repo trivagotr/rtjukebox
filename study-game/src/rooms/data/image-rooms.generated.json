@@ -1,0 +1,3251 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "authorization": "User supplied these exact two room images for RadioTEDU Study on 2026-07-10.",
+    "navigationSource": "Preserved project-authored prototype semantic maps; renderer/runtime code is not reused."
+  },
+  "rooms": {
+    "library": {
+      "id": "library",
+      "title": "Library",
+      "spawnNodeId": "bottom-center-aisle",
+      "nodes": [
+        {
+          "id": "entrance",
+          "x": 45,
+          "y": 92,
+          "z": 0
+        },
+        {
+          "id": "stair-bottom",
+          "x": 42,
+          "y": 84,
+          "z": 0
+        },
+        {
+          "id": "stair-top",
+          "x": 39,
+          "y": 77,
+          "z": 0
+        },
+        {
+          "id": "bottom-left-aisle",
+          "x": 28,
+          "y": 78,
+          "z": 0
+        },
+        {
+          "id": "bottom-center-aisle",
+          "x": 46,
+          "y": 75,
+          "z": 0
+        },
+        {
+          "id": "bottom-right-aisle",
+          "x": 66,
+          "y": 77,
+          "z": 0
+        },
+        {
+          "id": "left-lower-turn",
+          "x": 12,
+          "y": 72,
+          "z": 0
+        },
+        {
+          "id": "lower-left-aisle",
+          "x": 23,
+          "y": 65,
+          "z": 0
+        },
+        {
+          "id": "lower-center-aisle",
+          "x": 47,
+          "y": 73,
+          "z": 0
+        },
+        {
+          "id": "lower-right-aisle",
+          "x": 74,
+          "y": 74,
+          "z": 0
+        },
+        {
+          "id": "middle-left-aisle",
+          "x": 21,
+          "y": 56,
+          "z": 0
+        },
+        {
+          "id": "middle-open-aisle",
+          "x": 18,
+          "y": 57,
+          "z": 0
+        },
+        {
+          "id": "middle-center-aisle",
+          "x": 49,
+          "y": 44,
+          "z": 0
+        },
+        {
+          "id": "middle-right-aisle",
+          "x": 66,
+          "y": 54,
+          "z": 0
+        },
+        {
+          "id": "upper-left-aisle",
+          "x": 31,
+          "y": 39,
+          "z": 0
+        },
+        {
+          "id": "upper-center-aisle",
+          "x": 54,
+          "y": 43,
+          "z": 0
+        },
+        {
+          "id": "upper-right-aisle",
+          "x": 76,
+          "y": 40,
+          "z": 0
+        },
+        {
+          "id": "lounge",
+          "x": 81,
+          "y": 34,
+          "z": 0
+        },
+        {
+          "id": "right-lounge",
+          "x": 82,
+          "y": 45,
+          "z": 0
+        },
+        {
+          "id": "right-lower-lounge",
+          "x": 82,
+          "y": 57,
+          "z": 0
+        },
+        {
+          "id": "right-spine-lower",
+          "x": 89,
+          "y": 73,
+          "z": 0
+        },
+        {
+          "id": "right-spine-mid",
+          "x": 95.5,
+          "y": 63.25,
+          "z": 0
+        },
+        {
+          "id": "right-spine-upper",
+          "x": 89,
+          "y": 56.75,
+          "z": 0
+        },
+        {
+          "id": "right-upper-link",
+          "x": 79.25,
+          "y": 50.25,
+          "z": 0
+        },
+        {
+          "id": "right-lounge-link",
+          "x": 82.5,
+          "y": 53.5,
+          "z": 0
+        },
+        {
+          "id": "right-mid-link-a",
+          "x": 69.5,
+          "y": 50.25,
+          "z": 0
+        },
+        {
+          "id": "right-mid-link-b",
+          "x": 66.25,
+          "y": 50.25,
+          "z": 0
+        },
+        {
+          "id": "right-mid-link-c",
+          "x": 63,
+          "y": 53.5,
+          "z": 0
+        },
+        {
+          "id": "seat-front-left-stand",
+          "x": 42,
+          "y": 37.4,
+          "z": 0
+        },
+        {
+          "id": "seat-front-desk-stand",
+          "x": 55,
+          "y": 45.2,
+          "z": 0
+        },
+        {
+          "id": "seat-front-right-stand",
+          "x": 67,
+          "y": 45.7,
+          "z": 0
+        },
+        {
+          "id": "seat-lamp-left-stand",
+          "x": 26,
+          "y": 53.2,
+          "z": 0
+        },
+        {
+          "id": "seat-lamp-desk-stand",
+          "x": 31,
+          "y": 44.4,
+          "z": 0
+        },
+        {
+          "id": "seat-lamp-right-stand",
+          "x": 45,
+          "y": 56.8,
+          "z": 0
+        },
+        {
+          "id": "seat-middle-left-stand",
+          "x": 52,
+          "y": 70.4,
+          "z": 0
+        },
+        {
+          "id": "seat-middle-row-stand",
+          "x": 60,
+          "y": 74.2,
+          "z": 0
+        },
+        {
+          "id": "seat-middle-right-stand",
+          "x": 69,
+          "y": 74.6,
+          "z": 0
+        },
+        {
+          "id": "seat-lower-left-stand",
+          "x": 33,
+          "y": 75,
+          "z": 0
+        },
+        {
+          "id": "seat-lower-row-stand",
+          "x": 43,
+          "y": 78.2,
+          "z": 0
+        },
+        {
+          "id": "seat-lower-right-stand",
+          "x": 55,
+          "y": 80.4,
+          "z": 0
+        },
+        {
+          "id": "approach:front-left",
+          "x": 42,
+          "y": 37.4,
+          "z": 0
+        },
+        {
+          "id": "approach:front-desk",
+          "x": 55,
+          "y": 45.2,
+          "z": 0
+        },
+        {
+          "id": "approach:front-right",
+          "x": 67,
+          "y": 45.7,
+          "z": 0
+        },
+        {
+          "id": "approach:lamp-left",
+          "x": 26,
+          "y": 53.2,
+          "z": 0
+        },
+        {
+          "id": "approach:lamp-desk",
+          "x": 31,
+          "y": 44.4,
+          "z": 0
+        },
+        {
+          "id": "approach:lamp-right",
+          "x": 45,
+          "y": 56.8,
+          "z": 0
+        },
+        {
+          "id": "approach:middle-left",
+          "x": 52,
+          "y": 70.4,
+          "z": 0
+        },
+        {
+          "id": "approach:middle-row",
+          "x": 60,
+          "y": 74.2,
+          "z": 0
+        },
+        {
+          "id": "approach:middle-right",
+          "x": 69,
+          "y": 74.6,
+          "z": 0
+        },
+        {
+          "id": "approach:lower-left",
+          "x": 33,
+          "y": 75,
+          "z": 0
+        },
+        {
+          "id": "approach:lower-row",
+          "x": 43,
+          "y": 78.2,
+          "z": 0
+        },
+        {
+          "id": "approach:lower-right",
+          "x": 55,
+          "y": 80.4,
+          "z": 0
+        },
+        {
+          "id": "approach:upper-back-left",
+          "x": 54,
+          "y": 39,
+          "z": 0
+        },
+        {
+          "id": "approach:upper-back-mid",
+          "x": 54,
+          "y": 39,
+          "z": 0
+        },
+        {
+          "id": "approach:upper-back-right",
+          "x": 67,
+          "y": 45.7,
+          "z": 0
+        },
+        {
+          "id": "approach:upper-near-left",
+          "x": 42,
+          "y": 37.4,
+          "z": 0
+        },
+        {
+          "id": "approach:upper-near-mid",
+          "x": 55,
+          "y": 45.2,
+          "z": 0
+        },
+        {
+          "id": "approach:upper-near-right",
+          "x": 67,
+          "y": 45.7,
+          "z": 0
+        },
+        {
+          "id": "approach:middle-back-left",
+          "x": 31,
+          "y": 44.4,
+          "z": 0
+        },
+        {
+          "id": "approach:middle-back-mid-left",
+          "x": 31,
+          "y": 44.4,
+          "z": 0
+        },
+        {
+          "id": "approach:middle-back-mid-right",
+          "x": 45,
+          "y": 53,
+          "z": 0
+        },
+        {
+          "id": "approach:middle-back-right",
+          "x": 45,
+          "y": 53,
+          "z": 0
+        },
+        {
+          "id": "approach:middle-front-left-edge",
+          "x": 22,
+          "y": 51,
+          "z": 0
+        },
+        {
+          "id": "approach:middle-front-left",
+          "x": 26,
+          "y": 53.2,
+          "z": 0
+        },
+        {
+          "id": "approach:middle-front-mid",
+          "x": 26,
+          "y": 53.2,
+          "z": 0
+        },
+        {
+          "id": "approach:middle-front-right",
+          "x": 45,
+          "y": 56.8,
+          "z": 0
+        },
+        {
+          "id": "approach:middle-front-far-right",
+          "x": 45,
+          "y": 56.8,
+          "z": 0
+        },
+        {
+          "id": "approach:left-lower-back-left",
+          "x": 22,
+          "y": 51,
+          "z": 0
+        },
+        {
+          "id": "approach:left-lower-back-mid",
+          "x": 22,
+          "y": 51,
+          "z": 0
+        },
+        {
+          "id": "approach:left-lower-back-right",
+          "x": 23,
+          "y": 65,
+          "z": 0
+        },
+        {
+          "id": "approach:left-lower-front-left",
+          "x": 12,
+          "y": 72,
+          "z": 0
+        },
+        {
+          "id": "approach:left-lower-front-mid",
+          "x": 23,
+          "y": 65,
+          "z": 0
+        },
+        {
+          "id": "approach:left-lower-front-right",
+          "x": 28,
+          "y": 78,
+          "z": 0
+        },
+        {
+          "id": "approach:left-edge-back",
+          "x": 12,
+          "y": 72,
+          "z": 0
+        },
+        {
+          "id": "approach:left-edge-front",
+          "x": 12,
+          "y": 72,
+          "z": 0
+        },
+        {
+          "id": "approach:right-mid-back-left",
+          "x": 71,
+          "y": 66,
+          "z": 0
+        },
+        {
+          "id": "approach:right-mid-back-mid",
+          "x": 71,
+          "y": 66,
+          "z": 0
+        },
+        {
+          "id": "approach:right-mid-back-right",
+          "x": 82,
+          "y": 58,
+          "z": 0
+        },
+        {
+          "id": "approach:right-mid-front-left",
+          "x": 66,
+          "y": 72,
+          "z": 0
+        },
+        {
+          "id": "approach:right-mid-front-mid",
+          "x": 66,
+          "y": 72,
+          "z": 0
+        },
+        {
+          "id": "approach:right-mid-front-right",
+          "x": 66,
+          "y": 72,
+          "z": 0
+        },
+        {
+          "id": "approach:bottom-back-left",
+          "x": 43,
+          "y": 78.2,
+          "z": 0
+        },
+        {
+          "id": "approach:bottom-back-mid-left",
+          "x": 43,
+          "y": 78.2,
+          "z": 0
+        },
+        {
+          "id": "approach:bottom-back-mid-right",
+          "x": 55,
+          "y": 80.4,
+          "z": 0
+        },
+        {
+          "id": "approach:bottom-back-right",
+          "x": 66,
+          "y": 72,
+          "z": 0
+        },
+        {
+          "id": "approach:bottom-front-left",
+          "x": 43,
+          "y": 78.2,
+          "z": 0
+        },
+        {
+          "id": "approach:bottom-front-mid-left",
+          "x": 43,
+          "y": 78.2,
+          "z": 0
+        },
+        {
+          "id": "approach:bottom-front-mid-right",
+          "x": 55,
+          "y": 80.4,
+          "z": 0
+        },
+        {
+          "id": "approach:bottom-front-right",
+          "x": 55,
+          "y": 80.4,
+          "z": 0
+        },
+        {
+          "id": "approach:far-left-partial-back",
+          "x": 12,
+          "y": 72,
+          "z": 0
+        },
+        {
+          "id": "approach:far-left-partial-front",
+          "x": 12,
+          "y": 72,
+          "z": 0
+        }
+      ],
+      "edges": [
+        {
+          "from": "entrance",
+          "to": "stair-bottom",
+          "kind": "walk"
+        },
+        {
+          "from": "entrance",
+          "to": "right-spine-lower",
+          "kind": "walk"
+        },
+        {
+          "from": "stair-bottom",
+          "to": "stair-top",
+          "kind": "walk"
+        },
+        {
+          "from": "bottom-left-aisle",
+          "to": "stair-bottom",
+          "kind": "walk"
+        },
+        {
+          "from": "bottom-left-aisle",
+          "to": "stair-top",
+          "kind": "walk"
+        },
+        {
+          "from": "bottom-center-aisle",
+          "to": "stair-top",
+          "kind": "walk"
+        },
+        {
+          "from": "bottom-center-aisle",
+          "to": "bottom-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "bottom-left-aisle",
+          "to": "left-lower-turn",
+          "kind": "walk"
+        },
+        {
+          "from": "bottom-left-aisle",
+          "to": "seat-lower-left-stand",
+          "kind": "walk"
+        },
+        {
+          "from": "bottom-center-aisle",
+          "to": "bottom-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "bottom-center-aisle",
+          "to": "lower-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "bottom-center-aisle",
+          "to": "seat-lower-row-stand",
+          "kind": "walk"
+        },
+        {
+          "from": "bottom-right-aisle",
+          "to": "lower-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "bottom-right-aisle",
+          "to": "seat-lower-right-stand",
+          "kind": "walk"
+        },
+        {
+          "from": "left-lower-turn",
+          "to": "lower-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "lower-center-aisle",
+          "to": "lower-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "lower-left-aisle",
+          "to": "middle-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "lower-center-aisle",
+          "to": "seat-middle-left-stand",
+          "kind": "walk"
+        },
+        {
+          "from": "lower-center-aisle",
+          "to": "seat-middle-row-stand",
+          "kind": "walk"
+        },
+        {
+          "from": "lower-right-aisle",
+          "to": "seat-middle-right-stand",
+          "kind": "walk"
+        },
+        {
+          "from": "middle-left-aisle",
+          "to": "middle-open-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "middle-left-aisle",
+          "to": "seat-lamp-left-stand",
+          "kind": "walk"
+        },
+        {
+          "from": "lower-left-aisle",
+          "to": "middle-open-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "left-lower-turn",
+          "to": "middle-open-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "middle-center-aisle",
+          "to": "middle-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "middle-right-aisle",
+          "to": "right-lounge",
+          "kind": "walk"
+        },
+        {
+          "from": "middle-right-aisle",
+          "to": "upper-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "middle-right-aisle",
+          "to": "seat-lamp-right-stand",
+          "kind": "walk"
+        },
+        {
+          "from": "upper-center-aisle",
+          "to": "upper-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "seat-front-left-stand",
+          "to": "upper-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "seat-lamp-desk-stand",
+          "to": "upper-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "upper-center-aisle",
+          "to": "upper-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "seat-front-desk-stand",
+          "to": "upper-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "seat-lamp-desk-stand",
+          "to": "upper-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "lounge",
+          "to": "upper-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "seat-front-right-stand",
+          "to": "upper-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "lounge",
+          "to": "right-lounge",
+          "kind": "walk"
+        },
+        {
+          "from": "right-lounge",
+          "to": "right-lower-lounge",
+          "kind": "walk"
+        },
+        {
+          "from": "right-spine-lower",
+          "to": "right-spine-mid",
+          "kind": "walk"
+        },
+        {
+          "from": "right-spine-mid",
+          "to": "right-spine-upper",
+          "kind": "walk"
+        },
+        {
+          "from": "right-spine-mid",
+          "to": "right-upper-link",
+          "kind": "walk"
+        },
+        {
+          "from": "right-lounge-link",
+          "to": "right-spine-mid",
+          "kind": "walk"
+        },
+        {
+          "from": "right-spine-upper",
+          "to": "upper-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "right-lower-lounge",
+          "to": "right-spine-upper",
+          "kind": "walk"
+        },
+        {
+          "from": "right-mid-link-a",
+          "to": "right-spine-upper",
+          "kind": "walk"
+        },
+        {
+          "from": "right-upper-link",
+          "to": "upper-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "right-lounge",
+          "to": "right-lounge-link",
+          "kind": "walk"
+        },
+        {
+          "from": "right-mid-link-a",
+          "to": "right-mid-link-b",
+          "kind": "walk"
+        },
+        {
+          "from": "right-mid-link-b",
+          "to": "right-mid-link-c",
+          "kind": "walk"
+        },
+        {
+          "from": "middle-right-aisle",
+          "to": "right-mid-link-c",
+          "kind": "walk"
+        },
+        {
+          "from": "seat-front-left-stand",
+          "to": "upper-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "seat-front-right-stand",
+          "to": "upper-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "bottom-center-aisle",
+          "to": "seat-lower-left-stand",
+          "kind": "walk"
+        },
+        {
+          "from": "bottom-center-aisle",
+          "to": "seat-lower-right-stand",
+          "kind": "walk"
+        },
+        {
+          "from": "middle-left-aisle",
+          "to": "upper-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "lower-right-aisle",
+          "to": "right-spine-lower",
+          "kind": "walk"
+        },
+        {
+          "from": "middle-center-aisle",
+          "to": "upper-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:front-left",
+          "to": "upper-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:front-desk",
+          "to": "upper-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:front-right",
+          "to": "upper-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:lamp-left",
+          "to": "middle-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:lamp-desk",
+          "to": "upper-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:lamp-right",
+          "to": "middle-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:middle-left",
+          "to": "lower-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:middle-row",
+          "to": "lower-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:middle-right",
+          "to": "lower-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:lower-left",
+          "to": "bottom-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:lower-row",
+          "to": "bottom-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:lower-right",
+          "to": "bottom-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:upper-back-left",
+          "to": "upper-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:upper-back-mid",
+          "to": "upper-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:upper-back-right",
+          "to": "upper-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:upper-near-left",
+          "to": "upper-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:upper-near-mid",
+          "to": "upper-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:upper-near-right",
+          "to": "upper-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:middle-back-left",
+          "to": "upper-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:middle-back-mid-left",
+          "to": "upper-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:middle-back-mid-right",
+          "to": "middle-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:middle-back-right",
+          "to": "middle-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:middle-front-left-edge",
+          "to": "middle-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:middle-front-left",
+          "to": "middle-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:middle-front-mid",
+          "to": "middle-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:middle-front-right",
+          "to": "middle-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:middle-front-far-right",
+          "to": "middle-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:left-lower-back-left",
+          "to": "middle-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:left-lower-back-mid",
+          "to": "middle-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:left-lower-back-right",
+          "to": "lower-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:left-lower-front-left",
+          "to": "left-lower-turn",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:left-lower-front-mid",
+          "to": "lower-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:left-lower-front-right",
+          "to": "bottom-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:left-edge-back",
+          "to": "left-lower-turn",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:left-edge-front",
+          "to": "left-lower-turn",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:right-mid-back-left",
+          "to": "lower-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:right-mid-back-mid",
+          "to": "lower-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:right-mid-back-right",
+          "to": "right-lower-lounge",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:right-mid-front-left",
+          "to": "bottom-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:right-mid-front-mid",
+          "to": "bottom-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:right-mid-front-right",
+          "to": "bottom-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:bottom-back-left",
+          "to": "bottom-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:bottom-back-mid-left",
+          "to": "bottom-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:bottom-back-mid-right",
+          "to": "bottom-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:bottom-back-right",
+          "to": "bottom-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:bottom-front-left",
+          "to": "bottom-center-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:bottom-front-mid-left",
+          "to": "bottom-left-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:bottom-front-mid-right",
+          "to": "bottom-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:bottom-front-right",
+          "to": "bottom-right-aisle",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:far-left-partial-back",
+          "to": "left-lower-turn",
+          "kind": "walk"
+        },
+        {
+          "from": "approach:far-left-partial-front",
+          "to": "left-lower-turn",
+          "kind": "walk"
+        }
+      ],
+      "seats": [
+        {
+          "id": "front-left",
+          "label": "Upper desk",
+          "approachNodeId": "approach:front-left",
+          "sit": {
+            "x": 46.2,
+            "y": 29.5,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-front-left.png",
+            "x": 397,
+            "y": 476,
+            "width": 77,
+            "height": 86
+          }
+        },
+        {
+          "id": "front-desk",
+          "label": "Upper desk",
+          "approachNodeId": "approach:front-desk",
+          "sit": {
+            "x": 57.3,
+            "y": 40,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": [
+            {
+              "x": 54.4,
+              "y": 35.1
+            },
+            {
+              "x": 61.2,
+              "y": 35.6
+            },
+            {
+              "x": 61.4,
+              "y": 41.3
+            },
+            {
+              "x": 56.2,
+              "y": 42.7
+            },
+            {
+              "x": 54,
+              "y": 37.5
+            }
+          ],
+          "occlusion": {
+            "x1": 55.2,
+            "y1": 35.7,
+            "x2": 60.4,
+            "y2": 41.2
+          },
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-front-desk.png",
+            "x": 508,
+            "y": 586,
+            "width": 71,
+            "height": 129
+          }
+        },
+        {
+          "id": "front-right",
+          "label": "Upper desk",
+          "approachNodeId": "approach:front-right",
+          "sit": {
+            "x": 65,
+            "y": 36.8,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": {
+            "x1": 63,
+            "y1": 32.7,
+            "x2": 66.5,
+            "y2": 36.9
+          },
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-front-right.png",
+            "x": 592,
+            "y": 546,
+            "width": 35,
+            "height": 72
+          }
+        },
+        {
+          "id": "lamp-left",
+          "label": "Middle desk",
+          "approachNodeId": "approach:lamp-left",
+          "sit": {
+            "x": 26.7,
+            "y": 44.6,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": {
+            "x1": 25.3,
+            "y1": 42,
+            "x2": 28.1,
+            "y2": 44.8
+          },
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-lamp-left.png",
+            "x": 238,
+            "y": 702,
+            "width": 28,
+            "height": 49
+          }
+        },
+        {
+          "id": "lamp-desk",
+          "label": "Middle desk",
+          "approachNodeId": "approach:lamp-desk",
+          "sit": {
+            "x": 33.5,
+            "y": 40.3,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": {
+            "x1": 31.4,
+            "y1": 37.7,
+            "x2": 35.6,
+            "y2": 40.5
+          },
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-lamp-desk.png",
+            "x": 295,
+            "y": 630,
+            "width": 41,
+            "height": 49
+          }
+        },
+        {
+          "id": "lamp-right",
+          "label": "Middle desk",
+          "approachNodeId": "approach:lamp-right",
+          "sit": {
+            "x": 44.5,
+            "y": 58.7,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": {
+            "x1": 43.1,
+            "y1": 55.8,
+            "x2": 46,
+            "y2": 58.9
+          },
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-lamp-right.png",
+            "x": 405,
+            "y": 932,
+            "width": 29,
+            "height": 54
+          }
+        },
+        {
+          "id": "middle-left",
+          "label": "Lower desk",
+          "approachNodeId": "approach:middle-left",
+          "sit": {
+            "x": 42.2,
+            "y": 65.1,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": {
+            "x1": 40.1,
+            "y1": 62.4,
+            "x2": 44.3,
+            "y2": 65.3
+          },
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-middle-left.png",
+            "x": 377,
+            "y": 1043,
+            "width": 41,
+            "height": 50
+          }
+        },
+        {
+          "id": "middle-row",
+          "label": "Lower desk",
+          "approachNodeId": "approach:middle-row",
+          "sit": {
+            "x": 48.7,
+            "y": 67.2,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": {
+            "x1": 46.7,
+            "y1": 64.6,
+            "x2": 50.9,
+            "y2": 67.4
+          },
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-middle-row.png",
+            "x": 439,
+            "y": 1080,
+            "width": 41,
+            "height": 48
+          }
+        },
+        {
+          "id": "middle-right",
+          "label": "Lower desk",
+          "approachNodeId": "approach:middle-right",
+          "sit": {
+            "x": 69.2,
+            "y": 67.3,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": {
+            "x1": 67,
+            "y1": 64.6,
+            "x2": 71.4,
+            "y2": 67.5
+          },
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-middle-right.png",
+            "x": 630,
+            "y": 1080,
+            "width": 43,
+            "height": 50
+          }
+        },
+        {
+          "id": "lower-left",
+          "label": "Bottom desk",
+          "approachNodeId": "approach:lower-left",
+          "sit": {
+            "x": 35.6,
+            "y": 62.8,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": {
+            "x1": 33.8,
+            "y1": 60.3,
+            "x2": 37.5,
+            "y2": 62.9
+          },
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-lower-left.png",
+            "x": 318,
+            "y": 1008,
+            "width": 36,
+            "height": 45
+          }
+        },
+        {
+          "id": "lower-row",
+          "label": "Bottom desk",
+          "approachNodeId": "approach:lower-row",
+          "sit": {
+            "x": 55.4,
+            "y": 69.5,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": {
+            "x1": 53.2,
+            "y1": 66.8,
+            "x2": 57.5,
+            "y2": 69.7
+          },
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-lower-row.png",
+            "x": 500,
+            "y": 1116,
+            "width": 43,
+            "height": 51
+          }
+        },
+        {
+          "id": "lower-right",
+          "label": "Bottom desk",
+          "approachNodeId": "approach:lower-right",
+          "sit": {
+            "x": 62,
+            "y": 71.7,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": {
+            "x1": 60,
+            "y1": 69,
+            "x2": 64.2,
+            "y2": 71.9
+          },
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-lower-right.png",
+            "x": 564,
+            "y": 1153,
+            "width": 42,
+            "height": 51
+          }
+        },
+        {
+          "id": "upper-back-left",
+          "label": "Upper desk",
+          "approachNodeId": "approach:upper-back-left",
+          "sit": {
+            "x": 47.8,
+            "y": 25.7,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-upper-back-left.png",
+            "x": 412,
+            "y": 412,
+            "width": 77,
+            "height": 86
+          }
+        },
+        {
+          "id": "upper-back-mid",
+          "label": "Upper desk",
+          "approachNodeId": "approach:upper-back-mid",
+          "sit": {
+            "x": 54.3,
+            "y": 27.5,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-upper-back-mid.png",
+            "x": 473,
+            "y": 443,
+            "width": 77,
+            "height": 85
+          }
+        },
+        {
+          "id": "upper-back-right",
+          "label": "Upper desk",
+          "approachNodeId": "approach:upper-back-right",
+          "sit": {
+            "x": 61.2,
+            "y": 30.9,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-upper-back-right.png",
+            "x": 538,
+            "y": 499,
+            "width": 77,
+            "height": 86
+          }
+        },
+        {
+          "id": "upper-near-left",
+          "label": "Upper desk",
+          "approachNodeId": "approach:upper-near-left",
+          "sit": {
+            "x": 41.3,
+            "y": 33.1,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-upper-near-left.png",
+            "x": 350,
+            "y": 536,
+            "width": 78,
+            "height": 86
+          }
+        },
+        {
+          "id": "upper-near-mid",
+          "label": "Upper desk",
+          "approachNodeId": "approach:upper-near-mid",
+          "sit": {
+            "x": 50.7,
+            "y": 36.1,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-upper-near-mid.png",
+            "x": 439,
+            "y": 586,
+            "width": 77,
+            "height": 86
+          }
+        },
+        {
+          "id": "upper-near-right",
+          "label": "Upper desk",
+          "approachNodeId": "approach:upper-near-right",
+          "sit": {
+            "x": 72.5,
+            "y": 41,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-upper-near-right.png",
+            "x": 644,
+            "y": 668,
+            "width": 77,
+            "height": 86
+          }
+        },
+        {
+          "id": "middle-back-left",
+          "label": "Middle desk",
+          "approachNodeId": "approach:middle-back-left",
+          "sit": {
+            "x": 29.4,
+            "y": 34.1,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-middle-back-left.png",
+            "x": 239,
+            "y": 553,
+            "width": 77,
+            "height": 86
+          }
+        },
+        {
+          "id": "middle-back-mid-left",
+          "label": "Middle desk",
+          "approachNodeId": "approach:middle-back-mid-left",
+          "sit": {
+            "x": 36.3,
+            "y": 39.3,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-middle-back-mid-left.png",
+            "x": 303,
+            "y": 640,
+            "width": 78,
+            "height": 85
+          }
+        },
+        {
+          "id": "middle-back-mid-right",
+          "label": "Middle desk",
+          "approachNodeId": "approach:middle-back-mid-right",
+          "sit": {
+            "x": 43.8,
+            "y": 43.4,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-middle-back-mid-right.png",
+            "x": 374,
+            "y": 708,
+            "width": 77,
+            "height": 86
+          }
+        },
+        {
+          "id": "middle-back-right",
+          "label": "Middle desk",
+          "approachNodeId": "approach:middle-back-right",
+          "sit": {
+            "x": 51.9,
+            "y": 47.5,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-middle-back-right.png",
+            "x": 450,
+            "y": 777,
+            "width": 78,
+            "height": 86
+          }
+        },
+        {
+          "id": "middle-front-left-edge",
+          "label": "Middle desk",
+          "approachNodeId": "approach:middle-front-left-edge",
+          "sit": {
+            "x": 18.6,
+            "y": 41.1,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-middle-front-left-edge.png",
+            "x": 137,
+            "y": 670,
+            "width": 77,
+            "height": 86
+          }
+        },
+        {
+          "id": "middle-front-left",
+          "label": "Middle desk",
+          "approachNodeId": "approach:middle-front-left",
+          "sit": {
+            "x": 24.5,
+            "y": 47.8,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-middle-front-left.png",
+            "x": 192,
+            "y": 782,
+            "width": 78,
+            "height": 86
+          }
+        },
+        {
+          "id": "middle-front-mid",
+          "label": "Middle desk",
+          "approachNodeId": "approach:middle-front-mid",
+          "sit": {
+            "x": 31.2,
+            "y": 52,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-middle-front-mid.png",
+            "x": 255,
+            "y": 852,
+            "width": 78,
+            "height": 86
+          }
+        },
+        {
+          "id": "middle-front-right",
+          "label": "Middle desk",
+          "approachNodeId": "approach:middle-front-right",
+          "sit": {
+            "x": 38.2,
+            "y": 56.3,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-middle-front-right.png",
+            "x": 321,
+            "y": 924,
+            "width": 78,
+            "height": 86
+          }
+        },
+        {
+          "id": "middle-front-far-right",
+          "label": "Middle desk",
+          "approachNodeId": "approach:middle-front-far-right",
+          "sit": {
+            "x": 47.5,
+            "y": 60.2,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-middle-front-far-right.png",
+            "x": 409,
+            "y": 989,
+            "width": 77,
+            "height": 86
+          }
+        },
+        {
+          "id": "left-lower-back-left",
+          "label": "Left desk",
+          "approachNodeId": "approach:left-lower-back-left",
+          "sit": {
+            "x": 6.1,
+            "y": 42.7,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-left-lower-back-left.png",
+            "x": 19,
+            "y": 697,
+            "width": 78,
+            "height": 85
+          }
+        },
+        {
+          "id": "left-lower-back-mid",
+          "label": "Left desk",
+          "approachNodeId": "approach:left-lower-back-mid",
+          "sit": {
+            "x": 13.9,
+            "y": 49,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-left-lower-back-mid.png",
+            "x": 93,
+            "y": 802,
+            "width": 77,
+            "height": 86
+          }
+        },
+        {
+          "id": "left-lower-back-right",
+          "label": "Left desk",
+          "approachNodeId": "approach:left-lower-back-right",
+          "sit": {
+            "x": 21.2,
+            "y": 53.7,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-left-lower-back-right.png",
+            "x": 161,
+            "y": 881,
+            "width": 78,
+            "height": 85
+          }
+        },
+        {
+          "id": "left-lower-front-left",
+          "label": "Left desk",
+          "approachNodeId": "approach:left-lower-front-left",
+          "sit": {
+            "x": 6.9,
+            "y": 55.8,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-left-lower-front-left.png",
+            "x": 27,
+            "y": 916,
+            "width": 77,
+            "height": 85
+          }
+        },
+        {
+          "id": "left-lower-front-mid",
+          "label": "Left desk",
+          "approachNodeId": "approach:left-lower-front-mid",
+          "sit": {
+            "x": 15.7,
+            "y": 61.1,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-left-lower-front-mid.png",
+            "x": 110,
+            "y": 1004,
+            "width": 77,
+            "height": 86
+          }
+        },
+        {
+          "id": "left-lower-front-right",
+          "label": "Left desk",
+          "approachNodeId": "approach:left-lower-front-right",
+          "sit": {
+            "x": 24.8,
+            "y": 66.6,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-left-lower-front-right.png",
+            "x": 195,
+            "y": 1096,
+            "width": 78,
+            "height": 86
+          }
+        },
+        {
+          "id": "left-edge-back",
+          "label": "Left desk",
+          "approachNodeId": "approach:left-edge-back",
+          "sit": {
+            "x": 0.9,
+            "y": 39.8,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-left-edge-back.png",
+            "x": 0,
+            "y": 648,
+            "width": 48,
+            "height": 86
+          }
+        },
+        {
+          "id": "left-edge-front",
+          "label": "Left desk",
+          "approachNodeId": "approach:left-edge-front",
+          "sit": {
+            "x": 1.1,
+            "y": 62.2,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-left-edge-front.png",
+            "x": 0,
+            "y": 1023,
+            "width": 49,
+            "height": 85
+          }
+        },
+        {
+          "id": "right-mid-back-left",
+          "label": "Right desk",
+          "approachNodeId": "approach:right-mid-back-left",
+          "sit": {
+            "x": 62.2,
+            "y": 49.8,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-right-mid-back-left.png",
+            "x": 547,
+            "y": 815,
+            "width": 77,
+            "height": 86
+          }
+        },
+        {
+          "id": "right-mid-back-mid",
+          "label": "Right desk",
+          "approachNodeId": "approach:right-mid-back-mid",
+          "sit": {
+            "x": 67.8,
+            "y": 52.7,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-right-mid-back-mid.png",
+            "x": 600,
+            "y": 864,
+            "width": 77,
+            "height": 86
+          }
+        },
+        {
+          "id": "right-mid-back-right",
+          "label": "Right desk",
+          "approachNodeId": "approach:right-mid-back-right",
+          "sit": {
+            "x": 77.4,
+            "y": 55.8,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-right-mid-back-right.png",
+            "x": 690,
+            "y": 916,
+            "width": 77,
+            "height": 85
+          }
+        },
+        {
+          "id": "right-mid-front-left",
+          "label": "Right desk",
+          "approachNodeId": "approach:right-mid-front-left",
+          "sit": {
+            "x": 56.9,
+            "y": 61.8,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-right-mid-front-left.png",
+            "x": 497,
+            "y": 1016,
+            "width": 78,
+            "height": 86
+          }
+        },
+        {
+          "id": "right-mid-front-mid",
+          "label": "Right desk",
+          "approachNodeId": "approach:right-mid-front-mid",
+          "sit": {
+            "x": 65.8,
+            "y": 66.5,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-right-mid-front-mid.png",
+            "x": 581,
+            "y": 1095,
+            "width": 77,
+            "height": 85
+          }
+        },
+        {
+          "id": "right-mid-front-right",
+          "label": "Right desk",
+          "approachNodeId": "approach:right-mid-front-right",
+          "sit": {
+            "x": 73.8,
+            "y": 70.2,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-right-mid-front-right.png",
+            "x": 656,
+            "y": 1157,
+            "width": 78,
+            "height": 85
+          }
+        },
+        {
+          "id": "bottom-back-left",
+          "label": "Bottom desk",
+          "approachNodeId": "approach:bottom-back-left",
+          "sit": {
+            "x": 39,
+            "y": 59.7,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-bottom-back-left.png",
+            "x": 329,
+            "y": 981,
+            "width": 77,
+            "height": 86
+          }
+        },
+        {
+          "id": "bottom-back-mid-left",
+          "label": "Bottom desk",
+          "approachNodeId": "approach:bottom-back-mid-left",
+          "sit": {
+            "x": 49.9,
+            "y": 65.9,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-bottom-back-mid-left.png",
+            "x": 431,
+            "y": 1085,
+            "width": 78,
+            "height": 85
+          }
+        },
+        {
+          "id": "bottom-back-mid-right",
+          "label": "Bottom desk",
+          "approachNodeId": "approach:bottom-back-mid-right",
+          "sit": {
+            "x": 58.5,
+            "y": 70.5,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-bottom-back-mid-right.png",
+            "x": 512,
+            "y": 1162,
+            "width": 78,
+            "height": 85
+          }
+        },
+        {
+          "id": "bottom-back-right",
+          "label": "Bottom desk",
+          "approachNodeId": "approach:bottom-back-right",
+          "sit": {
+            "x": 67.4,
+            "y": 74.8,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-bottom-back-right.png",
+            "x": 596,
+            "y": 1233,
+            "width": 77,
+            "height": 86
+          }
+        },
+        {
+          "id": "bottom-front-left",
+          "label": "Bottom desk",
+          "approachNodeId": "approach:bottom-front-left",
+          "sit": {
+            "x": 35.2,
+            "y": 68.8,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-bottom-front-left.png",
+            "x": 293,
+            "y": 1133,
+            "width": 77,
+            "height": 86
+          }
+        },
+        {
+          "id": "bottom-front-mid-left",
+          "label": "Bottom desk",
+          "approachNodeId": "approach:bottom-front-mid-left",
+          "sit": {
+            "x": 44.3,
+            "y": 76,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-bottom-front-mid-left.png",
+            "x": 379,
+            "y": 1254,
+            "width": 77,
+            "height": 85
+          }
+        },
+        {
+          "id": "bottom-front-mid-right",
+          "label": "Bottom desk",
+          "approachNodeId": "approach:bottom-front-mid-right",
+          "sit": {
+            "x": 55.1,
+            "y": 82.2,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-bottom-front-mid-right.png",
+            "x": 480,
+            "y": 1357,
+            "width": 78,
+            "height": 86
+          }
+        },
+        {
+          "id": "bottom-front-right",
+          "label": "Bottom desk",
+          "approachNodeId": "approach:bottom-front-right",
+          "sit": {
+            "x": 63.9,
+            "y": 86.9,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-bottom-front-right.png",
+            "x": 563,
+            "y": 1436,
+            "width": 77,
+            "height": 85
+          }
+        },
+        {
+          "id": "far-left-partial-back",
+          "label": "Left desk",
+          "approachNodeId": "approach:far-left-partial-back",
+          "sit": {
+            "x": 0.8,
+            "y": 54.2,
+            "z": 0
+          },
+          "facing": "s",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-far-left-partial-back.png",
+            "x": 0,
+            "y": 889,
+            "width": 47,
+            "height": 86
+          }
+        },
+        {
+          "id": "far-left-partial-front",
+          "label": "Left desk",
+          "approachNodeId": "approach:far-left-partial-front",
+          "sit": {
+            "x": 6.4,
+            "y": 70.2,
+            "z": 0
+          },
+          "facing": "n",
+          "foregroundMask": null,
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/library/seat-far-left-partial-front.png",
+            "x": 22,
+            "y": 1157,
+            "width": 77,
+            "height": 85
+          }
+        }
+      ],
+      "occluders": [
+        {
+          "id": "upper-study-table",
+          "type": "desk",
+          "points": [
+            {
+              "x": 39.00106269925611,
+              "y": 29.00717703349282
+            },
+            {
+              "x": 73.00743889479277,
+              "y": 33.97129186602871
+            },
+            {
+              "x": 70.03188097768331,
+              "y": 36.004784688995215
+            },
+            {
+              "x": 38.04463336875664,
+              "y": 30.980861244019138
+            }
+          ],
+          "depthY": 36.004784688995215,
+          "asset": {
+            "url": "assets/rooms/occlusion/library/object-upper-study-table.png",
+            "x": 358,
+            "y": 484,
+            "width": 330,
+            "height": 119
+          }
+        },
+        {
+          "id": "middle-study-table",
+          "type": "desk",
+          "points": [
+            {
+              "x": 16.046758767268862,
+              "y": 43.00239234449761
+            },
+            {
+              "x": 53.028692879914985,
+              "y": 50
+            },
+            {
+              "x": 51.009564293305,
+              "y": 51.01674641148325
+            },
+            {
+              "x": 14.027630180658873,
+              "y": 44.01913875598086
+            }
+          ],
+          "depthY": 51.01674641148325,
+          "asset": {
+            "url": "assets/rooms/occlusion/library/object-middle-study-table.png",
+            "x": 132,
+            "y": 719,
+            "width": 368,
+            "height": 135
+          }
+        },
+        {
+          "id": "lower-study-table",
+          "type": "desk",
+          "points": [
+            {
+              "x": 51.965993623804465,
+              "y": 56.99760765550239
+            },
+            {
+              "x": 87.99149840595112,
+              "y": 63.995215311004785
+            },
+            {
+              "x": 85.97236981934113,
+              "y": 65.01196172248804
+            },
+            {
+              "x": 50.05313496280552,
+              "y": 59.988038277511954
+            }
+          ],
+          "depthY": 65.01196172248804,
+          "asset": {
+            "url": "assets/rooms/occlusion/library/object-lower-study-table.png",
+            "x": 471,
+            "y": 953,
+            "width": 358,
+            "height": 135
+          }
+        },
+        {
+          "id": "bottom-study-table",
+          "type": "desk",
+          "points": [
+            {
+              "x": 29.968119022316685,
+              "y": 55.980861244019145
+            },
+            {
+              "x": 65.03719447396386,
+              "y": 62.97846889952153
+            },
+            {
+              "x": 68.01275239107333,
+              "y": 68.00239234449761
+            },
+            {
+              "x": 38.04463336875664,
+              "y": 62.02153110047847
+            }
+          ],
+          "depthY": 68.00239234449761,
+          "asset": {
+            "url": "assets/rooms/occlusion/library/object-bottom-study-table.png",
+            "x": 282,
+            "y": 936,
+            "width": 360,
+            "height": 202
+          }
+        },
+        {
+          "id": "left-study-table",
+          "type": "desk",
+          "points": [
+            {
+              "x": -7.970244420828905,
+              "y": 43.00239234449761
+            },
+            {
+              "x": 7.970244420828905,
+              "y": 48.026315789473685
+            },
+            {
+              "x": 7.0138150903294365,
+              "y": 56.99760765550239
+            },
+            {
+              "x": -9.989373007438896,
+              "y": 51.01674641148325
+            }
+          ],
+          "depthY": 56.99760765550239,
+          "asset": {
+            "url": "assets/rooms/occlusion/library/object-left-study-table.png",
+            "x": 0,
+            "y": 719,
+            "width": 76,
+            "height": 235
+          }
+        },
+        {
+          "id": "lounge-furniture",
+          "type": "sofa",
+          "points": [
+            {
+              "x": 85.97236981934113,
+              "y": 29.00717703349282
+            },
+            {
+              "x": 102.01912858661,
+              "y": 34.98803827751196
+            },
+            {
+              "x": 100,
+              "y": 51.973684210526315
+            },
+            {
+              "x": 87.99149840595112,
+              "y": 47.00956937799043
+            }
+          ],
+          "depthY": 51.973684210526315,
+          "asset": {
+            "url": "assets/rooms/occlusion/library/object-lounge-furniture.png",
+            "x": 809,
+            "y": 484,
+            "width": 132,
+            "height": 386
+          }
+        },
+        {
+          "id": "bookcase-edge",
+          "type": "shelf",
+          "points": [
+            {
+              "x": -5.951115834218916,
+              "y": 29.00717703349282
+            },
+            {
+              "x": 9.989373007438896,
+              "y": 33.97129186602871
+            },
+            {
+              "x": 7.970244420828905,
+              "y": 48.026315789473685
+            },
+            {
+              "x": -7.970244420828905,
+              "y": 44.97607655502392
+            }
+          ],
+          "depthY": 48.026315789473685,
+          "asset": {
+            "url": "assets/rooms/occlusion/library/object-bookcase-edge.png",
+            "x": 0,
+            "y": 484,
+            "width": 96,
+            "height": 320
+          }
+        },
+        {
+          "id": "plant-left",
+          "type": "plant",
+          "points": [
+            {
+              "x": 5.313496280552603,
+              "y": 30.502392344497608
+            },
+            {
+              "x": 13.815090329436769,
+              "y": 31.698564593301437
+            },
+            {
+              "x": 13.815090329436769,
+              "y": 40.66985645933015
+            },
+            {
+              "x": 4.250797024442083,
+              "y": 38.875598086124405
+            }
+          ],
+          "depthY": 40.66985645933015,
+          "asset": {
+            "url": "assets/rooms/occlusion/library/object-plant-left.png",
+            "x": 40,
+            "y": 510,
+            "width": 91,
+            "height": 172
+          }
+        },
+        {
+          "id": "plant-upper",
+          "type": "plant",
+          "points": [
+            {
+              "x": 61.63655685441021,
+              "y": 16.148325358851675
+            },
+            {
+              "x": 70.66950053134963,
+              "y": 17.464114832535884
+            },
+            {
+              "x": 70.13815090329437,
+              "y": 26.913875598086122
+            },
+            {
+              "x": 60.57385759829968,
+              "y": 25.11961722488038
+            }
+          ],
+          "depthY": 26.913875598086122,
+          "asset": {
+            "url": "assets/rooms/occlusion/library/object-plant-upper.png",
+            "x": 570,
+            "y": 270,
+            "width": 96,
+            "height": 181
+          }
+        },
+        {
+          "id": "radiator-left",
+          "type": "wall-fixture",
+          "points": [
+            {
+              "x": 10.095642933049948,
+              "y": 25.11961722488038
+            },
+            {
+              "x": 14.87778958554729,
+              "y": 25.717703349282296
+            },
+            {
+              "x": 14.34643995749203,
+              "y": 33.49282296650718
+            },
+            {
+              "x": 9.564293304994687,
+              "y": 32.89473684210527
+            }
+          ],
+          "depthY": 33.49282296650718,
+          "asset": {
+            "url": "assets/rooms/occlusion/library/object-radiator-left.png",
+            "x": 90,
+            "y": 419,
+            "width": 51,
+            "height": 142
+          }
+        },
+        {
+          "id": "radiator-upper",
+          "type": "wall-fixture",
+          "points": [
+            {
+              "x": 70.66950053134963,
+              "y": 16.148325358851675
+            },
+            {
+              "x": 75.45164718384697,
+              "y": 17.045454545454543
+            },
+            {
+              "x": 74.92029755579172,
+              "y": 25.717703349282296
+            },
+            {
+              "x": 70.13815090329437,
+              "y": 24.52153110047847
+            }
+          ],
+          "depthY": 25.717703349282296,
+          "asset": {
+            "url": "assets/rooms/occlusion/library/object-radiator-upper.png",
+            "x": 660,
+            "y": 270,
+            "width": 51,
+            "height": 161
+          }
+        },
+        {
+          "id": "entry-planters",
+          "type": "plant",
+          "points": [
+            {
+              "x": 26.567481402763015,
+              "y": 81.9377990430622
+            },
+            {
+              "x": 54.19766206163656,
+              "y": 86.72248803827752
+            },
+            {
+              "x": 49.94686503719448,
+              "y": 95.99282296650718
+            },
+            {
+              "x": 22.316684378320936,
+              "y": 90.61004784688996
+            }
+          ],
+          "depthY": 95.99282296650718,
+          "asset": {
+            "url": "assets/rooms/occlusion/library/object-entry-planters.png",
+            "x": 210,
+            "y": 1370,
+            "width": 301,
+            "height": 236
+          }
+        }
+      ],
+      "actors": {},
+      "image": {
+        "url": "assets/rooms/library.png",
+        "width": 941,
+        "height": 1672,
+        "sha256": "7c4b055c9ed8c5cea91e9cc7d2ce55bf718299a2804d0d1e0dc91b7027fa3828"
+      }
+    },
+    "chim-alan": {
+      "id": "chim-alan",
+      "title": "Cim Alan",
+      "spawnNodeId": "entrance",
+      "nodes": [
+        {
+          "id": "entrance",
+          "x": 50,
+          "y": 95,
+          "z": 0
+        },
+        {
+          "id": "lower-path",
+          "x": 50,
+          "y": 85,
+          "z": 0
+        },
+        {
+          "id": "middle-path",
+          "x": 50,
+          "y": 71,
+          "z": 0
+        },
+        {
+          "id": "rock",
+          "x": 30,
+          "y": 67,
+          "z": 0
+        },
+        {
+          "id": "upper-path",
+          "x": 50,
+          "y": 58,
+          "z": 0
+        },
+        {
+          "id": "stair-0",
+          "x": 35,
+          "y": 54,
+          "z": 0
+        },
+        {
+          "id": "stair-1",
+          "x": 35,
+          "y": 48,
+          "z": 1
+        },
+        {
+          "id": "stair-2",
+          "x": 35,
+          "y": 41,
+          "z": 2
+        },
+        {
+          "id": "stair-3",
+          "x": 35,
+          "y": 34,
+          "z": 3
+        },
+        {
+          "id": "stair-4",
+          "x": 35,
+          "y": 27,
+          "z": 3
+        },
+        {
+          "id": "courtyard",
+          "x": 47,
+          "y": 23,
+          "z": 3
+        },
+        {
+          "id": "spark",
+          "x": 57,
+          "y": 20,
+          "z": 3
+        },
+        {
+          "id": "row-1-left",
+          "x": 48,
+          "y": 48,
+          "z": 1
+        },
+        {
+          "id": "row-1-mid",
+          "x": 63,
+          "y": 47,
+          "z": 1
+        },
+        {
+          "id": "row-1-right",
+          "x": 77,
+          "y": 46,
+          "z": 1
+        },
+        {
+          "id": "row-2-left",
+          "x": 48,
+          "y": 41,
+          "z": 2
+        },
+        {
+          "id": "row-2-mid",
+          "x": 63,
+          "y": 40,
+          "z": 2
+        },
+        {
+          "id": "row-2-right",
+          "x": 77,
+          "y": 39,
+          "z": 2
+        },
+        {
+          "id": "row-3-left",
+          "x": 49,
+          "y": 34,
+          "z": 3
+        },
+        {
+          "id": "row-3-mid",
+          "x": 64,
+          "y": 33,
+          "z": 3
+        },
+        {
+          "id": "row-3-right",
+          "x": 78,
+          "y": 32,
+          "z": 3
+        }
+      ],
+      "edges": [
+        {
+          "from": "entrance",
+          "to": "lower-path",
+          "kind": "walk"
+        },
+        {
+          "from": "lower-path",
+          "to": "middle-path",
+          "kind": "walk"
+        },
+        {
+          "from": "middle-path",
+          "to": "upper-path",
+          "kind": "walk"
+        },
+        {
+          "from": "middle-path",
+          "to": "rock",
+          "kind": "walk"
+        },
+        {
+          "from": "upper-path",
+          "to": "stair-0",
+          "kind": "walk"
+        },
+        {
+          "from": "stair-0",
+          "to": "stair-1",
+          "kind": "stair"
+        },
+        {
+          "from": "stair-1",
+          "to": "stair-2",
+          "kind": "stair"
+        },
+        {
+          "from": "stair-2",
+          "to": "stair-3",
+          "kind": "stair"
+        },
+        {
+          "from": "stair-3",
+          "to": "stair-4",
+          "kind": "walk"
+        },
+        {
+          "from": "stair-4",
+          "to": "courtyard",
+          "kind": "walk"
+        },
+        {
+          "from": "courtyard",
+          "to": "spark",
+          "kind": "walk"
+        },
+        {
+          "from": "stair-1",
+          "to": "row-1-left",
+          "kind": "walk"
+        },
+        {
+          "from": "row-1-left",
+          "to": "row-1-mid",
+          "kind": "walk"
+        },
+        {
+          "from": "row-1-mid",
+          "to": "row-1-right",
+          "kind": "walk"
+        },
+        {
+          "from": "stair-2",
+          "to": "row-2-left",
+          "kind": "walk"
+        },
+        {
+          "from": "row-2-left",
+          "to": "row-2-mid",
+          "kind": "walk"
+        },
+        {
+          "from": "row-2-mid",
+          "to": "row-2-right",
+          "kind": "walk"
+        },
+        {
+          "from": "stair-3",
+          "to": "row-3-left",
+          "kind": "walk"
+        },
+        {
+          "from": "row-3-left",
+          "to": "row-3-mid",
+          "kind": "walk"
+        },
+        {
+          "from": "row-3-mid",
+          "to": "row-3-right",
+          "kind": "walk"
+        }
+      ],
+      "seats": [
+        {
+          "id": "amfi-a1",
+          "label": "Amphitheatre row 1",
+          "approachNodeId": "row-1-left",
+          "sit": {
+            "x": 48,
+            "y": 47.3,
+            "z": 1
+          },
+          "facing": "s",
+          "foregroundMask": [
+            {
+              "x": 43,
+              "y": 47.8
+            },
+            {
+              "x": 53,
+              "y": 47.8
+            },
+            {
+              "x": 53,
+              "y": 50.2
+            },
+            {
+              "x": 43,
+              "y": 50.2
+            }
+          ],
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/chim-alan/seat-amfi-a1.png",
+            "x": 404,
+            "y": 799,
+            "width": 96,
+            "height": 42
+          }
+        },
+        {
+          "id": "amfi-a2",
+          "label": "Amphitheatre row 1",
+          "approachNodeId": "row-1-mid",
+          "sit": {
+            "x": 63,
+            "y": 46.3,
+            "z": 1
+          },
+          "facing": "s",
+          "foregroundMask": [
+            {
+              "x": 58,
+              "y": 46.8
+            },
+            {
+              "x": 68,
+              "y": 46.8
+            },
+            {
+              "x": 68,
+              "y": 49.2
+            },
+            {
+              "x": 58,
+              "y": 49.2
+            }
+          ],
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/chim-alan/seat-amfi-a2.png",
+            "x": 545,
+            "y": 782,
+            "width": 96,
+            "height": 42
+          }
+        },
+        {
+          "id": "amfi-a3",
+          "label": "Amphitheatre row 1",
+          "approachNodeId": "row-1-right",
+          "sit": {
+            "x": 77,
+            "y": 45.3,
+            "z": 1
+          },
+          "facing": "s",
+          "foregroundMask": [
+            {
+              "x": 72,
+              "y": 45.8
+            },
+            {
+              "x": 82,
+              "y": 45.8
+            },
+            {
+              "x": 82,
+              "y": 48.2
+            },
+            {
+              "x": 72,
+              "y": 48.2
+            }
+          ],
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/chim-alan/seat-amfi-a3.png",
+            "x": 677,
+            "y": 765,
+            "width": 96,
+            "height": 42
+          }
+        },
+        {
+          "id": "amfi-b1",
+          "label": "Amphitheatre row 2",
+          "approachNodeId": "row-2-left",
+          "sit": {
+            "x": 48,
+            "y": 40.3,
+            "z": 2
+          },
+          "facing": "s",
+          "foregroundMask": [
+            {
+              "x": 43,
+              "y": 40.8
+            },
+            {
+              "x": 53,
+              "y": 40.8
+            },
+            {
+              "x": 53,
+              "y": 43.2
+            },
+            {
+              "x": 43,
+              "y": 43.2
+            }
+          ],
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/chim-alan/seat-amfi-b1.png",
+            "x": 404,
+            "y": 682,
+            "width": 96,
+            "height": 42
+          }
+        },
+        {
+          "id": "amfi-b2",
+          "label": "Amphitheatre row 2",
+          "approachNodeId": "row-2-mid",
+          "sit": {
+            "x": 63,
+            "y": 39.3,
+            "z": 2
+          },
+          "facing": "s",
+          "foregroundMask": [
+            {
+              "x": 58,
+              "y": 39.8
+            },
+            {
+              "x": 68,
+              "y": 39.8
+            },
+            {
+              "x": 68,
+              "y": 42.2
+            },
+            {
+              "x": 58,
+              "y": 42.2
+            }
+          ],
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/chim-alan/seat-amfi-b2.png",
+            "x": 545,
+            "y": 665,
+            "width": 96,
+            "height": 42
+          }
+        },
+        {
+          "id": "amfi-b3",
+          "label": "Amphitheatre row 2",
+          "approachNodeId": "row-2-right",
+          "sit": {
+            "x": 77,
+            "y": 38.3,
+            "z": 2
+          },
+          "facing": "s",
+          "foregroundMask": [
+            {
+              "x": 72,
+              "y": 38.8
+            },
+            {
+              "x": 82,
+              "y": 38.8
+            },
+            {
+              "x": 82,
+              "y": 41.2
+            },
+            {
+              "x": 72,
+              "y": 41.2
+            }
+          ],
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/chim-alan/seat-amfi-b3.png",
+            "x": 677,
+            "y": 648,
+            "width": 96,
+            "height": 42
+          }
+        },
+        {
+          "id": "amfi-c1",
+          "label": "Amphitheatre row 3",
+          "approachNodeId": "row-3-left",
+          "sit": {
+            "x": 49,
+            "y": 33.3,
+            "z": 3
+          },
+          "facing": "s",
+          "foregroundMask": [
+            {
+              "x": 44,
+              "y": 33.8
+            },
+            {
+              "x": 54,
+              "y": 33.8
+            },
+            {
+              "x": 54,
+              "y": 36.2
+            },
+            {
+              "x": 44,
+              "y": 36.2
+            }
+          ],
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/chim-alan/seat-amfi-c1.png",
+            "x": 414,
+            "y": 565,
+            "width": 96,
+            "height": 42
+          }
+        },
+        {
+          "id": "amfi-c2",
+          "label": "Amphitheatre row 3",
+          "approachNodeId": "row-3-mid",
+          "sit": {
+            "x": 64,
+            "y": 32.3,
+            "z": 3
+          },
+          "facing": "s",
+          "foregroundMask": [
+            {
+              "x": 59,
+              "y": 32.8
+            },
+            {
+              "x": 69,
+              "y": 32.8
+            },
+            {
+              "x": 69,
+              "y": 35.2
+            },
+            {
+              "x": 59,
+              "y": 35.2
+            }
+          ],
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/chim-alan/seat-amfi-c2.png",
+            "x": 555,
+            "y": 548,
+            "width": 96,
+            "height": 42
+          }
+        },
+        {
+          "id": "amfi-c3",
+          "label": "Amphitheatre row 3",
+          "approachNodeId": "row-3-right",
+          "sit": {
+            "x": 78,
+            "y": 31.3,
+            "z": 3
+          },
+          "facing": "s",
+          "foregroundMask": [
+            {
+              "x": 73,
+              "y": 31.8
+            },
+            {
+              "x": 83,
+              "y": 31.8
+            },
+            {
+              "x": 83,
+              "y": 34.2
+            },
+            {
+              "x": 73,
+              "y": 34.2
+            }
+          ],
+          "occlusion": null,
+          "foregroundAsset": {
+            "url": "assets/rooms/occlusion/chim-alan/seat-amfi-c3.png",
+            "x": 686,
+            "y": 531,
+            "width": 97,
+            "height": 42
+          }
+        }
+      ],
+      "occluders": [
+        {
+          "id": "amphi-row-front-1",
+          "type": "amphitheatre-front",
+          "points": [
+            {
+              "x": 34,
+              "y": 48
+            },
+            {
+              "x": 85,
+              "y": 44.5
+            },
+            {
+              "x": 85,
+              "y": 48
+            },
+            {
+              "x": 34,
+              "y": 52
+            }
+          ],
+          "depthY": 52,
+          "asset": {
+            "url": "assets/rooms/occlusion/chim-alan/object-amphi-row-front-1.png",
+            "x": 319,
+            "y": 744,
+            "width": 482,
+            "height": 127
+          }
+        },
+        {
+          "id": "amphi-row-front-2",
+          "type": "amphitheatre-front",
+          "points": [
+            {
+              "x": 34,
+              "y": 41
+            },
+            {
+              "x": 85,
+              "y": 37.5
+            },
+            {
+              "x": 85,
+              "y": 41
+            },
+            {
+              "x": 34,
+              "y": 45
+            }
+          ],
+          "depthY": 45,
+          "asset": {
+            "url": "assets/rooms/occlusion/chim-alan/object-amphi-row-front-2.png",
+            "x": 319,
+            "y": 627,
+            "width": 482,
+            "height": 127
+          }
+        },
+        {
+          "id": "amphi-row-front-3",
+          "type": "amphitheatre-front",
+          "points": [
+            {
+              "x": 34,
+              "y": 34
+            },
+            {
+              "x": 85,
+              "y": 30.5
+            },
+            {
+              "x": 85,
+              "y": 34
+            },
+            {
+              "x": 34,
+              "y": 38
+            }
+          ],
+          "depthY": 38,
+          "asset": {
+            "url": "assets/rooms/occlusion/chim-alan/object-amphi-row-front-3.png",
+            "x": 319,
+            "y": 509,
+            "width": 482,
+            "height": 128
+          }
+        }
+      ],
+      "actors": {
+        "spark": {
+          "nodeId": "spark",
+          "name": "Spark",
+          "label": "rtAI - AI Host"
+        },
+        "rock": {
+          "nodeId": "rock",
+          "name": "Rock",
+          "label": "Rock"
+        }
+      },
+      "image": {
+        "url": "assets/rooms/chim-alan.png",
+        "width": 941,
+        "height": 1672,
+        "sha256": "1ea2ffa9252ad8cb59ddc72eae6832ad742d5c97714c4cf1cd6f2626992a1718"
+      }
+    }
+  }
+}

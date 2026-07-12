@@ -5,7 +5,11 @@ import React, {
   useEffect,
   ReactNode,
 } from 'react';
-import {RADIO_CHANNELS, RadioChannel} from '../data/radioChannels';
+import {
+  buildVisibleChannels,
+  RADIO_CHANNELS,
+  RadioChannel,
+} from '../data/radioChannels';
 import {checkStreamAvailability} from '../utils/api';
 
 interface ChannelContextType {
@@ -43,7 +47,7 @@ export const ChannelProvider: React.FC<{children: ReactNode}> = ({
         ),
       ]);
 
-      const active = checks.filter(c => c.isAvailable).map(c => c.channel);
+      const active = buildVisibleChannels(checks);
       console.log(
         `[ChannelContext] Active Channels Found: ${active.length} / ${RADIO_CHANNELS.length}`,
       );

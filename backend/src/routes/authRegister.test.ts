@@ -121,6 +121,48 @@ describe('auth registration routes', () => {
     expect(payload.refresh_token).toEqual(expect.any(String));
   });
 
+  it('persists validated onboarding metadata during registration', async () => {
+    const handler = mockRouteHandlers.post['/register'];
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: 'user-2',
+            email: 'student@tedu.edu.tr',
+            display_name: 'Student',
+            birth_year: 2004,
+            preferred_language: 'tr',
+            is_guest: false,
+            rank_score: 0,
+            role: 'user',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await handler(
+      createReq({
+        email: 'student@tedu.edu.tr',
+        password: 'password123',
+        display_name: 'Student',
+        birth_year: 2004,
+        preferred_language: 'tr',
+      }),
+      {},
+    );
+
+    expect(mockDbQuery.mock.calls[1][0]).toContain('birth_year');
+    expect(mockDbQuery.mock.calls[1][0]).toContain('preferred_language');
+    expect(mockDbQuery.mock.calls[1][1]).toEqual(expect.arrayContaining([2004, 'tr']));
+    expect(mockSendSuccess.mock.calls[0][1].user).toEqual(
+      expect.objectContaining({
+        birth_year: 2004,
+        preferred_language: 'tr',
+      }),
+    );
+  });
+
   it('persists guest users with the guest role', async () => {
     const handler = mockRouteHandlers.post['/guest'];
     expect(handler).toBeTypeOf('function');
@@ -149,6 +191,97 @@ describe('auth registration routes', () => {
         id: 'guest-1',
         is_guest: true,
         role: 'guest',
+      }),
+    );
+  });
+
+  it('maps current profile responses with guest status', async () => {
+    const { mapCurrentUserProfile } = await import('./auth');
+
+    expect(
+      mapCurrentUserProfile({
+        id: 'guest-1',
+        email: 'guest_random@radiotedu.internal',
+        display_name: 'Guest Listener',
+        avatar_url: null,
+        is_guest: true,
+        rank_score: 0,
+        monthly_rank_score: 0,
+        total_songs_added: 0,
+        role: 'guest',
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        id: 'guest-1',
+        is_guest: true,
+        role: 'guest',
+      }),
+    );
+  });
+
+  it('maps the server-authoritative global point balance for app clients', async () => {
+    const { mapCurrentUserProfile } = await import('./auth');
+
+    expect(
+      mapCurrentUserProfile({
+        id: 'user-3',
+        email: 'student@tedu.edu.tr',
+        display_name: 'Student',
+        role: 'user',
+        gold_balance: 240,
+      }),
+    ).toEqual(expect.objectContaining({gold_balance: 240}));
+  });
+
+  it('exposes a unified RadioTEDU account session for embedded clients', async () => {
+    const handler = mockRouteHandlers.get['/session'];
+    expect(handler).toBeTypeOf('function');
+
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          id: 'user-1',
+          email: 'student@gmail.com',
+          display_name: 'Student',
+          avatar_url: null,
+          is_guest: false,
+          rank_score: 40,
+          monthly_rank_score: 15,
+          total_songs_added: 2,
+          total_upvotes_received: 3,
+          role: 'user',
+          gold_balance: 120,
+          lifetime_gold_earned: 200,
+          last_super_vote_at: null,
+        },
+      ],
+    });
+
+    await handler({ user: { id: 'user-1' } }, {});
+
+    expect(mockSendSuccess.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        account: expect.objectContaining({
+          scope: 'radiotedu',
+          surfaces: expect.objectContaining({
+            mobile: true,
+            social: true,
+            jukebox: true,
+            'study-library': true,
+            spark: false,
+            rock: false,
+          }),
+        }),
+        endpoints: expect.objectContaining({
+          social: '/social/',
+          auth: '/api/v1/auth',
+          study: '/api/v1/study',
+          jukebox: '/api/v1/jukebox',
+        }),
+        points: expect.objectContaining({
+          gold_balance: 120,
+          lifetime_gold_earned: 200,
+        }),
       }),
     );
   });

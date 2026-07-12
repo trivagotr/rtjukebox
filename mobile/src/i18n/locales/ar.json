@@ -4,7 +4,13 @@
     "radio": "الراديو",
     "podcasts": "البودكاست",
     "jukebox": "Jukebox",
-    "leaderboard": "الترتيب"
+    "leaderboard": "الترتيب",
+    "study": "الدراسة"
+  },
+  "onboarding": {
+    "birthYear": "سنة الميلاد",
+    "birthYearInvalid": "أدخل سنة ميلاد صحيحة.",
+    "errorTitle": "تحقق من بياناتك"
   },
   "common": {
     "play": "تشغيل",

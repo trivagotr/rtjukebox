@@ -4,7 +4,13 @@
     "radio": "Radio",
     "podcasts": "Podcasts",
     "jukebox": "Jukebox",
-    "leaderboard": "Rankings"
+    "leaderboard": "Rankings",
+    "study": "Study"
+  },
+  "onboarding": {
+    "birthYear": "Birth year",
+    "birthYearInvalid": "Enter a valid birth year.",
+    "errorTitle": "Check your details"
   },
   "common": {
     "play": "Play",

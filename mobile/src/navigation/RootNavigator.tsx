@@ -17,8 +17,6 @@ import EventsScreen from '../screens/EventsScreen';
 import GamesScreen from '../screens/GamesScreen';
 import MarketScreen from '../screens/MarketScreen';
 import SocialWebViewScreen from '../screens/social/SocialWebViewScreen';
-import StudyHomeScreen from '../screens/study/StudyHomeScreen';
-import StudyRoomScreen from '../screens/study/StudyRoomScreen';
 import AvatarClosetScreen from '../screens/study/AvatarClosetScreen';
 import LibraryStudyWebView from '../screens/study/LibraryStudyWebView';
 import SnakeScreen from '../screens/games/SnakeScreen';
@@ -118,11 +116,11 @@ function MainTabs() {
           fontWeight: 'bold',
         },
       })}>
-      <Tab.Screen name="Home" component={HomeScreen} options={{title: 'Ana Sayfa', headerShown: false}} />
-      <Tab.Screen name="Radio" component={RadioScreen} options={{title: 'Yayın', headerShown: false}} />
-      <Tab.Screen name="Podcasts" component={PodcastScreen} options={{title: 'Podcastler', headerShown: false}} />
-      <Tab.Screen name="Jukebox" component={JukeboxScreen} options={{title: 'Jukebox', headerShown: false}} />
-      <Tab.Screen name="Study" component={StudyHomeScreen} options={{title: 'Study', headerShown: false}} />
+      <Tab.Screen name="Home" component={HomeScreen} options={{title: t('tabs.home'), headerShown: false}} />
+      <Tab.Screen name="Radio" component={RadioScreen} options={{title: t('tabs.radio'), headerShown: false}} />
+      <Tab.Screen name="Podcasts" component={PodcastScreen} options={{title: t('tabs.podcasts'), headerShown: false}} />
+      <Tab.Screen name="Jukebox" component={JukeboxScreen} options={{title: t('tabs.jukebox'), headerShown: false}} />
+      <Tab.Screen name="Study" component={LibraryStudyWebView} options={{title: t('tabs.study'), headerShown: false}} />
     </Tab.Navigator>
   );
 }
@@ -141,7 +139,7 @@ function getTabLabel(t: (key: string) => string, routeName: string) {
     return t('tabs.jukebox');
   }
   if (routeName === 'Study') {
-    return 'Study';
+    return t('tabs.study');
   }
   return t('tabs.leaderboard');
 }
@@ -175,8 +173,6 @@ export function RootNavigator() {
       <Stack.Screen name="NextSongVote" component={NextSongVoteScreen} />
       <Stack.Screen name="Social" component={SocialWebViewScreen} />
       <Stack.Screen name="Leaderboard" component={LeaderboardScreen} />
-      <Stack.Screen name="LibraryStudyWeb" component={LibraryStudyWebView} />
-      <Stack.Screen name="StudyRoom" component={StudyRoomScreen} />
       <Stack.Screen name="AvatarCloset" component={AvatarClosetScreen} />
       <Stack.Screen name="SnakeGame" component={SnakeScreen} />
       <Stack.Screen name="MemoryGame" component={MemoryGameScreen} />

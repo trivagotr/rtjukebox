@@ -16,8 +16,9 @@ import {DeviceEventEmitter, NativeModules, Platform} from 'react-native';
 import TrackPlayer, {Event, State} from 'react-native-track-player';
 import i18n from '../i18n';
 import api from './api';
-import {RADIO_CHANNELS} from '../data/radioChannels';
+import {isChannelPlayable, RADIO_CHANNELS} from '../data/radioChannels';
 import {DEFAULT_STREAM_QUALITY, JUKEBOX_STREAM_URL} from './config';
+import {Analytics} from './analyticsService';
 import type {Podcast} from './podcastService';
 import {
   buildChannelTrack,
@@ -85,10 +86,10 @@ function radioItems(): CarItem[] {
   return RADIO_CHANNELS.map(c => ({
     id: c.id,
     title: c.name,
-    subtitle: c.description,
+    subtitle: isChannelPlayable(c) ? c.description : `${c.description} - yakinda`,
     artwork: channelArtwork(c),
-    playable: true,
-    url: buildChannelTrack(c, DEFAULT_STREAM_QUALITY).url,
+    playable: isChannelPlayable(c),
+    url: isChannelPlayable(c) ? buildChannelTrack(c, DEFAULT_STREAM_QUALITY).url : '',
   }));
 }
 
@@ -289,8 +290,10 @@ async function playJukeboxStream() {
     }
     await TrackPlayer.skip(idx);
     await TrackPlayer.play();
+    Analytics.carPlayback('android-auto', 'jukebox-live');
   } else {
     await playChannelById(MAIN_CHANNEL, DEFAULT_STREAM_QUALITY);
+    Analytics.carPlayback('android-auto', MAIN_CHANNEL);
   }
 }
 
@@ -301,6 +304,7 @@ async function handlePlayId(mediaId: string) {
   }
   if (mediaId.startsWith('rank:')) {
     await playChannelById(MAIN_CHANNEL, DEFAULT_STREAM_QUALITY);
+    Analytics.carPlayback('android-auto', MAIN_CHANNEL);
     return;
   }
   await ensureBrowsableQueue(DEFAULT_STREAM_QUALITY);
@@ -308,6 +312,7 @@ async function handlePlayId(mediaId: string) {
   if (!played) {
     await playChannelById(mediaId, DEFAULT_STREAM_QUALITY);
   }
+  Analytics.carPlayback('android-auto', mediaId);
 }
 
 async function handleCommand(action: string, mediaId: string | null) {
@@ -336,6 +341,7 @@ async function handleCommand(action: string, mediaId: string | null) {
       case 'search': {
         const channel = findChannelByQuery(mediaId ?? '');
         await playChannelById(channel.id, DEFAULT_STREAM_QUALITY);
+        Analytics.carPlayback('android-auto', channel.id);
         break;
       }
     }

@@ -708,9 +708,10 @@ class RadioTeduCarService : MediaBrowserServiceCompat() {
     }
 
     /**
-     * Voice search: play the first radio item whose title contains the query
-     * (case-insensitive), else the first radio item. Always plays something so
-     * "Play RadioTEDU" never dead-ends.
+     * Voice search: handle published RadioTEDU phrases first, then score radio
+     * items with normalized matching. Specific stations such as Spark/Rock beat
+     * the generic RadioTEDU brand match, so "Hey Gemini, play RadioTEDU Rock"
+     * does not fall back to the main channel once Rock is playable.
      */
     private fun playFromSearch(query: String?) {
         val radios = radioItems()
@@ -718,13 +719,76 @@ class RadioTeduCarService : MediaBrowserServiceCompat() {
             session.setPlaybackState(buildState(PlaybackStateCompat.STATE_ERROR))
             return
         }
-        val q = query?.trim()?.lowercase().orEmpty()
+        val q = normalizeSearchQuery(query)
+        val playable = allPlayableItems()
+        if (q.contains("podcast")) {
+            val latestPodcast = playable.firstOrNull { it.id.startsWith("podcast:") }
+            if (latestPodcast != null) {
+                playItem(latestPodcast)
+                return
+            }
+        }
+        if (q.contains("jukebox")) {
+            val jukebox = playable.firstOrNull { it.id.startsWith("jukebox") }
+            if (jukebox != null) {
+                playItem(jukebox)
+                return
+            }
+        }
         val match =
             if (q.isEmpty()) {
                 radios.first()
             } else {
-                radios.firstOrNull { it.title.lowercase().contains(q) } ?: radios.first()
+                radios
+                    .map { it to scoreSearchItem(it, q) }
+                    .filter { it.second > 0 }
+                    .maxByOrNull { it.second }
+                    ?.first ?: radios.first()
             }
         playItem(match)
+    }
+
+    private fun normalizeSearchQuery(value: String?): String =
+        value
+            ?.lowercase()
+            ?.replace("ı", "i")
+            ?.replace("ç", "c")
+            ?.replace("ğ", "g")
+            ?.replace("ö", "o")
+            ?.replace("ş", "s")
+            ?.replace("ü", "u")
+            ?.replace(Regex("[^a-z0-9]+"), " ")
+            ?.trim()
+            .orEmpty()
+
+    private fun scoreSearchItem(item: CatalogItem, q: String): Int {
+        val title = normalizeSearchQuery(item.title)
+        val artist = normalizeSearchQuery(item.artist)
+        val id = normalizeSearchQuery(item.id)
+        var score = 0
+
+        if (title.isNotEmpty() && q.contains(title)) {
+            score += if (item.id == "radiotedu-main") 2 else 6
+        }
+        if (artist.isNotEmpty() && q.contains(artist)) {
+            score += if (item.id == "radiotedu-main") 1 else 4
+        }
+        if (id.isNotEmpty() && q.contains(id)) {
+            score += 4
+        }
+        if (item.id == "radiotedu-spark" && q.contains("spark")) {
+            score += 8
+        }
+        if (item.id == "radiotedu-rock" && q.contains("rock")) {
+            score += 8
+        }
+        if (item.id == "radiotedu-main" && (q.contains("radiotedu") || q.contains("radio tedu") || q.contains("radyo tedu") || q.contains("rtedu"))) {
+            score += 2
+        }
+        if (item.id.startsWith("radiotedu-") && (q.contains("cal") || q.contains("oynat"))) {
+            score += 1
+        }
+
+        return score
     }
 }

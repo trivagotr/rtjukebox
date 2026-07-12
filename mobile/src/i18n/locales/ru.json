@@ -4,7 +4,13 @@
     "radio": "Радио",
     "podcasts": "Подкасты",
     "jukebox": "Jukebox",
-    "leaderboard": "Рейтинг"
+    "leaderboard": "Рейтинг",
+    "study": "Учеба"
+  },
+  "onboarding": {
+    "birthYear": "Год рождения",
+    "birthYearInvalid": "Введите корректный год рождения.",
+    "errorTitle": "Проверьте данные"
   },
   "common": {
     "play": "Воспроизвести",

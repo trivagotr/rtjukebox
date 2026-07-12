@@ -13,7 +13,9 @@ import TrackPlayer, {Track} from 'react-native-track-player';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   RADIO_CHANNELS,
+  isChannelPlayable,
   RadioChannel,
+  resolveStreamQuality,
   StreamQuality,
 } from '../data/radioChannels';
 import type {Podcast} from './podcastService';
@@ -77,22 +79,25 @@ export function channelArtwork(channel: RadioChannel): string {
   return channel.artwork || channel.logo || FALLBACK_ARTWORK;
 }
 
-function channelStreamUrl(
+export function channelStreamUrl(
   channel: RadioChannel,
   quality: StreamQuality,
 ): string {
-  return channel.streams?.[quality] || channel.streamUrl;
+  const resolvedQuality = resolveStreamQuality(channel, quality);
+  return channel.streams?.[resolvedQuality] || channel.streamUrl;
 }
 
 export function buildChannelTrack(
   channel: RadioChannel,
   quality: StreamQuality,
 ): Track {
+  const resolvedQuality = resolveStreamQuality(channel, quality);
+  const codec = channel.codecLabels?.[resolvedQuality];
   return {
     id: channel.id,
-    url: channelStreamUrl(channel, quality),
+    url: channelStreamUrl(channel, resolvedQuality),
     title: channel.name,
-    artist: channel.description,
+    artist: codec ? `${channel.description} - ${codec}` : channel.description,
     artwork: channelArtwork(channel),
     isLiveStream: true,
   };
@@ -113,7 +118,9 @@ export function buildPodcastTrack(podcast: Podcast): Track | null {
 }
 
 export function buildRadioQueue(quality: StreamQuality): Track[] {
-  return RADIO_CHANNELS.map(channel => buildChannelTrack(channel, quality));
+  return RADIO_CHANNELS
+    .filter(isChannelPlayable)
+    .map(channel => buildChannelTrack(channel, quality));
 }
 
 function buildPodcastQueue(podcasts: Podcast[]): Track[] {
@@ -148,7 +155,8 @@ export async function ensureBrowsableQueue(
   quality: StreamQuality,
 ): Promise<void> {
   const queue = await TrackPlayer.getQueue();
-  const hasAllChannels = RADIO_CHANNELS.every((channel, index) => {
+  const playableChannels = RADIO_CHANNELS.filter(isChannelPlayable);
+  const hasAllChannels = playableChannels.every((channel, index) => {
     return queue[index]?.id === channel.id;
   });
   if (!hasAllChannels) {
@@ -174,6 +182,10 @@ export async function playChannelById(
   channelId: string,
   quality: StreamQuality,
 ): Promise<void> {
+  const channel = RADIO_CHANNELS.find(item => item.id === channelId);
+  if (channel && !isChannelPlayable(channel)) {
+    return;
+  }
   await ensureBrowsableQueue(quality);
   const played = await playTrackById(channelId);
   if (!played) {
@@ -206,18 +218,50 @@ export async function replaceChannelTrack(
  * Falls back to the main channel when nothing matches so voice always plays.
  */
 export function findChannelByQuery(query: string): RadioChannel {
-  const normalized = query.trim().toLowerCase();
+  const normalized = normalizeChannelQuery(query);
   if (normalized.length > 0) {
-    const match = RADIO_CHANNELS.find(channel => {
-      const haystack =
-        `${channel.name} ${channel.description}`.toLowerCase();
-      return (
-        haystack.includes(normalized) || normalized.includes(channel.name.toLowerCase())
+    const scored = RADIO_CHANNELS.map(channel => {
+      let score = 0;
+      const name = normalizeChannelQuery(channel.name);
+      const mount = normalizeChannelQuery(channel.mountPath);
+      const description = normalizeChannelQuery(channel.description);
+      const id = normalizeChannelQuery(channel.id);
+      const haystack = normalizeChannelQuery(
+        `${channel.name} ${channel.description} ${channel.id} ${channel.mountPath}`,
       );
-    });
-    if (match) {
-      return match;
+      if (haystack.includes(normalized)) {
+        score += 1;
+      }
+      if (normalized.includes(name)) {
+        score += channel.id === 'radiotedu-main' ? 2 : 5;
+      }
+      if (mount && normalized.includes(mount)) {
+        score += 6;
+      }
+      if (description && normalized.includes(description)) {
+        score += channel.role === 'ai-host' ? 5 : 2;
+      }
+      if (normalized.includes(id)) {
+        score += 4;
+      }
+      return {channel, score};
+    })
+      .filter(item => item.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    if (scored[0]) {
+      return scored[0].channel;
     }
   }
   return RADIO_CHANNELS[0];
+}
+
+function normalizeChannelQuery(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ı/g, 'i')
+    .replace(/[^a-z0-9]+/g, ' ');
 }

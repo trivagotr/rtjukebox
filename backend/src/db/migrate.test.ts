@@ -82,6 +82,18 @@ describe('db migration helper', () => {
         expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS qr_reward_claims');
     });
 
+    it('includes Study Pomodoro session metadata in the schema', () => {
+        const schemaSql = loadSchemaSql();
+
+        expect(schemaSql).toContain('session_type VARCHAR(20) NOT NULL DEFAULT');
+        expect(schemaSql).toContain("CHECK (session_type IN ('study', 'pomodoro'))");
+        expect(schemaSql).toContain('pomodoro_target_minutes INTEGER');
+        expect(schemaSql).toContain('seat_id VARCHAR(120)');
+        expect(schemaSql).toContain('ALTER TABLE study_sessions ADD COLUMN IF NOT EXISTS session_type');
+        expect(schemaSql).toContain('ALTER TABLE study_sessions ADD COLUMN IF NOT EXISTS pomodoro_target_minutes');
+        expect(schemaSql).toContain('ALTER TABLE study_session_events ADD COLUMN IF NOT EXISTS seat_id');
+    });
+
     it('applies schema sql inside a single transaction and forces UTF-8 client encoding', async () => {
         const query = vi.fn().mockResolvedValue({ rows: [] });
 

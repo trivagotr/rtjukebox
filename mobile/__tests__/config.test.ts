@@ -9,6 +9,8 @@ describe('mobile api config', () => {
       storageApi: 'http://127.0.0.1:3000',
       socketOrigin: 'http://127.0.0.1:3000',
       socketPath: '/socket.io',
+      focusWebUrl: 'http://127.0.0.1:4177/index.html',
+      socialWebUrl: 'https://radiotedu.com/social/',
     });
   });
 
@@ -19,6 +21,8 @@ describe('mobile api config', () => {
       storageApi: 'https://radiotedu.com/jukebox',
       socketOrigin: 'https://radiotedu.com',
       socketPath: '/jukebox/socket.io',
+      focusWebUrl: 'https://radiotedu.com/focus/',
+      socialWebUrl: 'https://radiotedu.com/social/',
     });
   });
 });

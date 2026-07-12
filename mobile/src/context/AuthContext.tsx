@@ -18,13 +18,21 @@ export interface User {
     total_songs_added: number;
     total_upvotes_received: number;
     last_super_vote_at?: string | null;
+    birth_year?: number | null;
+    preferred_language?: string | null;
+    gold_balance?: number;
+}
+
+export interface RegistrationOnboarding {
+    birthYear: number;
+    preferredLanguage: string;
 }
 
 interface AuthContextType {
     user: User | null;
     isLoading: boolean;
     login: (email: string, password: string) => Promise<void>;
-    register: (email: string, password: string, displayName: string) => Promise<void>;
+    register: (email: string, password: string, displayName: string, onboarding: RegistrationOnboarding) => Promise<void>;
     guestLogin: (displayName: string) => Promise<void>;
     logout: () => Promise<void>;
     refreshSession: () => Promise<User | null>;
@@ -44,6 +52,9 @@ const normalizeUser = (user: Partial<User> & Record<string, any>): User => ({
     total_songs_added: Number(user.total_songs_added ?? 0),
     total_upvotes_received: Number(user.total_upvotes_received ?? 0),
     last_super_vote_at: user.last_super_vote_at ?? null,
+    birth_year: user.birth_year == null ? null : Number(user.birth_year),
+    preferred_language: user.preferred_language == null ? null : String(user.preferred_language),
+    gold_balance: Number(user.gold_balance ?? 0),
 });
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
@@ -106,12 +117,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
-    const register = async (email: string, password: string, displayName: string) => {
+    const register = async (email: string, password: string, displayName: string, onboarding: RegistrationOnboarding) => {
         try {
             const response = await axios.post(`${API_URL}/auth/register`, {
                 email,
                 password,
-                display_name: displayName
+                display_name: displayName,
+                birth_year: onboarding.birthYear,
+                preferred_language: onboarding.preferredLanguage
             });
             const { user: userData, access_token, refresh_token } = response.data.data;
 

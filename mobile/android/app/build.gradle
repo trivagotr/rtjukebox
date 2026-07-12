@@ -13,6 +13,30 @@ if (hasReleaseKeystore) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+def repositoryRoot = rootProject.file("../..")
+def studyGameProjectDir = new File(repositoryRoot, "study-game")
+def isWindowsHost = System.getProperty("os.name").toLowerCase().contains("windows")
+
+tasks.register("buildStudyGame", Exec) {
+    workingDir studyGameProjectDir
+    commandLine(isWindowsHost ? ["cmd", "/c", "npm run build"] : ["npm", "run", "build"])
+    inputs.files(fileTree(studyGameProjectDir) {
+        exclude "node_modules/**", "dist/**", "test-results/**"
+    })
+    outputs.dir(new File(studyGameProjectDir, "dist"))
+}
+
+tasks.register("prepareStudyGameAssets", Exec) {
+    dependsOn("buildStudyGame")
+    workingDir repositoryRoot
+    commandLine(isWindowsHost
+        ? ["cmd", "/c", "node mobile/scripts/package-study-game.mjs"]
+        : ["node", "mobile/scripts/package-study-game.mjs"])
+    inputs.dir(new File(studyGameProjectDir, "dist"))
+    inputs.file(new File(repositoryRoot, "mobile/scripts/package-study-game.mjs"))
+    outputs.dir(file("src/main/assets/study-game"))
+}
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
@@ -142,6 +166,10 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("prepareStudyGameAssets")
 }
 
 dependencies {

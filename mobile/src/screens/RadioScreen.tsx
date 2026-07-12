@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import {useNetInfo} from '@react-native-community/netinfo';
 import TrackPlayer, {
   State,
   useActiveTrack,
@@ -21,7 +22,14 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useNavigation} from '@react-navigation/native';
 import {COLORS, SPACING} from '../theme/theme';
 import api from '../services/api';
-import {RADIO_CHANNELS, RadioChannel} from '../data/radioChannels';
+import {
+  getAvailableStreamQualities,
+  isChannelPlayable,
+  RADIO_CHANNELS,
+  RadioChannel,
+  resolveStreamQuality,
+  StreamQuality,
+} from '../data/radioChannels';
 import {
   ensureBrowsableQueue,
   playTrackById,
@@ -37,11 +45,16 @@ import {
   saveFavoriteChannelIds,
   toggleFavoriteChannelId,
 } from '../services/radioFavorites';
+import {
+  mapNetInfoTypeToConnectionKind,
+  shouldShowFlacMobileDataWarning,
+} from '../services/networkQualityPolicy';
 
 const RadioScreen = () => {
   const navigation = useNavigation<any>();
   const playbackState = usePlaybackState();
   const activeTrack = useActiveTrack();
+  const netInfo = useNetInfo();
   const {metadata, clearMetadata} = useMetadata();
   const {activeChannels, isChecking} = useChannels();
   const [selectedChannel, setSelectedChannel] = useState<RadioChannel>(RADIO_CHANNELS[0]);
@@ -50,7 +63,7 @@ const RadioScreen = () => {
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
-  const [streamQuality, setStreamQuality] = useState<'low' | 'medium' | 'high'>('high');
+  const [streamQuality, setStreamQuality] = useState<StreamQuality>('high');
   const [currentVote, setCurrentVote] = useState<'up' | 'down' | null>(null);
 
   const state = playbackState?.state;
@@ -116,19 +129,24 @@ const RadioScreen = () => {
 
   const playChannel = async (
     channel: RadioChannel,
-    qualityOverride?: 'low' | 'medium' | 'high',
+    qualityOverride?: StreamQuality,
   ) => {
+    if (!isChannelPlayable(channel)) {
+      setSelectedChannel(channel);
+      return;
+    }
+    const quality = resolveStreamQuality(channel, qualityOverride || streamQuality);
     const isQualitySwitch =
       channel.id === selectedChannel.id &&
       qualityOverride &&
-      qualityOverride !== streamQuality;
+      quality !== streamQuality;
 
     setSelectedChannel(channel);
+    setStreamQuality(quality);
     if (!isQualitySwitch) {
       clearMetadata();
     }
 
-    const quality = qualityOverride || streamQuality;
     // Keep the full browsable queue intact (channels + podcasts for the car),
     // refresh just this channel's track to the requested quality, then play it.
     await ensureBrowsableQueue(quality);
@@ -139,6 +157,10 @@ const RadioScreen = () => {
 
   // Tapping a station plays it AND opens the full-screen player.
   const openChannel = (channel: RadioChannel) => {
+    if (!isChannelPlayable(channel)) {
+      setSelectedChannel(channel);
+      return;
+    }
     playChannel(channel);
     navigation.navigate('Player');
   };
@@ -171,7 +193,9 @@ const RadioScreen = () => {
 
   const cycleQuality = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    const nextQuality = streamQuality === 'high' ? 'low' : streamQuality === 'low' ? 'medium' : 'high';
+    const qualities = getAvailableStreamQualities(selectedChannel);
+    const currentIndex = qualities.indexOf(streamQuality);
+    const nextQuality = qualities[(currentIndex + 1) % qualities.length] ?? 'high';
     setStreamQuality(nextQuality);
     if (isPlaying || state === State.Buffering) {
       playChannel(selectedChannel, nextQuality);
@@ -197,6 +221,14 @@ const RadioScreen = () => {
   const displayArtist = metadata?.artist || activeTrack?.artist || selectedChannel.description;
   const displayArtwork = metadata?.artwork || activeTrack?.artwork || selectedChannel.logo || 'https://radiotedu.com/logo.png';
   const qProps = getQualityProps(streamQuality);
+  const connectionKind = mapNetInfoTypeToConnectionKind(netInfo.type);
+  const qualityWarning = shouldShowFlacMobileDataWarning(
+    selectedChannel,
+    streamQuality,
+    connectionKind,
+  )
+    ? selectedChannel.mobileDataWarning
+    : undefined;
 
   const renderHistoryItem = ({item}: {item: any}) => (
     <View style={styles.historyItem}>
@@ -240,6 +272,9 @@ const RadioScreen = () => {
               </View>
               <Text style={styles.trackTitle} numberOfLines={1}>{displayTitle}</Text>
               <Text style={styles.trackArtist} numberOfLines={1}>{displayArtist}</Text>
+              {qualityWarning ? (
+                <Text style={styles.qualityWarning} numberOfLines={2}>{qualityWarning}</Text>
+              ) : null}
             </View>
             <View style={styles.nowActions}>
               <TouchableOpacity style={styles.iconButton} onPress={openHistory}>
@@ -359,7 +394,11 @@ function FavoriteCard({
       </View>
       <Text style={styles.favoriteName} numberOfLines={1}>{channel.name}</Text>
       <Text style={styles.favoriteDesc} numberOfLines={1}>{channel.description}</Text>
-      {isPlaying ? <View style={[styles.equalizer, {backgroundColor: channel.color}]} /> : null}
+      {!isChannelPlayable(channel) ? (
+        <View style={[styles.equalizer, {backgroundColor: COLORS.textMuted}]} />
+      ) : isPlaying ? (
+        <View style={[styles.equalizer, {backgroundColor: channel.color}]} />
+      ) : null}
       <TouchableOpacity style={styles.favoriteHeart} onPress={onToggleFavorite}>
         <Icon name="heart" size={18} color={COLORS.primary} />
       </TouchableOpacity>
@@ -399,9 +438,13 @@ function ChannelGridCard({
       <Text style={styles.channelDescription} numberOfLines={1}>{channel.description}</Text>
       <View style={styles.cardBottomRow}>
         <Text style={[styles.statusText, isPlaying && {color: channel.color}]}>
-          {isPlaying ? 'Çalıyor' : 'Dinle'}
+          {!isChannelPlayable(channel) ? 'Yakında' : isPlaying ? 'Çalıyor' : 'Dinle'}
         </Text>
-        <Icon name={isPlaying ? 'volume-high' : 'play-circle-outline'} size={18} color={isPlaying ? channel.color : COLORS.textMuted} />
+        <Icon
+          name={!isChannelPlayable(channel) ? 'clock-outline' : isPlaying ? 'volume-high' : 'play-circle-outline'}
+          size={18}
+          color={isPlaying ? channel.color : COLORS.textMuted}
+        />
       </View>
     </TouchableOpacity>
   );
@@ -461,7 +504,10 @@ function HistoryModal({
   );
 }
 
-function getQualityProps(streamQuality: 'low' | 'medium' | 'high') {
+function getQualityProps(streamQuality: StreamQuality) {
+  if (streamQuality === 'flac') {
+    return {text: 'FLAC', color: '#20D6C7', borderColor: 'rgba(32, 214, 199, 0.55)', icon: 'music-note-bluetooth'};
+  }
   if (streamQuality === 'high') {
     return {text: 'HQ', color: '#FFD700', borderColor: 'rgba(255, 215, 0, 0.5)', icon: 'signal-cellular-3'};
   }
@@ -550,6 +596,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     marginTop: 2,
+  },
+  qualityWarning: {
+    color: '#FFDCA8',
+    fontSize: 10,
+    fontWeight: '800',
+    marginTop: 4,
+    lineHeight: 13,
   },
   nowActions: {
     flexDirection: 'row',

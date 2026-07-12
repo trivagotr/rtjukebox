@@ -23,6 +23,34 @@ import {getInstallId} from '../privacy/installId';
 let analyticsAllowed = false;
 let demographics: {ageRange?: string | null; gender?: string | null} = {};
 
+export type AnalyticsSignalName =
+  | 'notification_open'
+  | 'podcast_listen'
+  | 'car_playback'
+  | 'qr_claim'
+  | 'jukebox_queue'
+  | 'game_session'
+  | 'retention';
+
+type AnalyticsSignalInput = {
+  category?: string;
+  deepLink?: string;
+  contentId?: string;
+  seconds?: number;
+  source?: string;
+  mediaId?: string;
+  deviceCode?: string;
+  queuePosition?: number;
+  game?: string;
+  outcome?: string;
+  daysSinceInstall?: number;
+};
+
+export type AnalyticsSignal = {
+  name: AnalyticsSignalName;
+  params: Record<string, string | number>;
+};
+
 /** Called by the consent layer whenever consent changes. */
 export function setAnalyticsConsent(
   allowed: boolean,
@@ -63,6 +91,71 @@ async function send(
   }
 }
 
+export function buildAnalyticsSignal(name: AnalyticsSignalName, input: AnalyticsSignalInput): AnalyticsSignal {
+  switch (name) {
+    case 'notification_open':
+      return {
+        name,
+        params: {
+          ...(input.category ? {category: input.category} : {}),
+          ...(input.deepLink ? {deep_link: input.deepLink} : {}),
+        },
+      };
+    case 'podcast_listen':
+      return {
+        name,
+        params: {
+          content_id: input.contentId ?? 'unknown',
+          seconds: input.seconds ?? 0,
+          minutes: Math.round((input.seconds ?? 0) / 60),
+        },
+      };
+    case 'car_playback':
+      return {
+        name,
+        params: {
+          source: input.source ?? 'android-auto',
+          media_id: input.mediaId ?? 'unknown',
+        },
+      };
+    case 'qr_claim':
+      return {
+        name,
+        params: {
+          device_code: input.deviceCode ?? 'unknown',
+        },
+      };
+    case 'jukebox_queue':
+      return {
+        name,
+        params: {
+          device_code: input.deviceCode ?? 'unknown',
+          queue_position: input.queuePosition ?? 0,
+        },
+      };
+    case 'game_session':
+      return {
+        name,
+        params: {
+          game: input.game ?? 'unknown',
+          outcome: input.outcome ?? 'unknown',
+        },
+      };
+    case 'retention':
+      return {
+        name,
+        params: {
+          days_since_install: input.daysSinceInstall ?? 0,
+        },
+      };
+  }
+}
+
+function sendSignal(name: AnalyticsSignalName, input: AnalyticsSignalInput): Promise<void> {
+  const signal = buildAnalyticsSignal(name, input);
+  return send(signal.name, signal.params);
+}
+
 export const Analytics = {
   appOpen: () => send('app_open'),
   sessionStart: () => send('session_start'),
@@ -74,4 +167,16 @@ export const Analytics = {
       seconds,
     }),
   screenView: (screen: string) => send('screen_view', {screen_name: screen}),
+  notificationOpen: (category: string, deepLink?: string) =>
+    sendSignal('notification_open', {category, deepLink}),
+  podcastListen: (contentId: string, seconds: number) =>
+    sendSignal('podcast_listen', {contentId, seconds}),
+  carPlayback: (source: string, mediaId: string) =>
+    sendSignal('car_playback', {source, mediaId}),
+  qrClaim: (deviceCode: string) => sendSignal('qr_claim', {deviceCode}),
+  jukeboxQueue: (deviceCode: string, queuePosition: number) =>
+    sendSignal('jukebox_queue', {deviceCode, queuePosition}),
+  gameSession: (game: string, outcome: string) =>
+    sendSignal('game_session', {game, outcome}),
+  retention: (daysSinceInstall: number) => sendSignal('retention', {daysSinceInstall}),
 };

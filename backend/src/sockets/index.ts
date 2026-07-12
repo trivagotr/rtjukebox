@@ -1,9 +1,11 @@
 import { Server, Socket } from 'socket.io';
 import { reconcileStoppedSpotifyPlaybackForDevice } from '../routes/jukebox';
+import { registerSocialRoomSocketHandlers } from './socialRooms';
 
 export function setupSocketHandlers(io: Server) {
     io.on('connection', (socket: Socket) => {
         console.log(`[SOCKET] New connection: ${socket.id}`);
+        registerSocialRoomSocketHandlers(io, socket);
 
         socket.on('join_device', (deviceId: string) => {
             if (!deviceId) return;

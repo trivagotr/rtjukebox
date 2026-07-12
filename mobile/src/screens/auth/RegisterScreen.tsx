@@ -15,20 +15,30 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { COLORS, SPACING } from '../../theme/theme';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
+import {useTranslation} from 'react-i18next';
 
 const RegisterScreen = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [displayName, setDisplayName] = useState('');
+    const [birthYear, setBirthYear] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
 
     const { register } = useAuth();
     const navigation = useNavigation<any>();
+    const {t, i18n} = useTranslation();
 
     const handleRegister = async () => {
-        if (!email || !password || !displayName) {
+        if (!email || !password || !displayName || !birthYear) {
             Alert.alert('Hata', 'Lütfen tüm alanları doldurun.');
+            return;
+        }
+
+        const parsedBirthYear = Number(birthYear);
+        const currentYear = new Date().getFullYear();
+        if (!Number.isInteger(parsedBirthYear) || parsedBirthYear < 1900 || parsedBirthYear > currentYear) {
+            Alert.alert(t('onboarding.errorTitle'), t('onboarding.birthYearInvalid'));
             return;
         }
 
@@ -39,7 +49,10 @@ const RegisterScreen = () => {
 
         setIsLoading(true);
         try {
-            await register(email, password, displayName);
+            await register(email, password, displayName, {
+                birthYear: parsedBirthYear,
+                preferredLanguage: i18n.language,
+            });
             Alert.alert(
                 'Başarılı',
                 'Hesabınız oluşturuldu! Şimdi giriş yapabilirsiniz.',
@@ -93,6 +106,20 @@ const RegisterScreen = () => {
                                 onChangeText={setEmail}
                                 keyboardType="email-address"
                                 autoCapitalize="none"
+                            />
+                        </View>
+
+                        <View style={styles.inputContainer}>
+                            <Icon name="calendar-outline" size={20} color={COLORS.textMuted} style={styles.inputIcon} />
+                            <TextInput
+                                style={styles.input}
+                                placeholder={t('onboarding.birthYear')}
+                                placeholderTextColor={COLORS.textMuted}
+                                value={birthYear}
+                                onChangeText={setBirthYear}
+                                keyboardType="number-pad"
+                                maxLength={4}
+                                accessibilityLabel={t('onboarding.birthYear')}
                             />
                         </View>
 

@@ -18,17 +18,62 @@ CREATE TABLE IF NOT EXISTS users (
     total_upvotes_received INTEGER DEFAULT 0,
     total_downvotes_received INTEGER DEFAULT 0,
     last_super_vote_at TIMESTAMP,
+    birth_year SMALLINT,
+    preferred_language VARCHAR(8),
     is_banned BOOLEAN DEFAULT FALSE,
     last_ip INET,
     user_agent TEXT,
     fcm_token VARCHAR(500),
-    push_preferences JSONB DEFAULT '{"podcast": true, "radio": true, "jukebox": true}',
+    push_preferences JSONB DEFAULT '{"podcast": true, "radio": true, "jukebox": true, "events": true}',
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_users_rank ON users(rank_score DESC);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_ip INET;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS user_agent TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_super_vote_at TIMESTAMP;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS birth_year SMALLINT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(8);
+ALTER TABLE users ALTER COLUMN push_preferences SET DEFAULT '{"podcast": true, "radio": true, "jukebox": true, "events": true}'::jsonb;
+UPDATE users
+SET push_preferences = COALESCE(push_preferences, '{}'::jsonb) || '{"events": true}'::jsonb
+WHERE push_preferences IS NULL OR NOT (push_preferences ? 'events');
+
+CREATE TABLE IF NOT EXISTS next_song_vote_rounds (
+    id VARCHAR(120) PRIMARY KEY,
+    status VARCHAR(20) NOT NULL CHECK (status IN ('open', 'locked', 'resolved', 'cancelled')),
+    opened_at TIMESTAMP NOT NULL,
+    locked_at TIMESTAMP,
+    resolved_at TIMESTAMP,
+    winner_candidate_id VARCHAR(120),
+    resolution_mode VARCHAR(32),
+    source_device_id VARCHAR(120) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_next_song_vote_rounds_active ON next_song_vote_rounds(status, opened_at DESC);
+
+CREATE TABLE IF NOT EXISTS next_song_vote_candidates (
+    round_id VARCHAR(120) NOT NULL REFERENCES next_song_vote_rounds(id) ON DELETE CASCADE,
+    candidate_id VARCHAR(120) NOT NULL,
+    song_id VARCHAR(120) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    artist VARCHAR(255) NOT NULL,
+    album_art_url VARCHAR(1000),
+    PRIMARY KEY (round_id, candidate_id)
+);
+
+CREATE TABLE IF NOT EXISTS next_song_vote_ballots (
+    round_id VARCHAR(120) NOT NULL,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    candidate_id VARCHAR(120) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (round_id, user_id),
+    FOREIGN KEY (round_id, candidate_id)
+      REFERENCES next_song_vote_candidates(round_id, candidate_id) ON DELETE CASCADE
+);
 
 -- Study Sessions / Avatar Customization
 CREATE TABLE IF NOT EXISTS study_sessions (
@@ -124,9 +169,6 @@ VALUES
     ('spark-hoodie', 'top', 'Spark Hoodie', 80, 'rare', false, true),
     ('rock-pin', 'accessory', 'Rock Pin', 45, 'common', false, true)
 ON CONFLICT (item_id) DO NOTHING;
-
-ALTER TABLE users ADD COLUMN IF NOT EXISTS user_agent TEXT;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS last_super_vote_at TIMESTAMP;
 
 -- User Monthly Rank Scores Table
 CREATE TABLE IF NOT EXISTS user_monthly_rank_scores (
@@ -378,6 +420,23 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action);
+
+-- Admin Notification Audit + FCM Delivery Stats
+CREATE TABLE IF NOT EXISTS notification_audit_logs (
+    id BIGSERIAL PRIMARY KEY,
+    admin_user_id UUID REFERENCES users(id),
+    category VARCHAR(40) NOT NULL,
+    audience VARCHAR(40) NOT NULL,
+    deep_link TEXT,
+    targeted INTEGER NOT NULL DEFAULT 0,
+    sent INTEGER NOT NULL DEFAULT 0,
+    failed INTEGER NOT NULL DEFAULT 0,
+    dry_run BOOLEAN NOT NULL DEFAULT FALSE,
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_notification_audit_created ON notification_audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notification_audit_category ON notification_audit_logs(category, audience);
 
 -- Radio Schedule Table
 CREATE TABLE IF NOT EXISTS radio_schedule (

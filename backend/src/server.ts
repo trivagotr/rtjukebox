@@ -17,6 +17,8 @@ import spotifyRoutes from './routes/spotify';
 import gamificationRoutes from './routes/gamification';
 import studyRoutes from './routes/study';
 import profileRoutes from './routes/profile';
+import notificationRoutes from './routes/notifications';
+import nextSongVotingRoutes from './routes/nextSongVoting';
 import { authMiddleware } from './middleware/auth';
 import { setupSocketHandlers } from './sockets';
 import { registerUtilityRoutes } from './utilityRoutes';
@@ -119,6 +121,28 @@ registerControllerWebRoutes(app, {
     publicBasePath,
 });
 
+// Static: Focus / Study web room. This intentionally mounts only /focus and
+// does not capture the existing /jukebox controller or API paths.
+const focusWebPath = path.join(__dirname, '../../prototypes/library-study');
+mountWithOptionalPublicBase('/focus', express.static(focusWebPath, {
+    setHeaders: (res) => {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+    }
+}));
+
+// Static: Social web room. Kept separate from /focus and /jukebox so each
+// product surface can move independently.
+const socialWebPath = path.join(__dirname, '../../prototypes/library-study');
+mountWithOptionalPublicBase('/social', express.static(socialWebPath, {
+    setHeaders: (res) => {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+    }
+}));
+
 // Routes
 mountWithOptionalPublicBase('/api/v1/auth', authRoutes);
 mountWithOptionalPublicBase('/api/v1/podcasts', podcastRoutes);
@@ -136,6 +160,8 @@ mountWithOptionalPublicBase('/api/v1/spotify', spotifyRoutes);
 mountWithOptionalPublicBase('/api/v1/gamification', gamificationRoutes);
 mountWithOptionalPublicBase('/api/v1/study', studyRoutes);
 mountWithOptionalPublicBase('/api/v1/profile', profileRoutes);
+mountWithOptionalPublicBase('/api/v1/notifications', notificationRoutes);
+mountWithOptionalPublicBase('/api/v1/next-song-voting', nextSongVotingRoutes);
 
 // Health check
 registerGetWithOptionalPublicBase('/health', (req, res) => res.json({ status: 'ok' }));
