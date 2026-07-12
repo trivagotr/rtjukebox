@@ -901,8 +901,12 @@ export class SpotifyService {
     return toContentFilterTrack(this.mapSpotifyApiTrack(response.data));
   }
 
-  async getPlaylistTracks(playlistUri: string, market = 'TR', limit = 50): Promise<ContentFilterTrack[]> {
-    const token = await this.getAccessToken();
+  private async loadPlaylistTracksWithAccessToken(
+    playlistUri: string,
+    accessToken: string,
+    market = 'TR',
+    limit = 50
+  ): Promise<ContentFilterTrack[]> {
     const playlistId = playlistUri.startsWith('spotify:playlist:')
       ? playlistUri.split(':').pop()
       : playlistUri;
@@ -912,7 +916,7 @@ export class SpotifyService {
     }
 
     const response = await axios.get(`${SPOTIFY_API_URL}/playlists/${playlistId}/items`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${accessToken}` },
       params: {
         market,
         limit,
@@ -923,6 +927,21 @@ export class SpotifyService {
       .map((item: any) => item.item ?? item.track)
       .filter((track: any) => track && track.type === 'track')
       .map((track: any) => toContentFilterTrack(this.mapSpotifyApiTrack(track)));
+  }
+
+  async getPlaylistTracks(playlistUri: string, market = 'TR', limit = 50): Promise<ContentFilterTrack[]> {
+    const accessToken = await this.getAccessToken();
+    return this.loadPlaylistTracksWithAccessToken(playlistUri, accessToken, market, limit);
+  }
+
+  async getDevicePlaylistTracks(
+    deviceId: string,
+    playlistUri: string,
+    market = 'TR',
+    limit = 50
+  ): Promise<ContentFilterTrack[]> {
+    const token = await this.getKioskPlaybackToken(deviceId);
+    return this.loadPlaylistTracksWithAccessToken(playlistUri, token.accessToken, market, limit);
   }
 
   // ─── Playback Control ───

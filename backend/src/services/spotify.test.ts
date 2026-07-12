@@ -268,6 +268,67 @@ describe('SpotifyService', () => {
     ]);
   });
 
+  it('loads device autoplay playlists with the kiosk token instead of global admin auth', async () => {
+    const service = new SpotifyService();
+    const getAccessTokenSpy = vi.spyOn(service, 'getAccessToken');
+    const getKioskPlaybackTokenSpy = vi.spyOn(service, 'getKioskPlaybackToken').mockResolvedValue({
+      accessToken: 'device-playlist-token',
+      tokenExpiresAt: new Date('2026-07-12T12:00:00.000Z'),
+      scopes: 'streaming user-modify-playback-state user-read-playback-state',
+    });
+
+    mockAxiosGet.mockResolvedValue({
+      data: {
+        items: [
+          {
+            item: {
+              type: 'track',
+              id: 'device-track-1',
+              name: 'Device Playlist Song',
+              artists: [{ id: 'artist-1', name: 'Device Artist' }],
+              album: {
+                id: 'album-1',
+                name: 'Device Album',
+                images: [],
+              },
+              duration_ms: 180000,
+              uri: 'spotify:track:device-track-1',
+              preview_url: null,
+              explicit: false,
+              external_urls: { spotify: 'https://open.spotify.com/track/device-track-1' },
+            },
+          },
+        ],
+      },
+    });
+
+    const tracks = await service.getDevicePlaylistTracks(
+      'device-1',
+      'spotify:playlist:playlist-1',
+      'TR',
+      25
+    );
+
+    expect(getKioskPlaybackTokenSpy).toHaveBeenCalledWith('device-1');
+    expect(getAccessTokenSpy).not.toHaveBeenCalled();
+    expect(mockAxiosGet).toHaveBeenCalledWith(
+      'https://api.spotify.com/v1/playlists/playlist-1/items',
+      {
+        headers: { Authorization: 'Bearer device-playlist-token' },
+        params: {
+          market: 'TR',
+          limit: 25,
+        },
+      }
+    );
+    expect(tracks).toEqual([
+      expect.objectContaining({
+        spotify_uri: 'spotify:track:device-track-1',
+        title: 'Device Playlist Song',
+      }),
+    ]);
+  });
+
   it('maps playlist item payloads from the current Spotify items endpoint', async () => {
     const service = new SpotifyService();
     vi.spyOn(service, 'getAccessToken').mockResolvedValue('user-access-token');

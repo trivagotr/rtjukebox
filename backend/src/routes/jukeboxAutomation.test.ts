@@ -202,6 +202,60 @@ describe('jukebox automation runtime wiring', () => {
     });
   });
 
+  it('uses the kiosk device token for the default autoplay playlist loader', async () => {
+    const { spotifyService } = await import('../services/spotify');
+    const track = {
+      spotify_uri: 'spotify:track:device-default',
+      spotify_id: 'device-default',
+      title: 'Device Default Track',
+      artist: 'Device Artist',
+      artist_id: 'device-artist',
+      album: 'Device Album',
+      cover_url: null,
+      duration_ms: 180000,
+      explicit: false,
+    };
+    const getDevicePlaylistTracks = vi
+      .spyOn(spotifyService, 'getDevicePlaylistTracks')
+      .mockResolvedValue([track]);
+    const enqueueQueueItems = vi.fn().mockResolvedValue(undefined);
+
+    await jukeboxModule.enqueueAutoplayForDevice({
+      deviceId: 'device-1',
+      deps: {
+        loadEffectiveConfig: vi.fn().mockResolvedValue({
+          radioProfileId: 'profile-1',
+          autoplaySpotifyPlaylistUri: 'spotify:playlist:profile-default',
+          jingleEveryNSongs: 3,
+          adBreakIntervalMinutes: 30,
+          overrideEnabled: false,
+          lastAdBreakAt: null,
+        }),
+        filterTracks: vi.fn().mockResolvedValue([track]),
+        loadAutoplayStats: vi.fn().mockResolvedValue([]),
+        upsertTrack: vi.fn().mockResolvedValue('song-device-default'),
+        enqueueQueueItems,
+        loadFallbackLocalSong: vi.fn().mockResolvedValue(null),
+        random: () => 0,
+      },
+    });
+
+    expect(getDevicePlaylistTracks).toHaveBeenCalledWith(
+      'device-1',
+      'spotify:playlist:profile-default',
+      'TR',
+      50
+    );
+    expect(enqueueQueueItems).toHaveBeenCalledWith({
+      deviceId: 'device-1',
+      insertions: [{
+        songId: 'song-device-default',
+        queueReason: 'autoplay',
+        autoplayRadioProfileId: 'profile-1',
+      }],
+    });
+  });
+
   it('falls back to a local public song when no playlist is configured', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const enqueueQueueItems = vi.fn().mockResolvedValue(undefined);
