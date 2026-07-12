@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import api from '../src/services/api';
+import { NEXT_SONG_VOTE_API } from '../src/services/config';
 import {
   NEXT_SONG_VOTE_ACTIVE_ROUND_PATH,
   NEXT_SONG_VOTE_CLIENT_ID_KEY,
@@ -87,11 +88,12 @@ describe('mobile next-song vote contract', () => {
 
     expect(getMock).toHaveBeenCalledWith(NEXT_SONG_VOTE_ACTIVE_ROUND_PATH, expect.objectContaining({
       params: {device_id: 'device-1'},
+      baseURL: NEXT_SONG_VOTE_API,
     }));
     expect(postMock).toHaveBeenCalledWith(
       buildNextSongVotePath('round-1'),
       buildNextSongVotePayload('candidate-1', 'device-1'),
-      expect.any(Object),
+      expect.objectContaining({baseURL: NEXT_SONG_VOTE_API}),
     );
   });
 

@@ -97,5 +97,31 @@
     "withdrawn": "İzin geri çekildi.",
     "save": "Kaydet",
     "deleteAccount": "Hesabı sil"
+  },
+  "home": {
+    "connectionErrorTitle": "Bağlantı hatası",
+    "connectionError": "Puan bilgileri yüklenemedi.",
+    "heroTitle": "Yayını dinle, etkinliğe katıl, puanını markette harca.",
+    "heroSubtitle": "Jukebox, podcastler, oyunlar ve kampüs etkinlikleri tek puan sistemiyle çalışır.",
+    "points": {"total": "Toplam", "spendable": "Harcanabilir", "monthly": "Bu ay"},
+    "accountRequiredTitle": "Puan kazanmak için hesap gerekli",
+    "accountRequiredBody": "Misafirler gezebilir; market, etkinlik, oyun puanı ve yorumlar hesapla açılır.",
+    "login": "Giriş",
+    "vote": "Oylama",
+    "social": "Sosyal",
+    "events": "Etkinlikler",
+    "games": "Oyunlar",
+    "market": "Market",
+    "upcomingEvents": "Yaklaşan etkinlikler",
+    "all": "Tümü",
+    "noEvents": "Henüz aktif etkinlik yok.",
+    "arcadeGames": "Arcade oyunları",
+    "noGames": "Oyun kataloğu sunucudan eklenecek.",
+    "marketShowcase": "Market vitrini",
+    "noMarketItems": "Market ürünleri henüz eklenmedi.",
+    "campus": "Kampüs",
+    "eventMeta": "{{location}} · +{{points}} puan",
+    "gameMeta": "Günlük limit {{points}} puan",
+    "marketCost": "{{points}} XP"
   }
 }

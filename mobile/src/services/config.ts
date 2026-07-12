@@ -49,6 +49,12 @@ const resolvedApiConfig = resolveApiConfig(__DEV__);
 
 export const BASE_API = resolvedApiConfig.baseApi;
 export const STORAGE_API = resolvedApiConfig.storageApi;
+// Next-song voting is published at the backend root, while the legacy Jukebox
+// API remains mounted below /jukebox. Keep this separate to avoid rerouting
+// established account and queue traffic.
+export const NEXT_SONG_VOTE_API = __DEV__
+  ? `${DEV_SERVER_ORIGIN}/api/v1`
+  : `https://${SERVER_DOMAIN}/api/v1`;
 export const SOCKET_ORIGIN = resolvedApiConfig.socketOrigin;
 export const SOCKET_PATH = resolvedApiConfig.socketPath;
 export const FOCUS_WEB_URL = resolvedApiConfig.focusWebUrl;

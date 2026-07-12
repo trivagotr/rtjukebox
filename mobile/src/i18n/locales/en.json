@@ -97,5 +97,31 @@
     "withdrawn": "Consent withdrawn.",
     "save": "Save",
     "deleteAccount": "Delete account"
+  },
+  "home": {
+    "connectionErrorTitle": "Connection error",
+    "connectionError": "Gamification information could not be loaded.",
+    "heroTitle": "Listen live, join events, and spend your points in the market.",
+    "heroSubtitle": "Jukebox, podcasts, games, and campus events use one shared points system.",
+    "points": {"total": "Total", "spendable": "Spendable", "monthly": "This month"},
+    "accountRequiredTitle": "An account is required to earn points",
+    "accountRequiredBody": "Guests can explore; the market, events, game points, and comments unlock with an account.",
+    "login": "Log in",
+    "vote": "Vote",
+    "social": "Social",
+    "events": "Events",
+    "games": "Games",
+    "market": "Market",
+    "upcomingEvents": "Upcoming events",
+    "all": "All",
+    "noEvents": "There are no active events yet.",
+    "arcadeGames": "Arcade games",
+    "noGames": "The game catalogue will be added by the server.",
+    "marketShowcase": "Market showcase",
+    "noMarketItems": "No market items have been added yet.",
+    "campus": "Campus",
+    "eventMeta": "{{location}} · +{{points}} points",
+    "gameMeta": "Daily limit {{points}} points",
+    "marketCost": "{{points}} XP"
   }
 }

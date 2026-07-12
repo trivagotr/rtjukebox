@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from './api';
-import { STORAGE_API } from './config';
+import { NEXT_SONG_VOTE_API, STORAGE_API } from './config';
 
 export const NEXT_SONG_VOTE_ACTIVE_ROUND_PATH = '/next-song-voting/rounds/active';
 export const NEXT_SONG_VOTE_CLIENT_ID_KEY = 'next_song_voting_client_id';
@@ -173,6 +173,7 @@ export function getNextSongVoteStatusCopy(round: NextSongVoteRound | null): stri
 
 export async function fetchActiveNextSongVoteRound(deviceId?: string | null): Promise<NextSongVoteRound | null> {
   const response = await api.get(NEXT_SONG_VOTE_ACTIVE_ROUND_PATH, {
+    baseURL: NEXT_SONG_VOTE_API,
     params: deviceId ? { device_id: deviceId } : undefined,
     ...(await buildNextSongVoteRequestConfig()),
   });
@@ -188,7 +189,10 @@ export async function submitNextSongVote(
   const response = await api.post(
     buildNextSongVotePath(roundId),
     buildNextSongVotePayload(candidateId, deviceId),
-    await buildNextSongVoteRequestConfig(),
+    {
+      baseURL: NEXT_SONG_VOTE_API,
+      ...(await buildNextSongVoteRequestConfig()),
+    },
   );
 
   return normalizeNextSongVoteRound(response.data);

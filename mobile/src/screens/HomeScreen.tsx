@@ -55,12 +55,12 @@ const HomeScreen = () => {
       setHome(await fetchGamificationHome());
     } catch (error) {
       console.error('Failed to fetch gamification home:', error);
-      Alert.alert('Bağlantı hatası', 'Gamification bilgileri yüklenemedi.');
+          Alert.alert(t('home.connectionErrorTitle'), t('home.connectionError'));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user]);
+  }, [t, user]);
 
   useEffect(() => {
     loadHome();
@@ -81,20 +81,19 @@ const HomeScreen = () => {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />
           }
           showsVerticalScrollIndicator={false}>
-          <View style={styles.hero}>
-            <View style={styles.heroGlow} />
-            <Text style={styles.kicker}>RadioTEDU XP Merkezi</Text>
-            <Text style={styles.title}>
-              Yayını dinle, etkinliğe katıl, puanı markete çevir.
-            </Text>
-            <Text style={styles.subtitle}>
-              Jukebox, podcast, oyun ve kampüs etkinlikleri tek puan sistemine bağlı çalışır.
-            </Text>
+            <View style={styles.hero}>
+              <View style={styles.heroGlow} />
+              <Text style={styles.title}>
+                {t('home.heroTitle')}
+              </Text>
+              <Text style={styles.subtitle}>
+                {t('home.heroSubtitle')}
+              </Text>
 
-            <View style={styles.pointsRow}>
-              <MetricCard label="Toplam" value={home.points.lifetime_points || user?.rank_score || 0} />
-              <MetricCard label="Harcanabilir" value={home.points.spendable_points || 0} accent />
-              <MetricCard label="Bu ay" value={home.points.monthly_points || user?.monthly_rank_score || 0} />
+              <View style={styles.pointsRow}>
+              <MetricCard label={t('home.points.total')} value={home.points.lifetime_points || user?.rank_score || 0} />
+              <MetricCard label={t('home.points.spendable')} value={home.points.spendable_points || 0} accent />
+              <MetricCard label={t('home.points.monthly')} value={home.points.monthly_points || user?.monthly_rank_score || 0} />
             </View>
           </View>
 
@@ -102,23 +101,23 @@ const HomeScreen = () => {
             <View style={styles.lockedCard}>
               <Icon name="account-star-outline" size={26} color={COLORS.primary} />
               <View style={styles.lockedBody}>
-                <Text style={styles.lockedTitle}>Puan kazanmak için hesap gerekli</Text>
-                <Text style={styles.lockedText}>Misafirler gezebilir; market, etkinlik, oyun puanı ve yorumlar üyelikle açılır.</Text>
+                  <Text style={styles.lockedTitle}>{t('home.accountRequiredTitle')}</Text>
+                  <Text style={styles.lockedText}>{t('home.accountRequiredBody')}</Text>
               </View>
               <TouchableOpacity style={styles.lockedButton} onPress={() => navigation.navigate('Auth', {screen: 'Login'})}>
-                <Text style={styles.lockedButtonText}>Giriş</Text>
+                    <Text style={styles.lockedButtonText}>{t('home.login')}</Text>
               </TouchableOpacity>
             </View>
           ) : null}
 
           <View style={styles.quickGrid}>
             <QuickAction icon="timer-outline" label={t('focus.title')} onPress={() => navigation.navigate('Focus')} />
-            <QuickAction icon="vote-outline" label="Oylama" onPress={() => navigation.navigate('NextSongVote')} />
-            <QuickAction icon="account-group-outline" label="Social" onPress={() => navigation.navigate('Social')} />
-            <QuickAction icon="trophy-outline" label="Sıralama" onPress={() => navigation.navigate('Leaderboard')} />
-            <QuickAction icon="calendar-star" label="Etkinlikler" onPress={() => navigation.navigate('Events')} />
-            <QuickAction icon="gamepad-variant" label="Oyunlar" onPress={() => navigation.navigate('Games')} />
-            <QuickAction icon="shopping-outline" label="Market" onPress={() => navigation.navigate('Market')} />
+              <QuickAction icon="vote-outline" label={t('home.vote')} onPress={() => navigation.navigate('NextSongVote')} />
+              <QuickAction icon="account-group-outline" label={t('home.social')} onPress={() => navigation.navigate('Social')} />
+              <QuickAction icon="trophy-outline" label={t('tabs.leaderboard')} onPress={() => navigation.navigate('Leaderboard')} />
+              <QuickAction icon="calendar-star" label={t('home.events')} onPress={() => navigation.navigate('Events')} />
+              <QuickAction icon="gamepad-variant" label={t('home.games')} onPress={() => navigation.navigate('Games')} />
+              <QuickAction icon="shopping-outline" label={t('home.market')} onPress={() => navigation.navigate('Market')} />
           </View>
 
           {loading && !refreshing ? (
@@ -127,23 +126,23 @@ const HomeScreen = () => {
             </View>
           ) : (
             <>
-              <SectionHeader title="Yaklaşan etkinlikler" action="Tümü" onPress={() => navigation.navigate('Events')} />
-              {home.events.length === 0 ? (
-                <EmptyCard text="Henüz aktif etkinlik yok." />
+                <SectionHeader title={t('home.upcomingEvents')} action={t('home.all')} onPress={() => navigation.navigate('Events')} />
+                {home.events.length === 0 ? (
+                  <EmptyCard text={t('home.noEvents')} />
               ) : (
                 home.events.slice(0, 3).map((event) => <EventPreview key={event.id} event={event} />)
               )}
 
-              <SectionHeader title="Arcade oyunları" action="Oyna" onPress={() => navigation.navigate('Games')} />
-              {home.games.length === 0 ? (
-                <EmptyCard text="Oyun kataloğu sunucudan eklenecek." />
+                <SectionHeader title={t('home.arcadeGames')} action={t('common.play')} onPress={() => navigation.navigate('Games')} />
+                {home.games.length === 0 ? (
+                  <EmptyCard text={t('home.noGames')} />
               ) : (
                 home.games.slice(0, 3).map((game) => <GamePreview key={game.id} game={game} />)
               )}
 
-              <SectionHeader title="Market vitrini" action="Market" onPress={() => navigation.navigate('Market')} />
-              {home.market.length === 0 ? (
-                <EmptyCard text="Market ürünleri henüz eklenmedi." />
+                <SectionHeader title={t('home.marketShowcase')} action={t('home.market')} onPress={() => navigation.navigate('Market')} />
+                {home.market.length === 0 ? (
+                  <EmptyCard text={t('home.noMarketItems')} />
               ) : (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   {home.market.slice(0, 8).map((item) => <MarketPreview key={item.id} item={item} />)}
@@ -161,7 +160,14 @@ function MetricCard({label, value, accent}: {label: string; value: number; accen
   return (
     <View style={[styles.metricCard, accent && styles.metricCardAccent]}>
       <Text style={styles.metricValue}>{value}</Text>
-      <Text style={styles.metricLabel}>{label}</Text>
+      <Text
+        style={styles.metricLabel}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.76}
+        allowFontScaling={false}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -189,35 +195,38 @@ function SectionHeader({title, action, onPress}: {title: string; action: string;
 }
 
 function EventPreview({event}: {event: AppEvent}) {
+  const {t} = useTranslation();
   return (
     <View style={styles.previewCard}>
       <Icon name="calendar-heart" size={24} color={COLORS.primary} />
       <View style={styles.previewBody}>
         <Text style={styles.previewTitle}>{event.title}</Text>
-        <Text style={styles.previewMeta}>{event.location || 'Kampüs'} · +{event.check_in_points || 0} puan</Text>
+          <Text style={styles.previewMeta}>{t('home.eventMeta', {location: event.location || t('home.campus'), points: event.check_in_points || 0})}</Text>
       </View>
     </View>
   );
 }
 
 function GamePreview({game}: {game: ArcadeGame}) {
+  const {t} = useTranslation();
   return (
     <View style={styles.previewCard}>
       <Icon name="controller-classic" size={24} color={COLORS.primary} />
       <View style={styles.previewBody}>
         <Text style={styles.previewTitle}>{game.title}</Text>
-        <Text style={styles.previewMeta}>Günlük limit {game.daily_point_limit || 0} puan</Text>
+          <Text style={styles.previewMeta}>{t('home.gameMeta', {points: game.daily_point_limit || 0})}</Text>
       </View>
     </View>
   );
 }
 
 function MarketPreview({item}: {item: MarketItem}) {
+  const {t} = useTranslation();
   return (
     <View style={styles.marketMini}>
       <Icon name={item.item_kind === 'badge' ? 'shield-star' : 'shopping'} size={22} color={COLORS.primary} />
       <Text style={styles.marketTitle} numberOfLines={2}>{item.title}</Text>
-      <Text style={styles.marketCost}>{item.cost_points} XP</Text>
+      <Text style={styles.marketCost}>{t('home.marketCost', {points: item.cost_points})}</Text>
     </View>
   );
 }
@@ -250,21 +259,22 @@ const styles = StyleSheet.create({
     borderRadius: 95,
     backgroundColor: 'rgba(227,30,36,0.45)',
   },
-  kicker: {color: COLORS.primary, fontSize: 12, fontWeight: '800', letterSpacing: 1.4, textTransform: 'uppercase'},
-  title: {color: COLORS.text, fontSize: 27, fontWeight: '900', lineHeight: 33, marginTop: SPACING.sm},
+  title: {color: COLORS.text, fontSize: 27, fontWeight: '900', lineHeight: 33},
   subtitle: {color: COLORS.textMuted, fontSize: 14, lineHeight: 21, marginTop: SPACING.sm},
   pointsRow: {flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.lg},
   metricCard: {
     flex: 1,
+    minWidth: 0,
     borderRadius: 18,
-    padding: SPACING.md,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.md,
     backgroundColor: 'rgba(255,255,255,0.07)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
   metricCardAccent: {backgroundColor: 'rgba(227,30,36,0.26)', borderColor: 'rgba(227,30,36,0.5)'},
   metricValue: {color: COLORS.text, fontSize: 22, fontWeight: '900'},
-  metricLabel: {color: COLORS.textMuted, fontSize: 11, marginTop: 3},
+  metricLabel: {color: COLORS.textMuted, fontSize: 10, fontWeight: '700', marginTop: 3, textAlign: 'center'},
   lockedCard: {
     flexDirection: 'row',
     alignItems: 'center',
