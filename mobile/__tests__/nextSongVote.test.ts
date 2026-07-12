@@ -60,6 +60,23 @@ describe('mobile next-song vote contract', () => {
     expect(round?.lockAt).toBe('2026-07-01T10:00:50.000Z');
   });
 
+  it('accepts the backend lockedAt and resolvedAt field names', () => {
+    const round = normalizeNextSongVoteRound({
+      data: {
+        round: {
+          id: 'round-1',
+          status: 'locked',
+          candidates: [],
+          lockedAt: '2026-07-01T10:00:50.000Z',
+          resolvedAt: '2026-07-01T10:01:00.000Z',
+        },
+      },
+    });
+
+    expect(round?.lockAt).toBe('2026-07-01T10:00:50.000Z');
+    expect(round?.resolveAt).toBe('2026-07-01T10:01:00.000Z');
+  });
+
   it('builds vote payloads with the selected candidate and device id', () => {
     expect(buildNextSongVotePayload('candidate-1', 'device-1')).toEqual({
       candidateId: 'candidate-1',

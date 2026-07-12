@@ -98,9 +98,26 @@ export function normalizeNextSongVoteRound(payload: unknown): NextSongVoteRound 
           ? round.winner_candidate_id
           : null,
     resolutionMode: normalizeResolutionMode(round.resolutionMode ?? round.resolution_mode),
-    lockAt: typeof round.lockAt === 'string' ? round.lockAt : typeof round.lock_at === 'string' ? round.lock_at : null,
+    lockAt:
+      typeof round.lockAt === 'string'
+        ? round.lockAt
+        : typeof round.lockedAt === 'string'
+          ? round.lockedAt
+          : typeof round.lock_at === 'string'
+            ? round.lock_at
+            : typeof round.locked_at === 'string'
+              ? round.locked_at
+              : null,
     resolveAt:
-      typeof round.resolveAt === 'string' ? round.resolveAt : typeof round.resolve_at === 'string' ? round.resolve_at : null,
+      typeof round.resolveAt === 'string'
+        ? round.resolveAt
+        : typeof round.resolvedAt === 'string'
+          ? round.resolvedAt
+          : typeof round.resolve_at === 'string'
+            ? round.resolve_at
+            : typeof round.resolved_at === 'string'
+              ? round.resolved_at
+              : null,
   };
 }
 
