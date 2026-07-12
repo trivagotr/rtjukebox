@@ -219,10 +219,14 @@ export function isChannelPlayable(channel: RadioChannel): boolean {
   return channel.availability !== 'coming-soon';
 }
 
+const RETAIN_WHEN_STREAM_UNAVAILABLE = new Set(['radiotedu-spark', 'radiotedu-rock']);
+
 export function buildVisibleChannels(
   checks: RadioChannelCheck[],
 ): RadioChannel[] {
   return checks
-    .filter(({channel, isAvailable}) => isAvailable || !isChannelPlayable(channel))
+    .filter(({channel, isAvailable}) =>
+      isAvailable || !isChannelPlayable(channel) || RETAIN_WHEN_STREAM_UNAVAILABLE.has(channel.id),
+    )
     .map(({channel}) => channel);
 }

@@ -108,7 +108,7 @@ describe('radio channel catalog', () => {
     );
   });
 
-  it('keeps live Spark and Rock playable even when stream checks fail', () => {
+  it('keeps live Spark and Rock visible even when stream checks fail', () => {
     const main = RADIO_CHANNELS.find(channel => channel.id === 'radiotedu-main')!;
     const spark = RADIO_CHANNELS.find(channel => channel.id === 'radiotedu-spark')!;
     const rock = RADIO_CHANNELS.find(channel => channel.id === 'radiotedu-rock')!;
@@ -122,7 +122,7 @@ describe('radio channel catalog', () => {
         {channel: spark, isAvailable: false},
         {channel: rock, isAvailable: false},
       ]).map(channel => channel.id),
-    ).toEqual(['radiotedu-main']);
+    ).toEqual(['radiotedu-main', 'radiotedu-spark', 'radiotedu-rock']);
   });
 
   it('includes Spark and Rock in the playable TrackPlayer queue', () => {

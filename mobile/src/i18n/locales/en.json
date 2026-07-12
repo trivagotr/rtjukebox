@@ -98,6 +98,25 @@
     "save": "Save",
     "deleteAccount": "Delete account"
   },
+  "nextSongVote": {
+    "authTitle": "Create an account",
+    "authMessage": "Next Song voting is available to registered RadioTEDU accounts.",
+    "title": "Next Song",
+    "screenSubtitle": "Vote for the next track in the live broadcast.",
+    "status": {
+      "waiting": "The next vote will appear here.",
+      "open": "Choose the next song.",
+      "locked": "Voting is locked.",
+      "resolved": "The next song is ready."
+    },
+    "empty": "A new vote will appear here when it starts.",
+    "errors": {
+      "title": "Vote unavailable",
+      "authRequired": "Sign in with a registered account to vote.",
+      "roundClosed": "This voting round is no longer open.",
+      "generic": "Your vote could not be sent."
+    }
+  },
   "home": {
     "connectionErrorTitle": "Connection error",
     "connectionError": "Gamification information could not be loaded.",

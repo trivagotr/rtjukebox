@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import fs from 'fs';
+import path from 'path';
 import api from '../src/services/api';
 import { NEXT_SONG_VOTE_API } from '../src/services/config';
 import {
@@ -154,5 +156,12 @@ describe('mobile next-song vote contract', () => {
 
     expect(copy).toBe('Sıradaki şarkı hazır.');
     expect(copy).not.toMatch(/random|rastgele/i);
+  });
+
+  it('keeps the voting UI localized and handles protected vote errors explicitly', () => {
+    const panelSource = fs.readFileSync(path.join(__dirname, '../src/screens/next-song-vote/NextSongVotePanel.tsx'), 'utf8');
+
+    expect(panelSource).toContain("t('nextSongVote.errors.authRequired')");
+    expect(panelSource).toContain("t('nextSongVote.empty')");
   });
 });

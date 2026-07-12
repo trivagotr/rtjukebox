@@ -98,6 +98,25 @@
     "save": "Kaydet",
     "deleteAccount": "Hesabı sil"
   },
+  "nextSongVote": {
+    "authTitle": "Hesap oluştur",
+    "authMessage": "Sıradaki şarkı oylaması kayıtlı RadioTEDU hesaplarına açıktır.",
+    "title": "Sıradaki Şarkı",
+    "screenSubtitle": "Yayın akışında çalacak parçayı oyla.",
+    "status": {
+      "waiting": "Sıradaki oylama bekleniyor.",
+      "open": "Sıradaki şarkıyı seç.",
+      "locked": "Oylar kilitlendi.",
+      "resolved": "Sıradaki şarkı hazır."
+    },
+    "empty": "Yeni oylama başladığında burada görünecek.",
+    "errors": {
+      "title": "Oy kullanılamıyor",
+      "authRequired": "Oy kullanmak için kayıtlı hesabınla giriş yap.",
+      "roundClosed": "Bu oylama turu artık açık değil.",
+      "generic": "Oy gönderilemedi."
+    }
+  },
   "home": {
     "connectionErrorTitle": "Bağlantı hatası",
     "connectionError": "Puan bilgileri yüklenemedi.",

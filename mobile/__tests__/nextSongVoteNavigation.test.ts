@@ -31,7 +31,7 @@ describe('next-song vote navigation', () => {
     expect(screenSource).toContain('AuthGuard');
     expect(screenSource).toContain('const isRegisteredUser = Boolean(user && !user.is_guest)');
     expect(screenSource).toContain('if (!isRegisteredUser)');
-    expect(screenSource).toContain('Now register');
-    expect(screenSource).toContain('Next Song voting is only available for registered RadioTEDU accounts.');
+    expect(screenSource).toContain("t('nextSongVote.authTitle')");
+    expect(screenSource).toContain("t('nextSongVote.authMessage')");
   });
 });

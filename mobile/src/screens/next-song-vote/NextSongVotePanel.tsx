@@ -2,12 +2,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Text, TouchableOpacity, View, StyleSheet } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import io from 'socket.io-client';
+import {useTranslation} from '../../i18n';
 import { COLORS, SPACING } from '../../theme/theme';
 import { SOCKET_ORIGIN, SOCKET_PATH, STORAGE_API } from '../../services/config';
 import {
   fetchActiveNextSongVoteRound,
   getCandidateCoverUrl,
-  getNextSongVoteStatusCopy,
   normalizeNextSongVoteRound,
   submitNextSongVote,
   type NextSongVoteCandidate,
@@ -27,6 +27,22 @@ function secondsUntil(value: string | null | undefined, now: number): number | n
 
   const seconds = Math.max(0, Math.ceil((new Date(value).getTime() - now) / 1000));
   return Number.isFinite(seconds) ? seconds : null;
+}
+
+function getVoteStatusKey(round: NextSongVoteRound | null): string {
+  if (!round) {
+    return 'nextSongVote.status.waiting';
+  }
+
+  if (round.status === 'open') {
+    return 'nextSongVote.status.open';
+  }
+
+  if (round.status === 'locked') {
+    return 'nextSongVote.status.locked';
+  }
+
+  return 'nextSongVote.status.resolved';
 }
 
 function CandidateOption({
@@ -74,6 +90,7 @@ function CandidateOption({
 }
 
 export default function NextSongVotePanel({ deviceId }: NextSongVotePanelProps) {
+  const {t} = useTranslation();
   const [round, setRound] = useState<NextSongVoteRound | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [votingCandidateId, setVotingCandidateId] = useState<string | null>(null);
@@ -140,20 +157,27 @@ export default function NextSongVotePanel({ deviceId }: NextSongVotePanelProps) 
         setRound(nextRound);
       }
     } catch (error: any) {
-      Alert.alert('Hata', error.response?.data?.error || 'Oy gönderilemedi.');
+      const status = error.response?.status;
+      const message =
+        status === 403
+          ? t('nextSongVote.errors.authRequired')
+          : status === 409
+            ? t('nextSongVote.errors.roundClosed')
+            : error.response?.data?.error || t('nextSongVote.errors.generic');
+      Alert.alert(t('nextSongVote.errors.title'), message);
     } finally {
       setVotingCandidateId(null);
     }
   };
 
-  const statusCopy = getNextSongVoteStatusCopy(round);
+  const statusCopy = t(getVoteStatusKey(round));
 
   return (
     <View style={styles.panel}>
       <View style={styles.headerRow}>
         <View style={styles.titleRow}>
           <Icon name="vote" size={20} color={COLORS.primary} />
-          <Text style={styles.title}>Sıradaki Şarkı</Text>
+          <Text style={styles.title}>{t('nextSongVote.title')}</Text>
         </View>
         {remainingSeconds !== null && (
           <View style={styles.timerPill}>
@@ -183,7 +207,7 @@ export default function NextSongVotePanel({ deviceId }: NextSongVotePanelProps) 
       ) : (
         <View style={styles.emptyState}>
           <Image source={fallbackArt} style={styles.emptyLogo} />
-          <Text style={styles.emptyText}>Yeni oylama başladığında burada görünecek.</Text>
+          <Text style={styles.emptyText}>{t('nextSongVote.empty')}</Text>
         </View>
       )}
     </View>

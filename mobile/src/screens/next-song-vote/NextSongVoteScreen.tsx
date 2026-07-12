@@ -5,18 +5,20 @@ import AuthGuard from '../../components/AuthGuard';
 import GlobalHeader from '../../components/GlobalHeader';
 import PageTransition from '../../components/PageTransition';
 import {useAuth} from '../../context/AuthContext';
+import {useTranslation} from '../../i18n';
 import {COLORS, SPACING} from '../../theme/theme';
 import NextSongVotePanel from './NextSongVotePanel';
 
 export default function NextSongVoteScreen() {
   const {user} = useAuth();
+  const {t} = useTranslation();
   const isRegisteredUser = Boolean(user && !user.is_guest);
 
   if (!isRegisteredUser) {
     return (
       <AuthGuard
-        title="Now register!"
-        message="Next Song voting is only available for registered RadioTEDU accounts."
+        title={t('nextSongVote.authTitle')}
+        message={t('nextSongVote.authMessage')}
         icon="vote-outline"
       />
     );
@@ -27,8 +29,8 @@ export default function NextSongVoteScreen() {
       <SafeAreaView style={styles.container}>
         <GlobalHeader />
         <View style={styles.header}>
-          <Text style={styles.title}>Sıradaki Şarkı</Text>
-          <Text style={styles.subtitle}>Yayın akışında çalacak parçayı oyla.</Text>
+          <Text style={styles.title}>{t('nextSongVote.title')}</Text>
+          <Text style={styles.subtitle}>{t('nextSongVote.screenSubtitle')}</Text>
         </View>
         <NextSongVotePanel />
       </SafeAreaView>
