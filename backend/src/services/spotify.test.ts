@@ -426,6 +426,52 @@ describe('SpotifyService', () => {
     expect(mockDbQuery.mock.calls.some(([sql]) => String(sql).includes('spotify_device_auth'))).toBe(true);
   });
 
+  it('explains Spotify development-mode requirements when the profile request returns 403', async () => {
+    const service = new SpotifyService();
+    const state = new URL(await service.getDeviceAuthStartUrl('device-1')).searchParams.get('state');
+    const forbiddenError = Object.assign(new Error('Request failed with status code 403'), {
+      response: { status: 403 },
+    });
+
+    mockAxiosPost.mockResolvedValueOnce({
+      data: {
+        access_token: 'device-access-token',
+        refresh_token: 'device-refresh-token',
+        expires_in: 3600,
+        scope: 'streaming user-modify-playback-state',
+      },
+    });
+    mockAxiosGet.mockRejectedValueOnce(forbiddenError);
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(service.handleDeviceAuthCallback('auth-code', state!)).rejects.toThrow(
+      /Users Management.*Spotify Premium/
+    );
+    expect(mockDbQuery.mock.calls.some(([sql]) => String(sql).includes('INSERT INTO spotify_device_auth'))).toBe(false);
+  });
+
+  it('explains Spotify development-mode requirements when the token exchange returns 403', async () => {
+    const service = new SpotifyService();
+    const state = new URL(await service.getDeviceAuthStartUrl('device-1')).searchParams.get('state');
+    const forbiddenError = Object.assign(new Error('Request failed with status code 403'), {
+      response: { status: 403 },
+    });
+
+    mockAxiosPost.mockRejectedValueOnce(forbiddenError);
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(service.handleDeviceAuthCallback('auth-code', state!)).rejects.toThrow(
+      /Users Management.*Spotify Premium/
+    );
+    expect(mockAxiosGet).not.toHaveBeenCalled();
+  });
+
   it('preserves an existing device refresh token when spotify omits a new one on reconnect', async () => {
     const service = new SpotifyService();
     const startUrl = new URL(await service.getDeviceAuthStartUrl('device-1'));

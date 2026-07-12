@@ -24,6 +24,39 @@ const SPOTIFY_PLAYBACK_REQUIRED_SCOPES = [
   'user-read-playback-state',
 ] as const;
 
+type SpotifyAuthorizationStage = 'token_exchange' | 'profile_fetch';
+
+function getHttpResponseStatus(error: unknown): number | null {
+  if (!error || typeof error !== 'object' || !('response' in error)) {
+    return null;
+  }
+
+  const response = (error as { response?: { status?: unknown } }).response;
+  return typeof response?.status === 'number' ? response.status : null;
+}
+
+function createSpotifyAuthorizationError(
+  stage: SpotifyAuthorizationStage,
+  error: unknown
+): Error {
+  const status = getHttpResponseStatus(error);
+  console.error(
+    `[Spotify Device Auth] ${stage} failed (status=${status ?? 'unavailable'})`
+  );
+
+  if (status === 403) {
+    return new Error(
+      'Spotify rejected this account (403). Add the Spotify account under ' +
+      'Developer Dashboard > RadioTEDU JukeBox > Settings > Users Management, ' +
+      'confirm the app owner has Spotify Premium, then start a new connection.'
+    );
+  }
+
+  return error instanceof Error
+    ? error
+    : new Error(`Spotify authorization failed during ${stage}`);
+}
+
 // In-memory cache for Client Credentials token (no user login needed)
 let clientToken: { token: string; expiresAt: number; credentialsKey: string } | null = null;
 
@@ -449,12 +482,17 @@ export class SpotifyService {
 
     const authHeader = Buffer.from(`${appConfig.clientId}:${appConfig.clientSecret}`).toString('base64');
 
-    const tokenResponse = await axios.post(`${SPOTIFY_ACCOUNTS_URL}/api/token`, params.toString(), {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization: `Basic ${authHeader}`,
-      },
-    });
+    let tokenResponse;
+    try {
+      tokenResponse = await axios.post(`${SPOTIFY_ACCOUNTS_URL}/api/token`, params.toString(), {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Authorization: `Basic ${authHeader}`,
+        },
+      });
+    } catch (error: unknown) {
+      throw createSpotifyAuthorizationError('token_exchange', error);
+    }
 
     const accessToken = tokenResponse.data.access_token;
     const refreshToken = tokenResponse.data.refresh_token || existingAuth?.refresh_token || null;
@@ -465,9 +503,14 @@ export class SpotifyService {
     const scopes = tokenResponse.data.scope || SPOTIFY_REQUIRED_SCOPES;
     const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000);
 
-    const profileResponse = await axios.get(`${SPOTIFY_API_URL}/me`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    let profileResponse;
+    try {
+      profileResponse = await axios.get(`${SPOTIFY_API_URL}/me`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    } catch (error: unknown) {
+      throw createSpotifyAuthorizationError('profile_fetch', error);
+    }
 
     await this.saveDeviceSpotifyAuth({
       deviceId,
