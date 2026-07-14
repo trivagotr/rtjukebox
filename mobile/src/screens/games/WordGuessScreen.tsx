@@ -1,4 +1,4 @@
-import React, {useMemo, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {ScrollView, StyleSheet, Text, TouchableOpacity, Vibration, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -7,6 +7,7 @@ import {COLORS, SPACING} from '../../theme/theme';
 import {ArcadeGame} from '../../services/gamificationService';
 import {createClientRoundId, submitMobileGameScore} from './gameSession';
 import {ComboMeter, FeedbackToast, GameResultModal, GameShell} from './GameChrome';
+import {createAnswerGate} from './answerGate';
 
 type Question = {
   prompt: string;
@@ -40,11 +41,19 @@ const WordGuessScreen = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitFailed, setSubmitFailed] = useState(false);
   const submittedRef = useRef(false);
+  const answerGateRef = useRef(createAnswerGate());
+  const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const roundIdRef = useRef(createClientRoundId(game));
   const startedAtRef = useRef(Date.now());
 
   const currentQuestion = questions[index];
   const score = useMemo(() => correct * 120 + Math.max(0, streak - 1) * 25, [correct, streak]);
+
+  useEffect(() => () => {
+    if (transitionTimeoutRef.current) {
+      clearTimeout(transitionTimeoutRef.current);
+    }
+  }, []);
 
   const submitFinalScore = async (finalScore: number) => {
     setIsSubmitting(true);
@@ -66,7 +75,7 @@ const WordGuessScreen = () => {
   };
 
   const answer = (option: string) => {
-    if (selected || finished) {
+    if (selected || finished || !answerGateRef.current.tryEnter()) {
       return;
     }
 
@@ -86,7 +95,8 @@ const WordGuessScreen = () => {
     setCorrect(nextCorrect);
     setStreak(nextStreak);
 
-    setTimeout(() => {
+    transitionTimeoutRef.current = setTimeout(() => {
+      transitionTimeoutRef.current = null;
       if (index >= questions.length - 1) {
         const finalScore = nextCorrect * 120 + Math.max(0, nextStreak - 1) * 25;
         finishGame(finalScore);
@@ -95,6 +105,7 @@ const WordGuessScreen = () => {
 
       setIndex((value) => value + 1);
       setSelected(null);
+      answerGateRef.current.release();
     }, 760);
   };
 
@@ -109,6 +120,11 @@ const WordGuessScreen = () => {
   };
 
   const resetGame = () => {
+    if (transitionTimeoutRef.current) {
+      clearTimeout(transitionTimeoutRef.current);
+      transitionTimeoutRef.current = null;
+    }
+    answerGateRef.current.release();
     roundIdRef.current = createClientRoundId(game);
     startedAtRef.current = Date.now();
     submittedRef.current = false;
@@ -153,6 +169,7 @@ const WordGuessScreen = () => {
                       isSelected && !isAnswer && styles.wrongOption,
                     ]}
                     onPress={() => answer(option)}
+                    disabled={selected !== null || finished}
                     activeOpacity={0.82}>
                     <Text style={styles.optionText}>{option}</Text>
                   </TouchableOpacity>

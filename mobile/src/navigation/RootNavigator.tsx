@@ -9,7 +9,7 @@ import {useAuth} from '../context/AuthContext';
 import HomeScreen from '../screens/HomeScreen';
 import RadioScreen from '../screens/RadioScreen';
 import PodcastScreen from '../screens/PodcastScreen';
-import JukeboxScreen from '../screens/jukebox/JukeboxScreen';
+import JukeLocalWebViewScreen from '../screens/jukebox/JukeLocalWebViewScreen';
 import NextSongVoteScreen from '../screens/next-song-vote/NextSongVoteScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import LeaderboardScreen from '../screens/LeaderboardScreen';
@@ -119,7 +119,7 @@ function MainTabs() {
       <Tab.Screen name="Home" component={HomeScreen} options={{title: t('tabs.home'), headerShown: false}} />
       <Tab.Screen name="Radio" component={RadioScreen} options={{title: t('tabs.radio'), headerShown: false}} />
       <Tab.Screen name="Podcasts" component={PodcastScreen} options={{title: t('tabs.podcasts'), headerShown: false}} />
-      <Tab.Screen name="Jukebox" component={JukeboxScreen} options={{title: t('tabs.jukebox'), headerShown: false}} />
+      <Tab.Screen name="Jukebox" component={JukeLocalWebViewScreen} options={{title: t('tabs.jukebox'), headerShown: false}} />
       <Tab.Screen name="Study" component={LibraryStudyWebView} options={{title: t('tabs.study'), headerShown: false}} />
     </Tab.Navigator>
   );
