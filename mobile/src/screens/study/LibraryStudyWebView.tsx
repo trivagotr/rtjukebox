@@ -1,52 +1,88 @@
-import React, {useMemo, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {ActivityIndicator, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {WebView as NativeWebView} from 'react-native-webview';
 
 import {useAuth} from '../../context/AuthContext';
+import {BASE_API} from '../../services/config';
+import {
+  STUDY_PACKAGED_ROOT,
+  buildStudyEntryUrl,
+  createStudyPublicAccountBridge,
+  createStudyWebViewBridge,
+  isAllowedStudyNavigation,
+} from '../../services/studyWebViewService';
 import {COLORS, SPACING} from '../../theme/theme';
 
 const WebView = NativeWebView as any;
-const STUDY_ROOT = 'file:///android_asset/study-game/';
-
-function asInjectedJson(value: unknown) {
-  return JSON.stringify(value).replace(/</g, '\\u003c');
-}
 
 const LibraryStudyWebView = () => {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const webViewRef = useRef<any>(null);
   const {user} = useAuth();
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [credentialsReady, setCredentialsReady] = useState(false);
+  const [usePackagedFallback, setUsePackagedFallback] = useState(false);
   const [hasLoadError, setHasLoadError] = useState(false);
   const roomId = route.params?.locationId === 'chim-alan' ? 'chim-alan' : 'library';
-  const gameUrl = `${STUDY_ROOT}index.html?embedded=mobile&room=${roomId}`;
   const isLocked = !user || user.is_guest;
 
-  const publicAccountBridge = useMemo(() => {
-    const account = user
-      ? {
-          id: user.id,
-          displayName: user.display_name,
-          globalPoints: Number(user.rank_score ?? 0),
-          authenticated: !user.is_guest,
+  useEffect(() => {
+    let active = true;
+    AsyncStorage.getItem('access_token')
+      .then(token => {
+        if (active) {
+          setAccessToken(token);
+          setCredentialsReady(true);
         }
-      : null;
-    return `
-      (function () {
-        window.RadioTEDUStudyAccount = ${asInjectedJson(account)};
-        window.dispatchEvent(new CustomEvent('radiotedu:study-account', {detail: window.RadioTEDUStudyAccount}));
-        true;
-      })();
-    `;
-  }, [user]);
+      })
+      .catch(() => {
+        if (active) {
+          setAccessToken(null);
+          setCredentialsReady(true);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
-  const allowPackagedStudyNavigation = (request: {url?: string}) => {
-    const url = request.url ?? '';
-    return url === 'about:blank' || url.startsWith(STUDY_ROOT);
-  };
+  const account = useMemo(
+    () =>
+      user
+        ? {
+            id: user.id,
+            displayName: user.display_name,
+            authenticated: !user.is_guest,
+          }
+        : null,
+    [user],
+  );
+
+  const bridgeScript = useMemo(() => {
+    if (!account) {
+      return 'true;';
+    }
+    const publicInput = {
+      account,
+      globalPoints: Number(user?.rank_score ?? 0),
+    };
+    if (usePackagedFallback || !accessToken) {
+      return createStudyPublicAccountBridge(publicInput);
+    }
+    return createStudyWebViewBridge({
+      ...publicInput,
+      apiBase: BASE_API,
+      accessToken,
+    });
+  }, [accessToken, account, usePackagedFallback, user?.rank_score]);
+
+  const gameUrl = buildStudyEntryUrl(roomId, usePackagedFallback);
+  const isPackagedGame = gameUrl.startsWith(STUDY_PACKAGED_ROOT);
 
   if (isLocked) {
     return (
@@ -55,6 +91,28 @@ const LibraryStudyWebView = () => {
         <Text style={styles.lockedTitle}>Login required</Text>
         <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.navigate('Auth', {screen: 'Login'})}>
           <Text style={styles.primaryButtonText}>Login</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  if (!credentialsReady) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loading}>
+          <ActivityIndicator color={COLORS.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!accessToken) {
+    return (
+      <SafeAreaView style={styles.lockedContainer}>
+        <Icon name="account-lock-outline" size={34} color={COLORS.primary} />
+        <Text style={styles.lockedTitle}>Your session expired</Text>
+        <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.navigate('Auth', {screen: 'Login'})}>
+          <Text style={styles.primaryButtonText}>Login again</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );
@@ -70,29 +128,40 @@ const LibraryStudyWebView = () => {
             style={styles.primaryButton}
             onPress={() => {
               setHasLoadError(false);
-              webViewRef.current?.reload();
+              setUsePackagedFallback(false);
             }}>
             <Text style={styles.primaryButtonText}>Retry</Text>
           </TouchableOpacity>
         </View>
       ) : null}
       <WebView
+        key={isPackagedGame ? 'packaged-study' : 'remote-study'}
         ref={webViewRef}
         source={{uri: gameUrl}}
         style={styles.webView}
-        originWhitelist={['file://*']}
+        originWhitelist={['https://radiotedu.com', 'file://*']}
         javaScriptEnabled
-        domStorageEnabled
+        domStorageEnabled={false}
         sharedCookiesEnabled={false}
         thirdPartyCookiesEnabled={false}
         mixedContentMode="never"
         setSupportMultipleWindows={false}
-        allowFileAccess
+        allowFileAccess={isPackagedGame}
         allowFileAccessFromFileURLs={false}
         allowUniversalAccessFromFileURLs={false}
-        injectedJavaScriptBeforeContentLoaded={publicAccountBridge}
-        onShouldStartLoadWithRequest={allowPackagedStudyNavigation}
-        onError={() => setHasLoadError(true)}
+        injectedJavaScriptBeforeContentLoaded={bridgeScript}
+        injectedJavaScript={bridgeScript}
+        onLoadEnd={() => webViewRef.current?.injectJavaScript(bridgeScript)}
+        onShouldStartLoadWithRequest={({url}: {url: string}) =>
+          isAllowedStudyNavigation(url)
+        }
+        onError={() => {
+          if (!usePackagedFallback) {
+            setUsePackagedFallback(true);
+            return;
+          }
+          setHasLoadError(true);
+        }}
         renderLoading={() => (
           <View style={styles.loading}>
             <ActivityIndicator color={COLORS.primary} />

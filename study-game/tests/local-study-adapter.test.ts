@@ -8,7 +8,7 @@ describe('LocalStudyAdapter', () => {
     const session = adapter.session()
 
     expect(session.account).toEqual({ id: 'local-student', displayName: 'TEDU Student', authenticated: true })
-    expect(session.points).toEqual({ global: 240, studyToday: 0, dailyCap: 60, authoritative: false })
+    expect(session.points).toEqual({ global: 240, studyToday: 0, dailyCap: 25, authoritative: false })
     expect(session.ownedWearableIds).toContain('beanie')
     expect(adapter.presence('library').map((entry) => entry.displayName)).toEqual(['Selin', 'Mert'])
   })

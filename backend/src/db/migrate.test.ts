@@ -82,6 +82,16 @@ describe('db migration helper', () => {
         expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS qr_reward_claims');
     });
 
+    it('extends avatar hat constraints before seeding hat items on existing databases', () => {
+        const schemaSql = loadSchemaSql();
+        const constraintIndex = schemaSql.indexOf('ALTER TABLE avatar_items DROP CONSTRAINT IF EXISTS avatar_items_slot_check');
+        const bucketHatSeedIndex = schemaSql.indexOf("('bucket-hat', 'hat'");
+
+        expect(constraintIndex).toBeGreaterThan(-1);
+        expect(bucketHatSeedIndex).toBeGreaterThan(-1);
+        expect(constraintIndex).toBeLessThan(bucketHatSeedIndex);
+    });
+
     it('applies schema sql inside a single transaction and forces UTF-8 client encoding', async () => {
         const query = vi.fn().mockResolvedValue({ rows: [] });
 

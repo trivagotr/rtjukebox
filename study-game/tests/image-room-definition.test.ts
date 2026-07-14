@@ -15,6 +15,21 @@ describe('IMAGE_ROOMS', () => {
     }
   })
 
+  it('keeps every seat transition adjacent instead of sliding across furniture', () => {
+    for (const room of Object.values(IMAGE_ROOMS)) {
+      const graph = new NavigationGraph(room.nodes, room.edges)
+      for (const seat of room.seats) {
+        const approach = graph.node(seat.approachNodeId)!
+        const approachPixel = roomPointToPixel(room, approach)
+        const sitPixel = roomPointToPixel(room, seat.sit)
+        expect(
+          Math.hypot(approachPixel.x - sitPixel.x, approachPixel.y - sitPixel.y),
+          `${room.id}:${seat.id}`,
+        ).toBeLessThanOrEqual(64)
+      }
+    }
+  })
+
   it('keeps Chim Alan stairs elevated and exposes Spark plus Rock as world actors', () => {
     const room = IMAGE_ROOMS['chim-alan']
     const graph = new NavigationGraph(room.nodes, room.edges)
@@ -37,6 +52,7 @@ describe('IMAGE_ROOMS', () => {
       'lower-left-aisle',
       'middle-left-aisle',
       'upper-left-aisle',
+      'seat-front-left-stand',
       'approach:front-left',
     ])
     expect(path).not.toContain('entrance')

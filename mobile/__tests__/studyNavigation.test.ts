@@ -24,27 +24,26 @@ describe('Study navigation', () => {
     expect(homeSource).not.toContain("location.id === 'library'");
   });
 
-  it('loads only the packaged Android Study origin and never injects an auth token', () => {
+  it('loads the separate app-only Study website with a packaged fallback', () => {
     const source = read('src/screens/study/LibraryStudyWebView.tsx');
-    expect(source).toContain("const STUDY_ROOT = 'file:///android_asset/study-game/'");
-    expect(source).toContain("originWhitelist={['file://*']}");
-    expect(source).toContain('url.startsWith(STUDY_ROOT)');
+    expect(source).toContain('buildStudyEntryUrl');
+    expect(source).toContain('STUDY_PACKAGED_ROOT');
+    expect(source).toContain("originWhitelist={['https://radiotedu.com', 'file://*']}");
+    expect(source).toContain('isAllowedStudyNavigation');
     expect(source).toContain('allowFileAccessFromFileURLs={false}');
     expect(source).toContain('allowUniversalAccessFromFileURLs={false}');
     expect(source).toContain('mixedContentMode="never"');
     expect(source).toContain('thirdPartyCookiesEnabled={false}');
-    expect(source).not.toContain('access_token');
+    expect(source).toContain("AsyncStorage.getItem('access_token')");
     expect(source).not.toContain('refresh_token');
     expect(source).not.toContain('FOCUS_WEB_URL');
-    expect(source).not.toContain('http://');
-    expect(source).not.toContain('https://');
   });
 
-  it('injects only public account presentation and preserves the existing guest lock', () => {
+  it('injects the approved authenticated bridge and preserves the guest lock', () => {
     const source = read('src/screens/study/LibraryStudyWebView.tsx');
-    expect(source).toContain('RadioTEDUStudyAccount');
-    expect(source).toContain('displayName: user.display_name');
-    expect(source).toContain('globalPoints: Number(user.rank_score ?? 0)');
+    expect(source).toContain('createStudyWebViewBridge');
+    expect(source).toContain('apiBase: BASE_API');
+    expect(source).toContain('accessToken');
     expect(source).toContain('const isLocked = !user || user.is_guest');
     expect(source).toContain("navigation.navigate('Auth', {screen: 'Login'})");
   });

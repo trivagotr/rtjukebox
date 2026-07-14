@@ -90,7 +90,7 @@ ALTER TABLE study_session_events ADD COLUMN IF NOT EXISTS seat_id VARCHAR(120);
 
 CREATE TABLE IF NOT EXISTS avatar_items (
     item_id VARCHAR(80) PRIMARY KEY,
-    slot VARCHAR(20) NOT NULL CHECK (slot IN ('hair', 'top', 'bottom', 'shoes', 'accessory')),
+    slot VARCHAR(20) NOT NULL CHECK (slot IN ('hair', 'top', 'bottom', 'shoes', 'hat', 'accessory')),
     title VARCHAR(120) NOT NULL,
     cost_points INTEGER NOT NULL DEFAULT 0,
     rarity VARCHAR(20) NOT NULL DEFAULT 'common',
@@ -109,11 +109,20 @@ CREATE TABLE IF NOT EXISTS avatar_inventory (
 
 CREATE TABLE IF NOT EXISTS avatar_equipment (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    slot VARCHAR(20) NOT NULL CHECK (slot IN ('hair', 'top', 'bottom', 'shoes', 'accessory')),
+    slot VARCHAR(20) NOT NULL CHECK (slot IN ('hair', 'top', 'bottom', 'shoes', 'hat', 'accessory')),
     item_id VARCHAR(80) NOT NULL REFERENCES avatar_items(item_id) ON DELETE CASCADE,
     updated_at TIMESTAMP DEFAULT NOW(),
     PRIMARY KEY(user_id, slot)
 );
+
+ALTER TABLE avatar_items DROP CONSTRAINT IF EXISTS avatar_items_slot_check;
+ALTER TABLE avatar_items
+    ADD CONSTRAINT avatar_items_slot_check
+    CHECK (slot IN ('hair', 'top', 'bottom', 'shoes', 'hat', 'accessory'));
+ALTER TABLE avatar_equipment DROP CONSTRAINT IF EXISTS avatar_equipment_slot_check;
+ALTER TABLE avatar_equipment
+    ADD CONSTRAINT avatar_equipment_slot_check
+    CHECK (slot IN ('hair', 'top', 'bottom', 'shoes', 'hat', 'accessory'));
 
 INSERT INTO avatar_items (item_id, slot, title, cost_points, rarity, is_default, enabled)
 VALUES
@@ -122,7 +131,16 @@ VALUES
     ('default-bottom', 'bottom', 'Campus Jeans', 0, 'default', true, true),
     ('default-shoes', 'shoes', 'Campus Sneakers', 0, 'default', true, true),
     ('spark-hoodie', 'top', 'Spark Hoodie', 80, 'rare', false, true),
-    ('rock-pin', 'accessory', 'Rock Pin', 45, 'common', false, true)
+    ('rock-pin', 'accessory', 'Rock Pin', 45, 'common', false, true),
+    ('short-hair', 'hair', 'Short Hair', 0, 'default', true, true),
+    ('radio-hoodie', 'top', 'Radio Hoodie', 0, 'default', true, true),
+    ('varsity-jacket', 'top', 'Varsity Jacket', 80, 'rare', false, true),
+    ('jeans', 'bottom', 'Jeans', 0, 'default', true, true),
+    ('black-cargos', 'bottom', 'Black Cargos', 60, 'common', false, true),
+    ('sneakers', 'shoes', 'Sneakers', 0, 'default', true, true),
+    ('boots', 'shoes', 'Boots', 50, 'common', false, true),
+    ('bucket-hat', 'hat', 'Bucket Hat', 0, 'default', true, true),
+    ('beanie', 'hat', 'Beanie', 35, 'common', false, true)
 ON CONFLICT (item_id) DO NOTHING;
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS user_agent TEXT;
@@ -622,6 +640,7 @@ CREATE TABLE IF NOT EXISTS study_room_presence (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     room_id VARCHAR(80) NOT NULL DEFAULT 'sesli-kutuphane',
     day_key VARCHAR(10) NOT NULL,
+    node_id VARCHAR(120) NOT NULL DEFAULT 'spawn',
     avatar_style VARCHAR(80) NOT NULL DEFAULT 'classic-red',
     position_x INTEGER NOT NULL DEFAULT 6,
     position_y INTEGER NOT NULL DEFAULT 8,
@@ -637,10 +656,23 @@ CREATE TABLE IF NOT EXISTS study_room_presence (
     metadata JSONB DEFAULT '{}',
     updated_at TIMESTAMP DEFAULT NOW()
 );
+ALTER TABLE study_room_presence ADD COLUMN IF NOT EXISTS node_id VARCHAR(120) NOT NULL DEFAULT 'spawn';
 CREATE INDEX IF NOT EXISTS idx_study_room_presence_room_active ON study_room_presence(room_id, last_heartbeat_at DESC);
 CREATE INDEX IF NOT EXISTS idx_study_room_presence_room_seat_active ON study_room_presence(room_id, seat_id, last_heartbeat_at DESC);
 CREATE INDEX IF NOT EXISTS idx_study_room_presence_today ON study_room_presence(day_key, studied_seconds_today DESC);
 CREATE INDEX IF NOT EXISTS idx_study_room_presence_total ON study_room_presence(studied_seconds_total DESC);
+
+CREATE TABLE IF NOT EXISTS study_chat_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    room_id VARCHAR(40) NOT NULL CHECK (room_id IN ('library', 'chim-alan')),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message_text VARCHAR(180) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_study_chat_room_created
+    ON study_chat_messages(room_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_study_chat_user_created
+    ON study_chat_messages(user_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS user_profile_customization (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

@@ -149,10 +149,29 @@ function libraryRoomData(appSource, mapMask) {
   edges.push({ from: 'lower-right-aisle', to: 'right-spine-lower', kind: 'walk' })
   edges.push({ from: 'upper-center-aisle', to: 'middle-center-aisle', kind: 'walk' })
 
+  const baseNodes = [...nodes]
   const seats = chairTargets.map((seat) => {
     const approachNodeId = `approach:${seat.seatId}`
-    nodes.push({ id: approachNodeId, x: seat.standX, y: seat.standY, z: 0 })
-    const entryNodeId = walkableTiles[seat.entryTileId] ? seat.entryTileId : 'bottom-center-aisle'
+    const deltaX = ((seat.standX - seat.sitX) / 100) * mapMask.imageWidth
+    const deltaY = ((seat.standY - seat.sitY) / 100) * mapMask.imageHeight
+    const distance = Math.hypot(deltaX, deltaY)
+    const scale = distance > 56 ? 56 / distance : 1
+    const approach = {
+      id: approachNodeId,
+      x: seat.sitX + (seat.standX - seat.sitX) * scale,
+      y: seat.sitY + (seat.standY - seat.sitY) * scale,
+      z: 0,
+    }
+    nodes.push(approach)
+    const entryNodeId = baseNodes
+      .map((node) => ({
+        id: node.id,
+        distance: Math.hypot(
+          ((node.x - approach.x) / 100) * mapMask.imageWidth,
+          ((node.y - approach.y) / 100) * mapMask.imageHeight,
+        ),
+      }))
+      .sort((left, right) => left.distance - right.distance)[0]?.id ?? 'bottom-center-aisle'
     edges.push({ from: entryNodeId, to: approachNodeId, kind: 'walk' })
     return {
       id: seat.seatId,

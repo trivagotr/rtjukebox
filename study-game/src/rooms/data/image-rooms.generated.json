@@ -252,32 +252,32 @@
         },
         {
           "id": "approach:front-left",
-          "x": 42,
-          "y": 37.4,
+          "x": 44.49409408546949,
+          "y": 32.70872779161691,
           "z": 0
         },
         {
           "id": "approach:front-desk",
-          "x": 55,
-          "y": 45.2,
+          "x": 55.86245689764605,
+          "y": 43.25009744880025,
           "z": 0
         },
         {
           "id": "approach:front-right",
-          "x": 67,
-          "y": 45.7,
+          "x": 65.74669963395097,
+          "y": 40.12281337108178,
           "z": 0
         },
         {
           "id": "approach:lamp-left",
-          "x": 26,
-          "y": 53.2,
+          "x": 26.4276695900074,
+          "y": 47.945773608480515,
           "z": 0
         },
         {
           "id": "approach:lamp-desk",
-          "x": 31,
-          "y": 44.4,
+          "x": 31.5683319050183,
+          "y": 43.46793567576998,
           "z": 0
         },
         {
@@ -288,110 +288,110 @@
         },
         {
           "id": "approach:middle-left",
-          "x": 52,
-          "y": 70.4,
+          "x": 46.49104306874345,
+          "y": 67.42066614942247,
           "z": 0
         },
         {
           "id": "approach:middle-row",
-          "x": 60,
-          "y": 74.2,
+          "x": 52.701772968422375,
+          "y": 69.6789744052174,
           "z": 0
         },
         {
           "id": "approach:middle-right",
-          "x": 69,
-          "y": 74.6,
+          "x": 69.10824974736194,
+          "y": 70.6488842212892,
           "z": 0
         },
         {
           "id": "approach:lower-left",
-          "x": 33,
-          "y": 75,
+          "x": 34.891297944014084,
+          "y": 66.125448108857,
           "z": 0
         },
         {
           "id": "approach:lower-row",
-          "x": 43,
-          "y": 78.2,
+          "x": 51.67628381219475,
+          "y": 72.11260732531498,
           "z": 0
         },
         {
           "id": "approach:lower-right",
-          "x": 55,
-          "y": 80.4,
+          "x": 59.54513493935253,
+          "y": 74.75104657537614,
           "z": 0
         },
         {
           "id": "approach:upper-back-left",
-          "x": 54,
-          "y": 39,
+          "x": 49.31020948714079,
+          "y": 28.93964293209234,
           "z": 0
         },
         {
           "id": "approach:upper-back-mid",
-          "x": 54,
-          "y": 39,
+          "x": 54.21263683352546,
+          "y": 30.84892138152409,
           "z": 0
         },
         {
           "id": "approach:upper-back-right",
-          "x": 67,
-          "y": 45.7,
+          "x": 62.48175128795837,
+          "y": 34.170675700307555,
           "z": 0
         },
         {
           "id": "approach:upper-near-left",
-          "x": 42,
-          "y": 37.4,
+          "x": 41.84295798537466,
+          "y": 36.43531333873005,
           "z": 0
         },
         {
           "id": "approach:upper-near-mid",
-          "x": 55,
-          "y": 45.2,
+          "x": 52.229467476205365,
+          "y": 39.33678000778344,
           "z": 0
         },
         {
           "id": "approach:upper-near-right",
-          "x": 67,
-          "y": 45.7,
+          "x": 69.22674121184114,
+          "y": 43.797148418972114,
           "z": 0
         },
         {
           "id": "approach:middle-back-left",
-          "x": 31,
-          "y": 44.4,
+          "x": 29.91829991073385,
+          "y": 37.43655567534918,
           "z": 0
         },
         {
           "id": "approach:middle-back-mid-left",
-          "x": 31,
-          "y": 44.4,
+          "x": 33.295518957251744,
+          "y": 42.19110439962567,
           "z": 0
         },
         {
           "id": "approach:middle-back-mid-right",
-          "x": 45,
-          "y": 53,
+          "x": 44.217628119733824,
+          "y": 46.741024957870586,
           "z": 0
         },
         {
           "id": "approach:middle-back-right",
-          "x": 45,
-          "y": 53,
+          "x": 48.467524894156746,
+          "y": 50.23603088146926,
           "z": 0
         },
         {
           "id": "approach:middle-front-left-edge",
-          "x": 22,
-          "y": 51,
+          "x": 19.729356241863925,
+          "y": 44.38841964542731,
           "z": 0
         },
         {
           "id": "approach:middle-front-left",
-          "x": 26,
-          "y": 53.2,
+          "x": 25.41919146571287,
+          "y": 51.10908927656633,
           "z": 0
         },
         {
@@ -402,116 +402,116 @@
         },
         {
           "id": "approach:middle-front-right",
-          "x": 45,
-          "y": 56.8,
+          "x": 44.10096627773403,
+          "y": 56.733894579245145,
           "z": 0
         },
         {
           "id": "approach:middle-front-far-right",
-          "x": 45,
-          "y": 56.8,
+          "x": 45.224440647121504,
+          "y": 57.10523928008524,
           "z": 0
         },
         {
           "id": "approach:left-lower-back-left",
-          "x": 22,
-          "y": 51,
+          "x": 10.463205641601522,
+          "y": 44.977648228005826,
           "z": 0
         },
         {
           "id": "approach:left-lower-back-mid",
-          "x": 22,
-          "y": 51,
+          "x": 19.349705601161645,
+          "y": 50.34560632127448,
           "z": 0
         },
         {
           "id": "approach:left-lower-back-right",
-          "x": 23,
-          "y": 65,
+          "x": 21.731382901100133,
+          "y": 57.0359037680175,
           "z": 0
         },
         {
           "id": "approach:left-lower-front-left",
-          "x": 12,
-          "y": 72,
+          "x": 7.938233567448461,
+          "y": 59.09791839071864,
           "z": 0
         },
         {
           "id": "approach:left-lower-front-mid",
-          "x": 23,
-          "y": 65,
+          "x": 20.01613501166253,
+          "y": 63.40588034869642,
           "z": 0
         },
         {
           "id": "approach:left-lower-front-right",
-          "x": 28,
-          "y": 78,
+          "x": 25.72863276378255,
+          "y": 69.90825422097532,
           "z": 0
         },
         {
           "id": "approach:left-edge-back",
-          "x": 12,
-          "y": 72,
+          "x": 2.0334325126493282,
+          "y": 43.087975397054805,
           "z": 0
         },
         {
           "id": "approach:left-edge-front",
-          "x": 12,
-          "y": 72,
+          "x": 4.257604203279394,
+          "y": 65.03894689836129,
           "z": 0
         },
         {
           "id": "approach:right-mid-back-left",
-          "x": 71,
-          "y": 66,
+          "x": 63.939871872419644,
+          "y": 53.002945946954334,
           "z": 0
         },
         {
           "id": "approach:right-mid-back-mid",
-          "x": 71,
-          "y": 66,
+          "x": 68.59855448596643,
+          "y": 56.01899208229797,
           "z": 0
         },
         {
           "id": "approach:right-mid-back-right",
-          "x": 82,
-          "y": 58,
+          "x": 81.93485955918764,
+          "y": 57.96884587613322,
           "z": 0
         },
         {
           "id": "approach:right-mid-front-left",
-          "x": 66,
-          "y": 72,
+          "x": 59.570372372173864,
+          "y": 64.79316463694212,
           "z": 0
         },
         {
           "id": "approach:right-mid-front-mid",
-          "x": 66,
-          "y": 72,
+          "x": 65.92176658622708,
+          "y": 69.84858112124473,
           "z": 0
         },
         {
           "id": "approach:right-mid-front-right",
-          "x": 66,
-          "y": 72,
+          "x": 68.29379299349019,
+          "y": 71.47066315534842,
           "z": 0
         },
         {
           "id": "approach:bottom-back-left",
-          "x": 43,
-          "y": 78.2,
+          "x": 39.71886637818519,
+          "y": 63.024756999106515,
           "z": 0
         },
         {
           "id": "approach:bottom-back-mid-left",
-          "x": 43,
-          "y": 78.2,
+          "x": 48.108308737125334,
+          "y": 69.0938844251244,
           "z": 0
         },
         {
           "id": "approach:bottom-back-mid-right",
-          "x": 55,
-          "y": 80.4,
+          "x": 57.33867491651633,
+          "y": 73.78489095042524,
           "z": 0
         },
         {
@@ -522,8 +522,8 @@
         },
         {
           "id": "approach:bottom-front-left",
-          "x": 43,
-          "y": 78.2,
+          "x": 37.718131559506254,
+          "y": 71.83467136658446,
           "z": 0
         },
         {
@@ -540,20 +540,20 @@
         },
         {
           "id": "approach:bottom-front-right",
-          "x": 55,
-          "y": 80.4,
+          "x": 60.26748176754603,
+          "y": 84.24703724596058,
           "z": 0
         },
         {
           "id": "approach:far-left-partial-back",
-          "x": 12,
-          "y": 72,
+          "x": 2.7865341205933607,
+          "y": 57.35717029880016,
           "z": 0
         },
         {
           "id": "approach:far-left-partial-front",
-          "x": 12,
-          "y": 72,
+          "x": 11.567691277407718,
+          "y": 71.86104362488105,
           "z": 0
         }
       ],
@@ -845,7 +845,7 @@
         },
         {
           "from": "approach:front-left",
-          "to": "upper-left-aisle",
+          "to": "seat-front-left-stand",
           "kind": "walk"
         },
         {
@@ -855,62 +855,62 @@
         },
         {
           "from": "approach:front-right",
-          "to": "upper-right-aisle",
+          "to": "seat-front-right-stand",
           "kind": "walk"
         },
         {
           "from": "approach:lamp-left",
-          "to": "middle-left-aisle",
+          "to": "seat-lamp-desk-stand",
           "kind": "walk"
         },
         {
           "from": "approach:lamp-desk",
-          "to": "upper-center-aisle",
+          "to": "seat-lamp-desk-stand",
           "kind": "walk"
         },
         {
           "from": "approach:lamp-right",
-          "to": "middle-center-aisle",
+          "to": "seat-lamp-right-stand",
           "kind": "walk"
         },
         {
           "from": "approach:middle-left",
-          "to": "lower-center-aisle",
+          "to": "seat-middle-left-stand",
           "kind": "walk"
         },
         {
           "from": "approach:middle-row",
-          "to": "lower-center-aisle",
+          "to": "seat-middle-left-stand",
           "kind": "walk"
         },
         {
           "from": "approach:middle-right",
-          "to": "lower-right-aisle",
+          "to": "seat-middle-right-stand",
           "kind": "walk"
         },
         {
           "from": "approach:lower-left",
-          "to": "bottom-left-aisle",
+          "to": "lower-left-aisle",
           "kind": "walk"
         },
         {
           "from": "approach:lower-row",
-          "to": "bottom-left-aisle",
+          "to": "seat-middle-left-stand",
           "kind": "walk"
         },
         {
           "from": "approach:lower-right",
-          "to": "bottom-right-aisle",
+          "to": "seat-middle-row-stand",
           "kind": "walk"
         },
         {
           "from": "approach:upper-back-left",
-          "to": "upper-center-aisle",
+          "to": "seat-front-left-stand",
           "kind": "walk"
         },
         {
           "from": "approach:upper-back-mid",
-          "to": "upper-center-aisle",
+          "to": "seat-front-left-stand",
           "kind": "walk"
         },
         {
@@ -920,7 +920,7 @@
         },
         {
           "from": "approach:upper-near-left",
-          "to": "upper-left-aisle",
+          "to": "seat-front-left-stand",
           "kind": "walk"
         },
         {
@@ -930,7 +930,7 @@
         },
         {
           "from": "approach:upper-near-right",
-          "to": "upper-right-aisle",
+          "to": "seat-front-right-stand",
           "kind": "walk"
         },
         {
@@ -940,7 +940,7 @@
         },
         {
           "from": "approach:middle-back-mid-left",
-          "to": "upper-left-aisle",
+          "to": "seat-lamp-desk-stand",
           "kind": "walk"
         },
         {
@@ -950,52 +950,52 @@
         },
         {
           "from": "approach:middle-back-right",
-          "to": "middle-center-aisle",
+          "to": "seat-front-desk-stand",
           "kind": "walk"
         },
         {
           "from": "approach:middle-front-left-edge",
-          "to": "middle-left-aisle",
+          "to": "seat-lamp-desk-stand",
           "kind": "walk"
         },
         {
           "from": "approach:middle-front-left",
-          "to": "middle-left-aisle",
+          "to": "seat-lamp-left-stand",
           "kind": "walk"
         },
         {
           "from": "approach:middle-front-mid",
-          "to": "middle-left-aisle",
+          "to": "seat-lamp-left-stand",
           "kind": "walk"
         },
         {
           "from": "approach:middle-front-right",
-          "to": "middle-center-aisle",
+          "to": "seat-lamp-right-stand",
           "kind": "walk"
         },
         {
           "from": "approach:middle-front-far-right",
-          "to": "middle-center-aisle",
+          "to": "seat-lamp-right-stand",
           "kind": "walk"
         },
         {
           "from": "approach:left-lower-back-left",
-          "to": "middle-left-aisle",
+          "to": "seat-lamp-desk-stand",
           "kind": "walk"
         },
         {
           "from": "approach:left-lower-back-mid",
-          "to": "middle-left-aisle",
+          "to": "seat-lamp-left-stand",
           "kind": "walk"
         },
         {
           "from": "approach:left-lower-back-right",
-          "to": "lower-left-aisle",
+          "to": "middle-left-aisle",
           "kind": "walk"
         },
         {
           "from": "approach:left-lower-front-left",
-          "to": "left-lower-turn",
+          "to": "middle-open-aisle",
           "kind": "walk"
         },
         {
@@ -1005,12 +1005,12 @@
         },
         {
           "from": "approach:left-lower-front-right",
-          "to": "bottom-left-aisle",
+          "to": "lower-left-aisle",
           "kind": "walk"
         },
         {
           "from": "approach:left-edge-back",
-          "to": "left-lower-turn",
+          "to": "seat-lamp-desk-stand",
           "kind": "walk"
         },
         {
@@ -1020,12 +1020,12 @@
         },
         {
           "from": "approach:right-mid-back-left",
-          "to": "lower-right-aisle",
+          "to": "right-mid-link-c",
           "kind": "walk"
         },
         {
           "from": "approach:right-mid-back-mid",
-          "to": "lower-right-aisle",
+          "to": "middle-right-aisle",
           "kind": "walk"
         },
         {
@@ -1035,62 +1035,62 @@
         },
         {
           "from": "approach:right-mid-front-left",
-          "to": "bottom-right-aisle",
+          "to": "seat-middle-left-stand",
           "kind": "walk"
         },
         {
           "from": "approach:right-mid-front-mid",
-          "to": "bottom-right-aisle",
+          "to": "seat-middle-right-stand",
           "kind": "walk"
         },
         {
           "from": "approach:right-mid-front-right",
-          "to": "bottom-right-aisle",
+          "to": "seat-middle-right-stand",
           "kind": "walk"
         },
         {
           "from": "approach:bottom-back-left",
-          "to": "bottom-center-aisle",
+          "to": "seat-lamp-right-stand",
           "kind": "walk"
         },
         {
           "from": "approach:bottom-back-mid-left",
-          "to": "bottom-center-aisle",
+          "to": "seat-middle-left-stand",
           "kind": "walk"
         },
         {
           "from": "approach:bottom-back-mid-right",
-          "to": "bottom-right-aisle",
+          "to": "seat-middle-row-stand",
           "kind": "walk"
         },
         {
           "from": "approach:bottom-back-right",
-          "to": "bottom-right-aisle",
+          "to": "seat-middle-right-stand",
           "kind": "walk"
         },
         {
           "from": "approach:bottom-front-left",
-          "to": "bottom-center-aisle",
+          "to": "seat-lower-left-stand",
           "kind": "walk"
         },
         {
           "from": "approach:bottom-front-mid-left",
-          "to": "bottom-left-aisle",
+          "to": "seat-lower-row-stand",
           "kind": "walk"
         },
         {
           "from": "approach:bottom-front-mid-right",
-          "to": "bottom-right-aisle",
+          "to": "seat-lower-right-stand",
           "kind": "walk"
         },
         {
           "from": "approach:bottom-front-right",
-          "to": "bottom-right-aisle",
+          "to": "seat-lower-right-stand",
           "kind": "walk"
         },
         {
           "from": "approach:far-left-partial-back",
-          "to": "left-lower-turn",
+          "to": "middle-open-aisle",
           "kind": "walk"
         },
         {

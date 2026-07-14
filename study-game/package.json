@@ -14,6 +14,7 @@
     "generate:rooms": "node scripts/generate-image-room-data.mjs"
   },
   "dependencies": {
+    "lucide": "^1.24.0",
     "phaser": "4.2.1",
     "phaser4-rex-plugins": "4.2.0"
   },

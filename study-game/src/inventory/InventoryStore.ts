@@ -7,6 +7,9 @@ export interface KeyValueStorage {
 export type InventoryState = 'locked' | 'owned' | 'equipped'
 
 type PersistedInventory = { owned: string[]; equipped: Partial<Record<WardrobeSlot, string>> }
+export interface InventoryStoreOptions {
+  authoritativeEquipped?: readonly string[]
+}
 const KEY = 'study-game.inventory'
 
 function parsePersistedInventory(value: string | null, fallbackOwned: readonly string[]): PersistedInventory {
@@ -27,10 +30,18 @@ export class InventoryStore {
   readonly catalog: WearableCatalog
   private readonly owned: Set<string>
   private readonly equipped: Partial<Record<WardrobeSlot, string>>
-  constructor(catalog: WearableCatalog, storage: KeyValueStorage, initialOwned: readonly string[]) {
+  constructor(
+    catalog: WearableCatalog,
+    storage: KeyValueStorage,
+    initialOwned: readonly string[],
+    options: InventoryStoreOptions = {},
+  ) {
     this.catalog = catalog; this.storage = storage
     const saved = storage.getItem(KEY)
-    const parsed = parsePersistedInventory(saved, initialOwned)
+    const hasAuthoritativeInventory = options.authoritativeEquipped !== undefined
+    const parsed = hasAuthoritativeInventory
+      ? { owned: [...initialOwned], equipped: {} }
+      : parsePersistedInventory(saved, initialOwned)
     this.owned = new Set(parsed.owned.filter((id) => this.catalog.findById(id)))
     this.equipped = Object.fromEntries(
       Object.entries(parsed.equipped).filter(([slot, id]) => {
@@ -38,6 +49,11 @@ export class InventoryStore {
         return item?.slot === slot && this.owned.has(id)
       }),
     )
+    for (const id of options.authoritativeEquipped ?? []) {
+      const item = this.catalog.findById(id)
+      if (item && this.owned.has(id)) this.equipped[item.slot] = id
+    }
+    if (hasAuthoritativeInventory) this.persist()
   }
   state(id: string): InventoryState {
     if (Object.values(this.equipped).includes(id)) return 'equipped'

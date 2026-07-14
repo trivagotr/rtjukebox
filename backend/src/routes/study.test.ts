@@ -445,4 +445,170 @@ describe('study router', () => {
     expect(mockSendError).toHaveBeenCalledWith({}, 'Avatar item is not owned', 403);
     expect(mockDbQuery).toHaveBeenCalledTimes(1);
   });
+
+  it('returns server-computed daily monthly and all-time Study seconds', async () => {
+    const handler = mockRouteHandlers.get['/summary'];
+    expect(handler).toBeTypeOf('function');
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [{ today_seconds: '600', month_seconds: '3600', total_seconds: '7200' }],
+    });
+
+    await handler({ user: { id: 'user-1', role: 'user' } }, {});
+
+    expect(mockDbQuery.mock.calls[0][0]).toContain('SUM(eligible_seconds)');
+    expect(mockDbQuery.mock.calls[0][1]).toEqual(['user-1']);
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      { todaySeconds: 600, monthSeconds: 3600, totalSeconds: 7200 },
+      'Study summary fetched',
+    );
+  });
+
+  it('does not count focused heartbeats unless the avatar is seated in a real seat', async () => {
+    const handler = mockRouteHandlers.post['/sessions/:id/heartbeat'];
+    mockDbQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'session-1', user_id: 'user-1', location: 'library', status: 'active',
+          current_nonce_hash: hashStudyNonce('server-nonce'),
+          last_heartbeat_at: new Date(Date.now() - 60_000),
+          valid_heartbeat_count: 2, eligible_seconds: 120,
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'session-1', location: 'library', status: 'active', last_heartbeat_at: 'now' }],
+      });
+
+    await handler(
+      {
+        params: { id: 'session-1' },
+        body: {
+          nonce: 'server-nonce', focused: true, foreground: true,
+          position: { x: 5, y: 6 }, interaction: 'walking', seat_id: 'front-left',
+        },
+        user: { id: 'user-1', role: 'user' },
+      },
+      {},
+    );
+
+    expect(mockDbQuery.mock.calls[2][1][1]).toBe(0);
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ accepted_seconds: 0 }),
+      'Study heartbeat accepted',
+    );
+  });
+
+  it('upserts authenticated room presence without trusting elapsed seconds', async () => {
+    const handler = mockRouteHandlers.post['/presence/heartbeat'];
+    expect(handler).toBeTypeOf('function');
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [{
+        user_id: 'user-1', room_id: 'library', node_id: 'front-left', seat_id: 'front-left',
+        position_x: 4, position_y: 8, last_heartbeat_at: 'now',
+      }],
+    });
+
+    await handler(
+      {
+        body: {
+          roomId: 'library', nodeId: 'front-left', seatId: 'front-left',
+          position: { x: 4, y: 8 }, studiedSecondsToday: 999999,
+        },
+        user: { id: 'user-1', role: 'user' },
+      },
+      {},
+    );
+
+    expect(mockDbQuery.mock.calls[0][0]).toContain('INSERT INTO study_room_presence');
+    expect(mockDbQuery.mock.calls[0][0]).not.toMatch(/studied_seconds_today\s*=\s*\$\d+/);
+    expect(mockDbQuery.mock.calls[0][1]).toEqual(['user-1', 'library', 'front-left', 4, 8, 'front-left']);
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ presence: expect.objectContaining({ roomId: 'library', seatId: 'front-left' }) }),
+      'Study presence updated',
+    );
+  });
+
+  it('rejects invalid snake-case presence seat identifiers', async () => {
+    const handler = mockRouteHandlers.post['/presence/heartbeat'];
+
+    await handler(
+      {
+        body: {
+          room_id: 'library', node_id: 'front-left', seat_id: '../invalid',
+          position: { x: 4, y: 8 },
+        },
+        user: { id: 'user-1', role: 'user' },
+      },
+      {},
+    );
+
+    expect(mockDbQuery).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith({}, 'Invalid Study presence payload', 400);
+  });
+
+  it('normalizes and stores registered-user chat with a server timestamp', async () => {
+    const handler = mockRouteHandlers.post['/chat'];
+    expect(handler).toBeTypeOf('function');
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [{
+        id: 'message-1', user_id: 'user-1', display_name: 'Ada', room_id: 'library',
+        message_text: 'Hello Study', created_at: 'now',
+      }],
+    });
+
+    await handler(
+      { body: { roomId: 'library', text: '  Hello   Study  ' }, user: { id: 'user-1', role: 'user' } },
+      {},
+    );
+
+    expect(mockDbQuery).toHaveBeenCalledTimes(1);
+    expect(mockDbQuery.mock.calls[0][0]).toContain('pg_try_advisory_xact_lock');
+    expect(mockDbQuery.mock.calls[0][0]).toContain('WHERE acquired AND recent_count < $5');
+    expect(mockDbQuery.mock.calls[0][1]).toEqual([
+      'library', 'user-1', 'Hello Study', 10, 5,
+    ]);
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      { message: expect.objectContaining({ id: 'message-1', text: 'Hello Study', displayName: 'Ada' }) },
+      'Study message sent',
+      undefined,
+      201,
+    );
+  });
+
+  it('returns 429 when the atomic chat insert is denied by the rate limit', async () => {
+    const handler = mockRouteHandlers.post['/chat'];
+    mockDbQuery.mockResolvedValueOnce({ rows: [] });
+
+    await handler(
+      { body: { roomId: 'library', text: 'Too fast' }, user: { id: 'user-1', role: 'user' } },
+      {},
+    );
+
+    expect(mockDbQuery).toHaveBeenCalledTimes(1);
+    expect(mockSendError).toHaveBeenCalledWith({}, 'Study chat rate limit exceeded', 429);
+    expect(mockSendSuccess).not.toHaveBeenCalled();
+  });
+
+  it('accepts the hat slot for owned avatar equipment', async () => {
+    const handler = mockRouteHandlers.post['/avatar/equip'];
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [{ item_id: 'bucket-hat' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await handler(
+      { body: { slot: 'hat', itemId: 'bucket-hat' }, user: { id: 'user-1', role: 'user' } },
+      {},
+    );
+
+    expect(mockDbQuery.mock.calls[1][1]).toEqual(['user-1', 'hat', 'bucket-hat']);
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      { equipped: { hat: 'bucket-hat' } },
+      'Avatar item equipped',
+    );
+  });
 });

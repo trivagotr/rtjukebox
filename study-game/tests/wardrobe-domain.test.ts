@@ -75,4 +75,26 @@ describe('wardrobe domain', () => {
     expect(store.state('short-hair')).toBe('owned')
     expect(() => controller.unequip('hair')).toThrow(/required/i)
   })
+
+  it('lets authoritative server inventory replace stale local equipment', () => {
+    const catalog = new WearableCatalog([
+      item('cap', 'hat'), item('hoodie'), item('jacket'),
+    ])
+    const values = storage()
+    values.setItem(
+      'study-game.inventory',
+      JSON.stringify({
+        owned: ['cap', 'hoodie'],
+        equipped: {hat: 'cap', top: 'hoodie'},
+      }),
+    )
+
+    const store = new InventoryStore(catalog, values, ['cap', 'jacket'], {
+      authoritativeEquipped: ['cap', 'jacket'],
+    })
+
+    expect(store.equippedId('hat')).toBe('cap')
+    expect(store.equippedId('top')).toBe('jacket')
+    expect(store.state('hoodie')).toBe('locked')
+  })
 })

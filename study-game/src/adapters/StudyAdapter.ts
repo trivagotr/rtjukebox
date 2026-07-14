@@ -20,6 +20,7 @@ export interface StudyPresence {
   nodeId: string
   seatId: string | null
   color: number
+  equippedWearableIds?: readonly string[]
 }
 
 export interface StudyChatMessage {
@@ -43,15 +44,42 @@ export interface StudySession {
   equippedWearableIds: readonly string[]
 }
 
+export interface StudyTimeSummary {
+  todaySeconds: number
+  monthSeconds: number
+  totalSeconds: number
+}
+
+export interface StudyHeartbeatInput {
+  roomId: StudyRoomId
+  nodeId: string
+  seatId: string | null
+  position: { x: number; y: number }
+  interaction: 'idle' | 'walking' | 'seated' | 'spark' | 'rock'
+  focused: boolean
+  foreground: boolean
+}
+
+export type Awaitable<T> = T | Promise<T>
+
 export interface StudyAdapter {
+  readonly authoritativeInventory?: boolean
   session(): StudySession
   presence(roomId: StudyRoomId): readonly StudyPresence[]
-  enterRoom(roomId: StudyRoomId, nodeId: string): void
-  reserveSeat(roomId: StudyRoomId, seatId: string): StudySeatReservation
-  releaseSeat(): void
-  equipWearable(id: string): StudySession
-  purchaseWearable(id: string, idempotencyKey: string): StudySession
-  sendChat(text: string): StudyChatMessage
+  enterRoom(roomId: StudyRoomId, nodeId: string): Awaitable<void>
+  reserveSeat(roomId: StudyRoomId, seatId: string): Awaitable<StudySeatReservation>
+  releaseSeat(): Awaitable<void>
+  equipWearable(id: string, slot?: string): Awaitable<StudySession>
+  purchaseWearable(id: string, idempotencyKey: string): Awaitable<StudySession>
+  sendChat(text: string, roomId?: StudyRoomId): Awaitable<StudyChatMessage>
+  initialize?(): Promise<void>
+  refreshPresence?(roomId: StudyRoomId): Promise<readonly StudyPresence[]>
+  refreshChat?(roomId: StudyRoomId): Promise<readonly StudyChatMessage[]>
+  heartbeatPresence?(input: Omit<StudyHeartbeatInput, 'interaction' | 'focused' | 'foreground'>): Promise<void>
+  startStudySession?(roomId: StudyRoomId, clientSessionId: string): Promise<void>
+  heartbeatStudySession?(input: StudyHeartbeatInput): Promise<number>
+  finishStudySession?(): Promise<StudyTimeSummary>
+  fetchSummary?(): Promise<StudyTimeSummary>
 }
 
 export class StudyAdapterError extends Error {

@@ -3,12 +3,13 @@ import BoardPlugin from 'phaser4-rex-plugins/plugins/board-plugin.js'
 
 import type { StudyAdapter } from '../adapters/StudyAdapter'
 import type { ImageRoomId } from '../rooms/ImageRoomDefinition'
+import type { StudySessionTracker } from '../session/StudySessionTracker'
 import { EngineProofScene } from './EngineProofScene'
 import { ImageRoomScene } from './ImageRoomScene'
 
 export type StudyGameMode = 'study' | 'engine-proof'
 
-export function createStudyGame(parent = 'game-canvas', mode: StudyGameMode = 'study', adapter?: StudyAdapter, initialRoom: ImageRoomId = 'library'): Phaser.Game {
+export function createStudyGame(parent = 'game-canvas', mode: StudyGameMode = 'study', adapter?: StudyAdapter, initialRoom: ImageRoomId = 'library', sessionTracker?: StudySessionTracker): Phaser.Game {
   const width = mode === 'engine-proof' ? 1100 : 941
   const height = 760
   return new Phaser.Game({
@@ -25,7 +26,7 @@ export function createStudyGame(parent = 'game-canvas', mode: StudyGameMode = 's
       width,
       height,
     },
-    scene: mode === 'engine-proof' ? [EngineProofScene] : [new ImageRoomScene(adapter, initialRoom)],
+    scene: mode === 'engine-proof' ? [EngineProofScene] : [new ImageRoomScene(adapter, initialRoom, sessionTracker)],
     plugins: {
       scene: [
         {

@@ -3,10 +3,12 @@ import {
   type StudyAdapter,
   type StudyAccount,
   type StudyChatMessage,
+  type StudyHeartbeatInput,
   type StudyPresence,
   type StudyRoomId,
   type StudySeatReservation,
   type StudySession,
+  type StudyTimeSummary,
 } from './StudyAdapter'
 
 const OWNED = Object.freeze([
@@ -36,10 +38,13 @@ export class LocalStudyAdapter implements StudyAdapter {
   readonly #globalPoints: number
   readonly #equipped = new Set<string>()
   readonly #chatTimestamps: number[] = []
+  readonly #messages: StudyChatMessage[] = []
   #activeSeat: StudySeatReservation | null = null
   #activeRoom: StudyRoomId = 'library'
   #activeNodeId = 'spawn'
   #messageSequence = 0
+  #activeStudyStartedAt: number | null = null
+  #summary: StudyTimeSummary = { todaySeconds: 0, monthSeconds: 0, totalSeconds: 0 }
 
   constructor(options: LocalStudyAdapterOptions = {}) {
     this.#now = options.now ?? Date.now
@@ -52,7 +57,7 @@ export class LocalStudyAdapter implements StudyAdapter {
   session(): StudySession {
     return {
       account: this.#account,
-      points: { global: this.#globalPoints, studyToday: 0, dailyCap: 60, authoritative: false },
+      points: { global: this.#globalPoints, studyToday: Math.floor(this.#summary.todaySeconds / 60), dailyCap: 25, authoritative: false },
       ownedWearableIds: OWNED,
       equippedWearableIds: [...this.#equipped],
     }
@@ -102,12 +107,51 @@ export class LocalStudyAdapter implements StudyAdapter {
     while (this.#chatTimestamps.length && now - this.#chatTimestamps[0]! >= this.#chatWindowMs) this.#chatTimestamps.shift()
     if (this.#chatTimestamps.length >= this.#chatLimit) throw new StudyAdapterError('CHAT_RATE_LIMITED')
     this.#chatTimestamps.push(now)
-    return {
+    const message = {
       id: `local-message-${++this.#messageSequence}`,
-      userId: 'local-student',
-      displayName: 'TEDU Student',
+      userId: this.#account.id,
+      displayName: this.#account.displayName,
       text: normalized,
       createdAt: now,
     }
+    this.#messages.push(message)
+    return message
+  }
+
+  async startStudySession(): Promise<void> {
+    this.#activeStudyStartedAt = this.#now()
+  }
+
+  async heartbeatStudySession(input: StudyHeartbeatInput): Promise<number> {
+    return input.focused && input.foreground && this.#activeStudyStartedAt !== null ? 10 : 0
+  }
+
+  async finishStudySession(): Promise<StudyTimeSummary> {
+    if (this.#activeStudyStartedAt !== null) {
+      const seconds = Math.max(0, Math.floor((this.#now() - this.#activeStudyStartedAt) / 1_000))
+      this.#summary = {
+        todaySeconds: this.#summary.todaySeconds + seconds,
+        monthSeconds: this.#summary.monthSeconds + seconds,
+        totalSeconds: this.#summary.totalSeconds + seconds,
+      }
+      this.#activeStudyStartedAt = null
+    }
+    return { ...this.#summary }
+  }
+
+  async fetchSummary(): Promise<StudyTimeSummary> {
+    return { ...this.#summary }
+  }
+
+  async refreshPresence(roomId: StudyRoomId): Promise<readonly StudyPresence[]> {
+    return this.presence(roomId)
+  }
+
+  async refreshChat(): Promise<readonly StudyChatMessage[]> {
+    return [...this.#messages]
+  }
+
+  async heartbeatPresence(): Promise<void> {
+    // The local adapter has no shared server; its deterministic actors remain static.
   }
 }

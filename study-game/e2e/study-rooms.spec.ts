@@ -74,3 +74,79 @@ test('opens the requested packaged-app room directly', async ({ page }) => {
   await expect(page.locator('html')).toHaveAttribute('data-room-id', 'chim-alan')
   await expect(page.getByRole('tab', { name: 'Cim Alan' })).toHaveAttribute('aria-selected', 'true')
 })
+
+test('redirects an active walk to the latest destination without teleporting', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('html')).toHaveAttribute('data-study-ready', 'true', { timeout: 30_000 })
+
+  await page.evaluate(() => { void window.__STUDY_GAME_APP__.walkToNode('upper-center-aisle') })
+  await expect(page.locator('html')).toHaveAttribute('data-game-state', 'walking', { timeout: 10_000 })
+  await page.waitForTimeout(250)
+
+  const redirected = page.evaluate(() => window.__STUDY_GAME_APP__.walkToNode('bottom-right-aisle'))
+  const positions: Array<{ x: number; y: number; at: number }> = []
+  for (let sample = 0; sample < 14; sample += 1) {
+    positions.push(await page.evaluate(() => ({
+      ...window.__STUDY_GAME_APP__.snapshot().position,
+      at: performance.now(),
+    })))
+    await page.waitForTimeout(50)
+  }
+  await redirected
+  await expect(page.locator('html')).toHaveAttribute('data-game-state', 'ready', { timeout: 20_000 })
+
+  const finalSnapshot = await page.evaluate(() => window.__STUDY_GAME_APP__.snapshot())
+  const maxSpeed = Math.max(...positions.slice(1).map((position, index) => (
+    Math.hypot(position.x - positions[index]!.x, position.y - positions[index]!.y)
+    / ((position.at - positions[index]!.at) / 1_000)
+  )))
+  expect(finalSnapshot.nodeId).toBe('bottom-right-aisle')
+  expect(maxSpeed).toBeLessThan(500)
+})
+
+test('runs a seated Study timer and supports player interactions from the HUD', async ({ page }, testInfo) => {
+  test.setTimeout(90_000)
+  await page.goto('/')
+  await expect(page.locator('html')).toHaveAttribute('data-study-ready', 'true', { timeout: 30_000 })
+
+  if (testInfo.project.name === 'mobile-chromium') {
+    const viewport = page.viewportSize()!
+    const gameBounds = await page.locator('#game-canvas').boundingBox()
+    const chatBounds = await page.locator('.chat-dock').boundingBox()
+
+    expect(gameBounds?.y).toBeLessThanOrEqual(1)
+    expect(gameBounds?.height).toBeGreaterThanOrEqual(viewport.height - 1)
+    expect(chatBounds?.x).toBeGreaterThanOrEqual(6)
+    expect(chatBounds?.width).toBeLessThan(viewport.width)
+    expect(chatBounds?.height).toBeLessThanOrEqual(68)
+    await expect(page.getByTestId('people-toggle').locator('svg.lucide-users-round')).toBeVisible()
+    await expect(page.getByTestId('wardrobe-toggle').locator('svg.lucide-shirt')).toBeVisible()
+  }
+
+  await page.getByTestId('people-toggle').click()
+  await page.getByTestId('presence-local-selin').click()
+  await expect(page.getByTestId('player-card')).toBeVisible()
+  if (testInfo.project.name === 'mobile-chromium') {
+    await expect(page.locator('#presence-panel')).toBeHidden()
+  }
+  await expect(page.getByTestId('player-card')).toContainText('Selin')
+  await page.getByTestId('player-wave').click()
+  await expect(page.getByTestId('chat-log')).toContainText('waves to Selin')
+  await page.screenshot({ path: path.join(artifactDir, `${testInfo.project.name}-08-player-card.png`) })
+  await page.getByRole('tab', { name: 'Cim Alan' }).click()
+  await expect(page.getByTestId('player-card')).toBeHidden()
+  await page.getByRole('tab', { name: 'Library' }).click()
+  await page.getByTestId('people-toggle').click()
+
+  await page.evaluate(() => window.__STUDY_GAME_APP__.walkToSeat('front-left'))
+  await expect(page.locator('html')).toHaveAttribute('data-game-state', 'seated', { timeout: 30_000 })
+  await expect(page.getByTestId('study-timer')).toHaveAttribute('data-running', 'true')
+  await page.waitForTimeout(1_100)
+  await expect(page.getByTestId('study-timer')).not.toHaveText('00:00:00')
+  await expect(page.getByTestId('study-summary')).toContainText('Today')
+  await expect(page.getByTestId('study-summary')).toContainText('Month')
+  await page.screenshot({ path: path.join(artifactDir, `${testInfo.project.name}-09-study-timer.png`) })
+
+  await page.evaluate(() => window.__STUDY_GAME_APP__.stand())
+  await expect(page.getByTestId('study-timer')).toHaveAttribute('data-running', 'false')
+})
