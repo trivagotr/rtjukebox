@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { ActivityIndicator, StatusBar, View } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, getStateFromPath } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import TrackPlayer, { Capability } from 'react-native-track-player';
 import { RootNavigator } from './src/navigation/RootNavigator';
@@ -22,14 +22,17 @@ import ConsentScreen from './src/screens/ConsentScreen';
 import { Analytics, setAnalyticsConsent } from './src/services/analyticsService';
 import { startListeningTracker } from './src/services/listeningTracker';
 import { initCarBridge, pushCarCatalog } from './src/services/carBridge';
+import {normalizeJukeLocalAppPath} from './src/services/jukeLocalWebViewService';
 
 const linking: any = {
   prefixes: ['radiotedu://', 'https://radiotedu.com', 'https://radiotedu.com/jukebox'],
+  getStateFromPath: (path: string, options: any) =>
+    getStateFromPath(normalizeJukeLocalAppPath(path), options),
   config: {
     screens: {
       MainTabs: {
         screens: {
-          Jukebox: 'jukebox/:deviceCode',
+          Jukebox: 'jukebox/:deviceCode?',
         },
       },
       Events: 'events/qr/:qrCode',
