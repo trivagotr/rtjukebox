@@ -1,6 +1,6 @@
 import './styles.css'
 
-import { createIcons, Hand, Send, Shirt, UsersRound, X } from 'lucide'
+import { createIcons, Hand, MessageCircle, Send, Shirt, UsersRound, X } from 'lucide'
 import { LocalStudyAdapter } from './adapters/LocalStudyAdapter'
 import { RadioTEDUStudyAdapter } from './adapters/RadioTEDUStudyAdapter'
 import type { StudyAccount, StudyAdapter, StudyChatMessage, StudyPresence, StudyRoomId, StudySession, StudyTimeSummary } from './adapters/StudyAdapter'
@@ -8,6 +8,7 @@ import { createStudyGame } from './game/StudyGame'
 import type { ImageRoomId } from './rooms/ImageRoomDefinition'
 import { StudySessionTracker, type StudySessionSnapshot, type StudySessionTransport } from './session/StudySessionTracker'
 import { applyStudyRoomResponse } from './chat/StudyChatCoordinator'
+import { HudPanelState, type HudPanelName } from './ui/HudPanelState'
 
 const ui = document.querySelector<HTMLElement>('#game-ui')
 if (!ui) throw new Error('Study game UI root is missing')
@@ -44,9 +45,9 @@ async function bootStudy(secureBridge: ReturnType<typeof readSecureBridge>) {
   renderStudyShell(session)
 
   const tracker = createSessionTracker(adapter)
-  bindPanels()
+  const panels = bindPanels()
   bindChat(adapter)
-  bindPresence(adapter)
+  bindPresence(adapter, panels)
   bindAttention(tracker)
   bindStudyClock(tracker, adapter)
 
@@ -66,7 +67,7 @@ function renderEngineProof() {
 
 function renderStudyShell(session: StudySession) {
   ui!.innerHTML = `
-    <header class="study-bar">
+    <header class="study-bar" data-study-ui>
       <div class="study-brand" aria-label="RadioTEDU Study"><strong>RadioTEDU</strong><span>STUDY</span></div>
       <nav class="room-tabs" role="tablist" aria-label="Study rooms">
         <button type="button" role="tab" data-room-id="library" aria-selected="true">Library</button>
@@ -81,15 +82,16 @@ function renderStudyShell(session: StudySession) {
       </section>
       <div class="account-chip" aria-label="Signed-in account"><span class="presence-dot"></span><strong id="account-name"></strong></div>
       <div class="point-balance" aria-label="Gold balance"><span>Gold</span><strong id="point-balance"></strong></div>
-      <button id="people-toggle" data-testid="people-toggle" class="command-button" type="button" aria-label="People" title="People" aria-expanded="false" aria-controls="presence-panel"><i data-lucide="users-round" aria-hidden="true"></i><span class="button-label">People</span><strong id="people-count">0</strong></button>
-      <button id="wardrobe-toggle" data-testid="wardrobe-toggle" class="command-button" type="button" aria-label="Wardrobe" title="Wardrobe" aria-expanded="false" aria-controls="wardrobe-panel"><i data-lucide="shirt" aria-hidden="true"></i><span class="button-label">Wardrobe</span></button>
+       <button id="chat-toggle" data-hud-toggle="chat" class="command-button" type="button" aria-label="Chat" title="Chat" aria-expanded="false" aria-controls="chat-panel"><i data-lucide="message-circle" aria-hidden="true"></i><span class="button-label">Chat</span></button>
+       <button id="people-toggle" data-hud-toggle="people" data-testid="people-toggle" class="command-button" type="button" aria-label="People" title="People" aria-expanded="false" aria-controls="presence-panel"><i data-lucide="users-round" aria-hidden="true"></i><span class="button-label">People</span><strong id="people-count">0</strong></button>
+       <button id="wardrobe-toggle" data-hud-toggle="wardrobe" data-testid="wardrobe-toggle" class="command-button" type="button" aria-label="Wardrobe" title="Wardrobe" aria-expanded="false" aria-controls="wardrobe-panel"><i data-lucide="shirt" aria-hidden="true"></i><span class="button-label">Wardrobe</span></button>
     </header>
-    <aside id="presence-panel" class="presence-panel" aria-label="People in this room" hidden>
-      <header><strong>People</strong><button id="presence-close" class="close-button" type="button" aria-label="Close people panel"><i data-lucide="x" aria-hidden="true"></i></button></header>
+    <aside id="presence-panel" class="hud-sheet presence-panel" data-hud-panel="people" data-study-ui aria-label="People in this room" hidden>
+      <header><strong>People</strong><button id="presence-close" data-hud-close class="close-button" type="button" aria-label="Close people panel"><i data-lucide="x" aria-hidden="true"></i></button></header>
       <div id="player-list" class="player-list"></div>
     </aside>
-    <aside id="wardrobe-panel" class="wardrobe-panel" aria-label="Wardrobe" hidden>
-      <header><strong>Wardrobe</strong><button id="wardrobe-close" class="close-button" type="button" aria-label="Close wardrobe"><i data-lucide="x" aria-hidden="true"></i></button></header>
+    <aside id="wardrobe-panel" class="hud-sheet wardrobe-panel" data-hud-panel="wardrobe" data-study-ui aria-label="Wardrobe" hidden>
+      <header><strong>Wardrobe</strong><button id="wardrobe-close" data-hud-close class="close-button" type="button" aria-label="Close wardrobe"><i data-lucide="x" aria-hidden="true"></i></button></header>
       <section><h2>Top</h2><div class="wearable-grid">
         <button data-testid="wearable-radio-hoodie" data-slot="top" data-wearable-id="radio-hoodie" type="button"><i class="swatch swatch-teal"></i><span>Radio Hoodie<small>Included</small></span></button>
         <button data-testid="wearable-varsity-jacket" data-slot="top" data-wearable-id="varsity-jacket" type="button"><i class="swatch swatch-red"></i><span>Varsity<small>80 Gold</small></span></button>
@@ -107,19 +109,20 @@ function renderStudyShell(session: StudySession) {
         <button data-testid="wearable-beanie" data-slot="hat" data-wearable-id="beanie" type="button"><i class="swatch swatch-plum"></i><span>Beanie<small>35 Gold</small></span></button>
       </div></section>
     </aside>
-    <aside id="player-card" class="player-card" data-testid="player-card" aria-label="Player" hidden>
-      <button id="player-card-close" class="close-button" type="button" aria-label="Close player"><i data-lucide="x" aria-hidden="true"></i></button>
+    <aside id="player-card" class="hud-sheet player-card" data-hud-panel="profile" data-study-ui data-testid="player-card" aria-label="Player" hidden>
+      <button id="player-card-close" data-hud-close class="close-button" type="button" aria-label="Close player"><i data-lucide="x" aria-hidden="true"></i></button>
       <span class="player-card-avatar" aria-hidden="true"></span>
       <strong id="player-card-name"></strong>
       <small id="player-card-status">Studying</small>
       <button id="player-wave" data-testid="player-wave" class="command-button" type="button"><i data-lucide="hand" aria-hidden="true"></i><span>Wave</span></button>
     </aside>
-    <footer class="chat-dock">
+    <aside id="chat-panel" class="hud-sheet chat-dock" data-hud-panel="chat" data-study-ui aria-label="Chat" hidden>
+      <header><strong>Chat</strong><button id="chat-close" data-hud-close class="close-button" type="button" aria-label="Close chat"><i data-lucide="x" aria-hidden="true"></i></button></header>
       <div id="chat-log" data-testid="chat-log" class="chat-log" aria-live="polite"><span><strong>RadioTEDU</strong> Welcome to Study.</span></div>
       <form id="chat-form"><input id="chat-input" maxlength="180" autocomplete="off" placeholder="Say something..." aria-label="Chat message" /><button type="submit" aria-label="Send" title="Send"><i data-lucide="send" aria-hidden="true"></i><span class="button-label">Send</span></button></form>
-    </footer>
+    </aside>
   `
-  createIcons({ icons: { Hand, Send, Shirt, UsersRound, X } })
+  createIcons({ icons: { Hand, MessageCircle, Send, Shirt, UsersRound, X } })
   document.querySelector('#account-name')!.textContent = session.account.displayName
   document.querySelector('#point-balance')!.textContent = String(session.points.global)
 }
@@ -186,23 +189,40 @@ function isSessionTransport(adapter: StudyAdapter): adapter is StudyAdapter & St
     && typeof adapter.finishStudySession === 'function'
 }
 
-function bindPanels() {
-  bindPanel('wardrobe-toggle', 'wardrobe-panel', 'wardrobe-close')
-  bindPanel('people-toggle', 'presence-panel', 'presence-close')
-  document.querySelector('#player-card-close')?.addEventListener('click', () => {
-    document.querySelector<HTMLElement>('#player-card')!.hidden = true
-  })
-}
+type BoundHudPanels = Readonly<{
+  open(panel: HudPanelName): void
+  close(): void
+}>
 
-function bindPanel(toggleId: string, panelId: string, closeId: string) {
-  const panel = document.querySelector<HTMLElement>(`#${panelId}`)!
-  const toggle = document.querySelector<HTMLButtonElement>(`#${toggleId}`)!
-  const setOpen = (open: boolean) => {
-    panel.hidden = !open
-    toggle.setAttribute('aria-expanded', String(open))
+function bindPanels(): BoundHudPanels {
+  const state = new HudPanelState()
+  const render = () => {
+    const current = state.snapshot().current
+    document.documentElement.dataset.hudPanel = current
+    document.querySelectorAll<HTMLElement>('[data-hud-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.hudPanel !== current
+    })
+    document.querySelectorAll<HTMLButtonElement>('[data-hud-toggle]').forEach((toggle) => {
+      toggle.setAttribute('aria-expanded', state.expanded(toggle.dataset.hudToggle as HudPanelName))
+    })
   }
-  toggle.addEventListener('click', () => setOpen(panel.hasAttribute('hidden')))
-  document.querySelector(`#${closeId}`)?.addEventListener('click', () => setOpen(false))
+  document.querySelectorAll<HTMLButtonElement>('[data-hud-toggle]').forEach((toggle) => {
+    toggle.addEventListener('click', () => {
+      state.toggle(toggle.dataset.hudToggle as HudPanelName)
+      render()
+    })
+  })
+  document.querySelectorAll<HTMLButtonElement>('[data-hud-close]').forEach((close) => {
+    close.addEventListener('click', () => {
+      state.close()
+      render()
+    })
+  })
+  render()
+  return {
+    open: (panel) => { state.open(panel); render() },
+    close: () => { state.close(); render() },
+  }
 }
 
 function bindChat(adapter: StudyAdapter) {
@@ -256,17 +276,13 @@ function appendChatMessage(message: StudyChatMessage) {
   while (log && log.childElementCount > 4) log.firstElementChild?.remove()
 }
 
-function bindPresence(adapter: StudyAdapter) {
+function bindPresence(adapter: StudyAdapter, panels: BoundHudPanels) {
   let selected: StudyPresence | null = null
   const select = (presence: StudyPresence) => {
     selected = presence
     document.querySelector('#player-card-name')!.textContent = presence.displayName
     document.querySelector('#player-card-status')!.textContent = presence.seatId ? 'Studying at a seat' : 'In this room'
-    document.querySelector<HTMLElement>('#player-card')!.hidden = false
-    if (window.matchMedia('(max-width: 700px)').matches) {
-      document.querySelector<HTMLElement>('#presence-panel')!.hidden = true
-      document.querySelector<HTMLButtonElement>('#people-toggle')!.setAttribute('aria-expanded', 'false')
-    }
+    panels.open('profile')
   }
   const render = (presence: readonly StudyPresence[]) => {
     const list = document.querySelector<HTMLElement>('#player-list')!
@@ -298,7 +314,7 @@ function bindPresence(adapter: StudyAdapter) {
   })
   window.addEventListener('radiotedu:study-room-changed', () => {
     selected = null
-    document.querySelector<HTMLElement>('#player-card')!.hidden = true
+    panels.close()
     render(adapter.presence(currentRoomId()))
   })
   window.addEventListener('radiotedu:study-player-selected', (event) => {

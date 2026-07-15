@@ -613,3 +613,222 @@ button { cursor: pointer; }
   .chat-dock input { height: 40px; border: 0; background: transparent; }
   .chat-dock button { width: 40px; height: 40px; padding: 0; }
 }
+
+/* Unified touch-first HUD sheets. These late rules intentionally normalize the
+   older side panels without changing their stable DOM ids or test hooks. */
+.study-bar {
+  grid-template-columns: auto auto minmax(48px, 1fr) auto auto minmax(96px, auto) auto auto auto auto;
+  height: 58px;
+  padding-block: 5px;
+}
+
+.command-button,
+.close-button,
+.wearable-grid button,
+.player-list button,
+.chat-dock button { min-height: 44px; }
+
+.hud-sheet {
+  position: absolute;
+  z-index: 35;
+  top: auto;
+  right: 12px;
+  bottom: 12px;
+  left: auto;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(64dvh, 560px);
+  overflow: auto;
+  border: 1px solid #53605e;
+  border-radius: 12px;
+  background: rgba(18, 25, 28, 0.97);
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.48);
+  pointer-events: auto;
+  overscroll-behavior: contain;
+  backdrop-filter: blur(12px);
+}
+
+.hud-sheet[hidden] { display: none !important; }
+
+.hud-sheet > header {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  display: flex;
+  min-height: 48px;
+  padding: 0 8px 0 14px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #3f4b4c;
+  background: rgba(18, 26, 29, 0.98);
+}
+
+.close-button {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+}
+
+.presence-panel,
+.wardrobe-panel,
+.player-card,
+.chat-dock {
+  top: auto;
+  right: 12px;
+  bottom: 12px;
+  left: auto;
+  height: auto;
+}
+
+.player-card {
+  display: grid;
+  min-height: 156px;
+  overflow: visible;
+}
+
+.chat-dock {
+  display: grid;
+  width: min(560px, calc(100vw - 24px));
+  min-height: 220px;
+  padding: 0;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto minmax(88px, 1fr) auto;
+  gap: 0;
+  border-top: 1px solid #53605e;
+  background: rgba(18, 25, 28, 0.97);
+}
+
+.chat-dock .chat-log {
+  max-height: none;
+  padding: 12px 14px;
+  overflow-y: auto;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.chat-dock form {
+  padding: 10px;
+  border-top: 1px solid #3f4b4c;
+}
+
+.command-button:focus-visible,
+.close-button:focus-visible,
+.room-tabs button:focus-visible,
+.wearable-grid button:focus-visible,
+.player-list button:focus-visible {
+  outline: 3px solid #f2cf72;
+  outline-offset: 2px;
+}
+
+@media (max-width: 700px) {
+  .study-bar { height: 100%; }
+
+  #chat-toggle,
+  #people-toggle,
+  #wardrobe-toggle {
+    position: absolute;
+    top: auto;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    width: 48px;
+    height: 48px;
+    padding: 0;
+    border-radius: 14px;
+    background: rgba(23, 49, 44, 0.94);
+    box-shadow: 0 5px 16px rgba(0, 0, 0, 0.34);
+    transform: none;
+    backdrop-filter: blur(10px);
+  }
+
+  #chat-toggle { right: calc(50% + 32px); }
+  #people-toggle { right: calc(50% - 24px); }
+  #wardrobe-toggle { right: calc(50% - 80px); }
+
+  #chat-toggle .button-label,
+  #people-toggle .button-label,
+  #wardrobe-toggle .button-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .game-status {
+    top: max(54px, calc(env(safe-area-inset-top) + 54px));
+    right: auto;
+    left: max(8px, env(safe-area-inset-left));
+    transform: none;
+  }
+
+  .point-balance {
+    top: max(54px, calc(env(safe-area-inset-top) + 54px));
+    right: max(8px, env(safe-area-inset-right));
+    left: auto;
+  }
+
+  .hud-sheet,
+  .presence-panel,
+  .wardrobe-panel,
+  .player-card,
+  .chat-dock {
+    top: auto;
+    right: max(8px, env(safe-area-inset-right));
+    bottom: max(68px, calc(env(safe-area-inset-bottom) + 68px));
+    left: max(8px, env(safe-area-inset-left));
+    width: auto;
+    max-height: min(52dvh, 460px);
+    border-radius: 14px;
+  }
+
+  .presence-panel { height: min(42dvh, 330px); }
+  .wardrobe-panel { height: min(52dvh, 460px); }
+  .player-card { min-height: 136px; }
+
+  .chat-dock {
+    display: grid;
+    min-height: min(38dvh, 300px);
+    padding: 0;
+    grid-template-rows: auto minmax(72px, 1fr) auto;
+    gap: 0;
+    border: 1px solid #53605e;
+    background: rgba(18, 25, 28, 0.97);
+    pointer-events: auto;
+  }
+
+  .chat-dock .chat-log {
+    position: static;
+    max-width: none;
+    max-height: none;
+    padding: 10px 12px;
+    overflow-y: auto;
+  }
+
+  .chat-dock .chat-log span {
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .chat-dock form {
+    padding: 6px;
+    border: 0;
+    border-top: 1px solid #3f4b4c;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .chat-dock input { height: 44px; }
+  .chat-dock button { width: 44px; height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
