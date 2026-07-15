@@ -75,7 +75,7 @@ vi.mock('../utils/response', () => ({
   sendSuccess: mockSendSuccess,
 }));
 
-import './auth';
+import { createRefreshToken, getRefreshTokenHashInput } from './auth';
 
 function createReq(
   body: Record<string, unknown> = {},
@@ -105,6 +105,43 @@ describe('auth account lifecycle routes', () => {
     expect(mockRouteHandlers.post['/logout']).toBeTypeOf('function');
     expect(mockRouteHandlers.post['/logout-all']).toBeTypeOf('function');
     expect(mockRouteHandlers.delete['/account']).toBeTypeOf('function');
+  });
+
+  it('creates a different refresh token for each session even within the same second', () => {
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(1_750_000_000_000);
+
+    try {
+      const firstToken = createRefreshToken('user-1', 'student@gmail.com', 'user');
+      const secondToken = createRefreshToken('user-1', 'student@gmail.com', 'user');
+      const firstPayload = jwt.decode(firstToken) as jwt.JwtPayload;
+      const secondPayload = jwt.decode(secondToken) as jwt.JwtPayload;
+
+      expect(secondToken).not.toBe(firstToken);
+      expect(firstPayload.jti).toEqual(expect.any(String));
+      expect(secondPayload.jti).toEqual(expect.any(String));
+      expect(secondPayload.jti).not.toBe(firstPayload.jti);
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
+  it('hashes the full refresh token instead of bcrypt-truncating its shared prefix', async () => {
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(1_750_000_000_000);
+
+    try {
+      const firstToken = createRefreshToken('user-1', 'student@gmail.com', 'user');
+      const secondToken = createRefreshToken('user-1', 'student@gmail.com', 'user');
+      const firstHashInput = getRefreshTokenHashInput(firstToken);
+      const secondHashInput = getRefreshTokenHashInput(secondToken);
+      const storedHash = await bcrypt.hash(firstHashInput, 4);
+
+      expect(firstToken.slice(0, 72)).toBe(secondToken.slice(0, 72));
+      expect(firstHashInput).not.toBe(secondHashInput);
+      expect(await bcrypt.compare(firstHashInput, storedHash)).toBe(true);
+      expect(await bcrypt.compare(secondHashInput, storedHash)).toBe(false);
+    } finally {
+      dateNow.mockRestore();
+    }
   });
 
   it('revokes only the matching refresh-token session', async () => {

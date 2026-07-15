@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -18,6 +19,19 @@ const IS_TEST_ENV = process.env.NODE_ENV === 'test' || Boolean(process.env.VITES
 // In production these are asserted at startup (see server.ts). A deterministic
 // default is only allowed under tests so the suite can run without secrets.
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || (IS_TEST_ENV ? 'test-refresh-secret-key' : '');
+const REFRESH_TOKEN_HASH_PREFIX = 'sha256:';
+
+export function createRefreshToken(userId: string, email: string, role: string) {
+    return jwt.sign(
+        { id: userId, email, role },
+        JWT_REFRESH_SECRET,
+        { expiresIn: '30d', jwtid: crypto.randomUUID() }
+    );
+}
+
+export function getRefreshTokenHashInput(refreshToken: string) {
+    return crypto.createHash('sha256').update(refreshToken, 'utf8').digest('hex');
+}
 
 const registerSchema = z.object({
     email: z.string().email(),
@@ -94,13 +108,10 @@ async function createAuthSession(userId: string, email: string, role: string) {
         { expiresIn: '24h' }
     );
 
-    const refreshToken = jwt.sign(
-        { id: userId, email, role },
-        JWT_REFRESH_SECRET,
-        { expiresIn: '30d' }
-    );
+    const refreshToken = createRefreshToken(userId, email, role);
 
-    const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+    const refreshTokenHash = REFRESH_TOKEN_HASH_PREFIX
+        + await bcrypt.hash(getRefreshTokenHashInput(refreshToken), 10);
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30); // 30 days
 
@@ -127,8 +138,19 @@ async function findRefreshTokenSession(
         [userId]
     );
 
+    const decoded = jwt.decode(refreshToken) as jwt.JwtPayload | null;
+    const canUseLegacyHash = !decoded?.jti;
+    const hashInput = getRefreshTokenHashInput(refreshToken);
+
     for (const row of result.rows) {
-        if (await bcrypt.compare(refreshToken, row.token_hash)) {
+        const storedHash = String(row.token_hash ?? '');
+        const matchesCurrentHash = storedHash.startsWith(REFRESH_TOKEN_HASH_PREFIX)
+            && await bcrypt.compare(hashInput, storedHash.slice(REFRESH_TOKEN_HASH_PREFIX.length));
+        const matchesLegacyHash = canUseLegacyHash
+            && !storedHash.startsWith(REFRESH_TOKEN_HASH_PREFIX)
+            && await bcrypt.compare(refreshToken, storedHash);
+
+        if (matchesCurrentHash || matchesLegacyHash) {
             return row.id;
         }
     }
@@ -244,22 +266,9 @@ router.post('/refresh', async (req: Request, res: Response) => {
             JWT_REFRESH_SECRET
         ) as any;
 
-        // Verify token exists in DB
-        const result = await db.query(
-            'SELECT id, token_hash FROM refresh_tokens WHERE user_id = $1 AND expires_at > NOW()',
-            [decoded.id]
-        );
-
-        // Find match (tokens are rotated, so there might be multiple if handled incorrectly, 
-        // but here we rotate on match)
-        let matchedTokenId = null;
-        for (const row of result.rows) {
-            const isValid = await bcrypt.compare(refresh_token, row.token_hash);
-            if (isValid) {
-                matchedTokenId = row.id;
-                break;
-            }
-        }
+        const matchedTokenId = decoded.id
+            ? await findRefreshTokenSession(refresh_token, decoded.id)
+            : null;
 
         if (!matchedTokenId) {
             return sendError(res, 'Invalid or expired refresh token', 401);
