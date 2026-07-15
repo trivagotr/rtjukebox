@@ -78,7 +78,7 @@ projects plus two shared platform services:
 | Boundary | Existing mobile entry point | Server responsibility |
 | --- | --- | --- |
 | Juke-local / Jukebox project | `https://radiotedu.com/juke-local/controller/` | Jukebox controller WebView, QR workflow, and `/juke-local` resources only. |
-| Voting project | REST under `/jukebox/api/v1/next-song-voting` and Socket.IO path `/jukebox/socket.io` | Mobile-facing Voting adapter while preserving the Music PC information source. |
+| Voting project | Mobile WebView `https://radiotedu.com/vote/?embed=1`; website backend REST under `/jukebox/api/v1/next-song-voting` and Socket.IO path `/jukebox/socket.io` | Production Voting website and backend adapter while preserving the Music PC information source. |
 | Study project | `https://radiotedu.com/study/` and API `/jukebox/api/v1/study` | Authenticated Study game static release and Study API. |
 | Account platform | `/jukebox/api/v1/auth` and `/jukebox/api/v1/profile` | Shared identity, sessions, profile, logout, and account deletion. |
 | Gold economy | `user_points` and `points_ledger` | Shared authoritative Gold balance, award ledger, spend ledger, and replay protection. |
@@ -108,25 +108,38 @@ controller.
 - [ ] Do not rewrite Juke-local code unless a public-path adapter is strictly required for the fixed mobile WebView URL.
 - [ ] Do not restart or roll back Voting or Study merely to correct Juke-local routing.
 
-## 6. Voting mobile adapter and Music PC freeze rule
+## 6. Voting WebView adapter and Music PC freeze rule
 
-Voting is a separate project. The mobile app reads the active round with
-`GET /jukebox/api/v1/next-song-voting/rounds/active`, submits a vote with
-`POST /jukebox/api/v1/next-song-voting/rounds/{roundId}/votes`, and listens for
-live round changes on the `radiotedu.com` origin using Socket.IO path
-`/jukebox/socket.io`.
+Voting is a separate project. The released mobile app does not run a native
+Voting REST client, polling loop, Socket.IO client, local round, or fallback
+vote. Its fixed WebView URL is `https://radiotedu.com/vote/?embed=1`. The Voting
+website owns all round, vote, polling/live-update, and stream communication with
+the web server. The website may continue to use the existing backend
+`GET /jukebox/api/v1/next-song-voting/rounds/active`,
+`POST /jukebox/api/v1/next-song-voting/rounds/{roundId}/votes`, and Socket.IO
+path `/jukebox/socket.io`; do not move those backend paths into Juke-local.
 
 Do not change the structure where you get the information from Music PC when voting, if you can communicate to Music PC. Just change the way you communicate with the mobile app. If you can talk to that, do not change.
 
+- [ ] Deploy `GET https://radiotedu.com/vote/?embed=1` as the production Voting document with HTTP 200; it currently must not be a 404, directory listing, unrelated WordPress page, login redirect, or generic server error.
+- [ ] Preserve `/vote` and `/vote/` trailing-slash/query behavior so the exact mobile URL stays on HTTPS host `radiotedu.com` and exact pathname `/vote/`.
+- [ ] Keep the production `/jukebox` API base and `/jukebox/socket.io` path inside the Voting website; do not ask the native app to poll, open a socket, or submit a duplicate vote.
+- [ ] Install `window.__RADIOTEDU_SET_AUTH__` before declaring the Voting page ready. The setter must accept `{accessToken, user}`, keep it only in page runtime memory, update it when called again, and clear auth on `{accessToken:null,user:null}`.
+- [ ] After the auth setter exists, notify the native WebView with `window.ReactNativeWebView.postMessage(JSON.stringify({type:"radiotedu.voting.ready"}))`.
+- [ ] Never place the access token in a URL, query string, cookie, localStorage, sessionStorage, HTML, console output, analytics, access log, or crash report. Redact authorization headers from application and proxy logs.
+- [ ] After a successful website-owned vote, the page may post `{type:"radiotedu.voting.vote-recorded",roundId,candidateId}` for UI/analytics only; this message must not trigger another backend vote.
+- [ ] Render a normal embedded waiting state when the active-round response is HTTP 200 with `round: null` or the equivalent safe envelope. Do not turn “Aktif oylama oturumu yok” into a connection error.
+- [ ] Render active candidates and accurate locked, resolved, cancelled, 401, 403, 409, offline, timeout, and server-error states inside the Voting website without fabricating rounds or votes.
 - [ ] Identify and document the existing Music PC Voting information source, transport, process owner, and safe health check without changing its structure.
 - [ ] If the server can communicate with the Music PC source, leave that source, protocol, polling/subscription behavior, internal fields, and upstream ownership unchanged.
-- [ ] Restrict any Voting correction to the server-to-mobile adapter, public reverse-proxy route, CORS/upgrade handling, or response translation required by the existing mobile contract.
-- [ ] Verify unauthenticated and authenticated behavior of `GET /jukebox/api/v1/next-song-voting/rounds/active` matches the current mobile authorization policy.
-- [ ] Verify the active-round response preserves the fields already consumed by mobile, including the round identity, candidates, timing/state, and any current user vote state.
-- [ ] Verify `POST /jukebox/api/v1/next-song-voting/rounds/{roundId}/votes` accepts the current mobile JSON body and returns the current mobile response envelope.
+- [ ] Restrict any Voting correction to the `/vote/` website, public reverse-proxy route, backend-to-website adapter, CORS/upgrade handling, or response translation required by the fixed WebView contract.
+- [ ] Verify unauthenticated and authenticated behavior of `GET /jukebox/api/v1/next-song-voting/rounds/active` matches the website authorization policy.
+- [ ] Verify the active-round response preserves round identity, candidates, timing/state, and current user vote state in both camelCase and snake_case inputs expected by the Voting website.
+- [ ] Verify `POST /jukebox/api/v1/next-song-voting/rounds/{roundId}/votes` accepts the website JSON body and returns the website response envelope.
 - [ ] Verify duplicate, closed-round, invalid-candidate, guest, and expired-session vote errors remain explicit and do not become generic HTML responses.
-- [ ] Verify WebSocket upgrade headers, origin handling, namespace behavior, and Socket.IO path `/jukebox/socket.io` through the public proxy.
-- [ ] Verify at least one safe live or synthetic round update reaches a test client through the public Socket.IO path.
+- [ ] Verify WebSocket upgrade headers, same-origin handling, namespace behavior, and Socket.IO path `/jukebox/socket.io` through the public proxy for the website.
+- [ ] Verify at least one safe live or synthetic round update reaches the `/vote/` website through the public Socket.IO path.
+- [ ] Verify a mobile-sized WebView smoke can load `/vote/?embed=1`, exchange the ready/auth messages without logging a token, show `round: null` as waiting, render an active round, submit exactly one authorized vote, and receive a live update.
 - [ ] Verify Voting routes do not use the `/juke-local` controller, `/juke-local` API, or Juke-local QR workflow.
 - [ ] Do not change the Music PC software, Music PC database, Music PC file format, internal Voting source, or acquisition structure when communication already works.
 - [ ] Do not restart or roll back Juke-local or Study solely because the Voting mobile adapter changes.
@@ -293,7 +306,7 @@ tokens from output.
 ## 12. Independent public smoke checks and rollback decisions
 
 - [ ] Smoke Juke-local independently: controller status/content, static assets, one safe QR validation path, and its existing backend health.
-- [ ] Smoke Voting independently: active-round REST, one authorized validation path, Socket.IO connection/upgrade, and continued Music PC communication.
+- [ ] Smoke Voting independently: `/vote/?embed=1` HTTP 200, ready/auth bridge with redacted data, `round: null` waiting UI, active-round REST, exactly one authorized vote, Socket.IO connection/update inside the website, and continued Music PC communication.
 - [ ] Smoke Account independently: register/login/guest/refresh/me/logout/logout-all/deletion policy with redacted output.
 - [ ] Smoke Gold independently: balance read, one controlled award/spend replay test, non-negative invariant, and reconciliation.
 - [ ] Smoke Study independently: `/study/`, hashed assets, authenticated API, bridge gate, logical room allocation, instance-isolated presence/chat, quiz-answer interaction, session finish, avatar purchase, and Gold refresh.
@@ -315,7 +328,7 @@ tokens from output.
 - [ ] Report process-manager service/container names, active release paths, safe health status, and scoped restart/reload actions.
 - [ ] Report the database backup path, checksum, verified restore/listing result, migration result, and rollback/recovery path without credentials.
 - [ ] Report backend, Study, and prompt-verifier commands with exit codes and test totals.
-- [ ] Report each Juke-local, Voting, Account, Gold, and Study public smoke check with URL/path, method, status code, safe content type/shape, and owning upstream.
+- [ ] Report each Juke-local, Voting, Account, Gold, and Study public smoke check with URL/path, method, status code, safe content type/shape, and owning upstream; Voting must explicitly report `/vote/?embed=1`, ready/auth bridge, waiting UI, active candidates, one vote, and one live update without tokens.
 - [ ] Report the disposable end-to-end account flow with redacted identifiers and before/after Gold invariants.
 - [ ] Report Study room capacity/overflow results, assigned instance IDs, reconnect behavior, and cross-instance presence/chat isolation using only redacted disposable account identifiers.
 - [ ] Report that the Music PC Voting information source and acquisition structure were preserved, or leave this check blocked with the exact reason communication could not be verified.
