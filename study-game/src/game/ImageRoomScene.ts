@@ -826,10 +826,35 @@ export class ImageRoomScene extends Phaser.Scene {
       walkToSeat: (seatId) => this.walkToSeat(seatId),
       stand: () => this.stand(),
       equip: (slot, id) => this.equip(slot, id),
+      tapTargets: () => {
+        const camera = this.cameras.main
+        const accountId = this.#adapter.session().account.id
+        const screen = (world: { x: number; y: number }) => ({
+          x: camera.x + (world.x - camera.worldView.x) * camera.zoom,
+          y: camera.y + (world.y - camera.worldView.y) * camera.zoom,
+        })
+        return {
+          nodes: this.#room.nodes.map((node) => {
+            const world = roomPointToPixel(this.#room, node)
+            return { id: node.id, reachable: this.#nodeIsReachable(node.id), world, screen: screen(world) }
+          }),
+          seats: this.#room.seats.map((seat) => {
+            const world = roomPointToPixel(this.#room, seat.sit)
+            return {
+              id: seat.id,
+              reachable: this.#nodeIsReachable(seat.approachNodeId),
+              occupied: !this.#seatReservations.isAvailable(this.#roomId, seat.id, accountId),
+              world,
+              screen: screen(world),
+            }
+          }),
+        }
+      },
       snapshot: () => ({
         roomId: this.#roomId,
         state: this.#state,
         nodeId: this.#currentNodeId,
+        seatId: this.#seatedSeat?.id ?? null,
         position: { x: this.#avatar.x, y: this.#avatar.y },
         z: this.#seatedSeat?.sit.z ?? this.#graph.node(this.#currentNodeId)?.z ?? 0,
         hatId: this.#avatarController.appearance.hatId,
@@ -837,6 +862,10 @@ export class ImageRoomScene extends Phaser.Scene {
         sparkLabel: this.#room.actors.spark?.label ?? null,
         camera: {
           zoom: this.cameras.main.zoom,
+          x: this.cameras.main.x,
+          y: this.cameras.main.y,
+          worldViewX: this.cameras.main.worldView.x,
+          worldViewY: this.cameras.main.worldView.y,
           worldViewWidth: this.cameras.main.worldView.width,
           worldViewHeight: this.cameras.main.worldView.height,
         },
@@ -854,16 +883,40 @@ declare global {
       walkToSeat(seatId: string): Promise<void>
       stand(): Promise<void>
       equip(slot: WardrobeSlot, id: string): Promise<void>
+      tapTargets(): {
+        nodes: Array<{
+          id: string
+          reachable: boolean
+          world: { x: number; y: number }
+          screen: { x: number; y: number }
+        }>
+        seats: Array<{
+          id: string
+          reachable: boolean
+          occupied: boolean
+          world: { x: number; y: number }
+          screen: { x: number; y: number }
+        }>
+      }
       snapshot(): {
         roomId: ImageRoomId
         state: GameState
         nodeId: string
+        seatId: string | null
         position: { x: number; y: number }
         z: number
         hatId: string | null
         topId: string
         sparkLabel: string | null
-        camera: { zoom: number; worldViewWidth: number; worldViewHeight: number }
+        camera: {
+          zoom: number
+          x: number
+          y: number
+          worldViewX: number
+          worldViewY: number
+          worldViewWidth: number
+          worldViewHeight: number
+        }
         roomSize: { width: number; height: number }
       }
     }
