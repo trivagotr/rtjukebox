@@ -62,6 +62,69 @@
 
 ---
 
+### Task 0: Repair the Pre-existing Mobile Baseline
+
+**Files:**
+- Modify: `mobile/__tests__/config.test.ts`
+- Modify: `mobile/src/services/playbackQueue.ts`
+- Modify: `mobile/src/screens/next-song-vote/NextSongVoteScreen.tsx`
+- Create: `mobile/src/services/notificationService.ts`
+- Create: `mobile/src/services/networkQualityPolicy.ts`
+
+**Interfaces:**
+- Preserves the Focus and Social URL fields already consumed from `resolveApiConfig`.
+- Makes channel playback resolve unavailable quality before constructing a track.
+- Keeps Voting independent from Juke-local while requiring a registered Account.
+- Restores the tested notification and network-quality service contracts omitted during branch consolidation.
+
+- [ ] **Step 1: Verify the five baseline failures**
+
+Run the five suites independently and record the exact expected failures:
+`config.test.ts`, `radioChannels.test.ts`, `nextSongVoteNavigation.test.ts`,
+`notificationService.test.ts`, and `languageAndFlacReadiness.test.ts`.
+
+- [ ] **Step 2: Confirm root causes against history and working patterns**
+
+- Config expectations predate the consumed Focus/Social return fields.
+- `buildChannelTrack` bypasses `resolveStreamQuality`, and generic RadioTEDU
+  matching wins before Spark/Rock aliases.
+- Voting lost the registered-account `AuthGuard` used by the independent Social
+  screen.
+- Notification and network-quality tests were consolidated without the small
+  production service files already implemented on the source branch.
+
+- [ ] **Step 3: Apply one minimal fix per root cause**
+
+Update only the files listed above. Restore the two omitted services from their
+last complete implementations, use the existing AuthGuard pattern, resolve
+track quality before URL selection, and match specific mount aliases before
+the generic main-channel fallback.
+
+- [ ] **Step 4: Run the five focused suites**
+
+Run: `npm test -- --runInBand __tests__/config.test.ts __tests__/radioChannels.test.ts __tests__/nextSongVoteNavigation.test.ts __tests__/notificationService.test.ts __tests__/languageAndFlacReadiness.test.ts`
+
+Working directory: `mobile`
+
+Expected: 5 suites PASS.
+
+- [ ] **Step 5: Run the complete mobile baseline**
+
+Run: `npm test -- --runInBand`
+
+Working directory: `mobile`
+
+Expected: all mobile suites PASS before Account/Gold implementation starts.
+
+- [ ] **Step 6: Commit the baseline repair**
+
+```bash
+git add mobile/__tests__/config.test.ts mobile/src/services/playbackQueue.ts mobile/src/screens/next-song-vote/NextSongVoteScreen.tsx mobile/src/services/notificationService.ts mobile/src/services/networkQualityPolicy.ts docs/superpowers/plans/2026-07-15-account-gold-study-deployment-handoff.md
+git commit -m "fix(mobile): restore verified readiness baseline"
+```
+
+---
+
 ### Task 1: Add Gold Ledger Idempotency and Balance Invariants
 
 **Files:**

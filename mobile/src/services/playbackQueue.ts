@@ -14,6 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   RADIO_CHANNELS,
   RadioChannel,
+  resolveStreamQuality,
   StreamQuality,
 } from '../data/radioChannels';
 import type {Podcast} from './podcastService';
@@ -88,9 +89,10 @@ export function buildChannelTrack(
   channel: RadioChannel,
   quality: StreamQuality,
 ): Track {
+  const resolvedQuality = resolveStreamQuality(channel, quality);
   return {
     id: channel.id,
-    url: channelStreamUrl(channel, quality),
+    url: channelStreamUrl(channel, resolvedQuality),
     title: channel.name,
     artist: channel.description,
     artwork: channelArtwork(channel),
@@ -206,14 +208,29 @@ export async function replaceChannelTrack(
  * Falls back to the main channel when nothing matches so voice always plays.
  */
 export function findChannelByQuery(query: string): RadioChannel {
-  const normalized = query.trim().toLowerCase();
+  const normalizeVoiceText = (value: string) =>
+    value
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+
+  const normalized = normalizeVoiceText(query);
   if (normalized.length > 0) {
-    const match = RADIO_CHANNELS.find(channel => {
-      const haystack =
-        `${channel.name} ${channel.description}`.toLowerCase();
-      return (
-        haystack.includes(normalized) || normalized.includes(channel.name.toLowerCase())
-      );
+    const mainChannel = RADIO_CHANNELS[0];
+    const specificChannels = RADIO_CHANNELS.filter(channel => channel.id !== mainChannel.id);
+    const match = specificChannels.find(channel => {
+      const terms = [
+        channel.name,
+        channel.description,
+        channel.mountPath.replace(/^\//, ''),
+        channel.id.replace(/^radiotedu-/, ''),
+      ];
+      return terms.some(term => {
+        const normalizedTerm = normalizeVoiceText(term);
+        return normalizedTerm.length > 1 && normalized.includes(normalizedTerm);
+      });
     });
     if (match) {
       return match;
