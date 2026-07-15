@@ -16,6 +16,7 @@ import { AvatarController } from './AvatarController'
 import { AvatarActivityMachine, type ActivityToken } from './AvatarActivityMachine'
 import { calculateOverviewZoom } from './CameraFraming'
 import { buildMotionPath, sampleMotionPathAtTime, walkFrameAtDistance } from './PathMotion'
+import { resolveTouchIntent, type TouchWorldPoint } from './TouchIntentResolver'
 
 const ACTION_FRAMES: Record<AvatarAction, number> = { idle: 1, walk: 4, sit: 1, stand: 3 }
 const RENDERED_LAYERS: AvatarLayerSlot[] = ['body', 'skin', 'hair', 'top', 'bottom', 'shoes', 'hat']
@@ -92,6 +93,7 @@ export class ImageRoomScene extends Phaser.Scene {
   #roomObjects: Phaser.GameObjects.GameObject[] = []
   #seatForegroundObjects: Phaser.GameObjects.GameObject[] = []
   #socialObjects: Phaser.GameObjects.GameObject[] = []
+  #intentMarker: Phaser.GameObjects.GameObject | null = null
   #presenceRefreshBusy = false
   #presenceLoop: StudyPresenceLoop | null = null
   readonly #adapter: StudyAdapter
@@ -207,6 +209,7 @@ export class ImageRoomScene extends Phaser.Scene {
     this.#activity.cancel()
     this.#routeTween?.stop()
     this.#routeTween = null
+    this.#clearIntentMarker()
     this.tweens.killTweensOf([this.#avatar, this.#shadow])
     this.#clearRoomObjects()
     this.#roomId = roomId
@@ -630,31 +633,90 @@ export class ImageRoomScene extends Phaser.Scene {
     this.#syncHud()
   }
 
-  #nearestNode(worldX: number, worldY: number): NavigationNode | null {
-    let nearest: NavigationNode | null = null
-    let distance = Number.POSITIVE_INFINITY
-    for (const node of this.#room.nodes) {
-      const pixel = roomPointToPixel(this.#room, node)
-      const candidate = Math.hypot(pixel.x - worldX, pixel.y - worldY)
-      if (candidate < distance) {
-        nearest = node
-        distance = candidate
-      }
-    }
-    return distance <= 180 ? nearest : null
+  #nodeIsReachable(nodeId: string): boolean {
+    return nodeId === this.#currentNodeId || this.#graph.findPath(this.#currentNodeId, nodeId).length > 0
+  }
+
+  #clearIntentMarker(): void {
+    this.#intentMarker?.destroy()
+    this.#intentMarker = null
+  }
+
+  #showIntentMarker(target: TouchWorldPoint, kind: 'walk' | 'seat' | 'blocked'): void {
+    this.#clearIntentMarker()
+    const color = kind === 'blocked' ? 0xff6b6b : kind === 'seat' ? 0xffd166 : 0x6fffe9
+    const marker = kind === 'seat'
+      ? this.add.ellipse(target.x, target.y, 44, 22, color, 0.12).setStrokeStyle(3, color, 0.95)
+      : this.add.circle(target.x, target.y, kind === 'blocked' ? 13 : 10, color, 0.12).setStrokeStyle(3, color, 0.95)
+    marker.setDepth(99_500)
+    this.#intentMarker = marker
+    this.tweens.add({
+      targets: marker,
+      alpha: 0,
+      scaleX: kind === 'seat' ? 1.22 : 1.65,
+      scaleY: kind === 'seat' ? 1.22 : 1.65,
+      duration: kind === 'blocked' ? 420 : 620,
+      ease: 'Sine.easeOut',
+      onComplete: () => {
+        if (this.#intentMarker === marker) this.#intentMarker = null
+        marker.destroy()
+      },
+    })
   }
 
   #bindPointerMovement(): void {
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      const nearestSeat = [...this.#room.seats]
-        .map((seat) => ({ seat, pixel: roomPointToPixel(this.#room, seat.sit) }))
-        .sort((left, right) => Math.hypot(left.pixel.x - pointer.worldX, left.pixel.y - pointer.worldY) - Math.hypot(right.pixel.x - pointer.worldX, right.pixel.y - pointer.worldY))[0]
-      if (nearestSeat && Math.hypot(nearestSeat.pixel.x - pointer.worldX, nearestSeat.pixel.y - pointer.worldY) < 58) {
-        void this.walkToSeat(nearestSeat.seat.id).catch(() => this.#showActionError('SEAT UNAVAILABLE'))
+      const accountId = this.#adapter.session().account.id
+      const presence = this.#adapter.presence(this.#roomId)
+      const occupiedSeats = new Set(
+        presence.filter((person) => person.userId !== accountId && person.seatId).map((person) => person.seatId!),
+      )
+      const intent = resolveTouchIntent({
+        world: { x: pointer.worldX, y: pointer.worldY },
+        uiConsumed: pointer.event.target instanceof Element
+          && Boolean(pointer.event.target.closest('[data-study-ui]')),
+        seated: Boolean(this.#seatedSeat),
+        activeSeatIntentId: this.#activity.snapshot().activeSeatId,
+        nodes: this.#room.nodes.map((node) => ({
+          id: node.id,
+          ...roomPointToPixel(this.#room, node),
+          reachable: this.#nodeIsReachable(node.id),
+        })),
+        seats: this.#room.seats.map((seat) => ({
+          id: seat.id,
+          ...roomPointToPixel(this.#room, seat.sit),
+          reachable: this.#nodeIsReachable(seat.approachNodeId),
+          occupied: occupiedSeats.has(seat.id),
+        })),
+        players: presence.flatMap((person) => {
+          if (person.userId === accountId) return []
+          const seat = person.seatId ? this.#room.seats.find((candidate) => candidate.id === person.seatId) : null
+          const anchor = seat?.sit ?? this.#graph.node(person.nodeId)
+          return anchor ? [{ userId: person.userId, ...roomPointToPixel(this.#room, anchor) }] : []
+        }),
+      })
+
+      if (intent.kind === 'ignored') return
+      if (intent.kind === 'stand') {
+        this.#clearIntentMarker()
+        void this.stand()
         return
       }
-      const node = this.#nearestNode(pointer.worldX, pointer.worldY)
-      if (node) void this.#walkToNode(node.id)
+      if (intent.kind === 'interact-player') {
+        const selected = presence.find((person) => person.userId === intent.userId)
+        if (selected) window.dispatchEvent(new CustomEvent('radiotedu:study-player-selected', { detail: { presence: selected } }))
+        return
+      }
+      this.#showIntentMarker(intent.target, intent.kind === 'sit' ? 'seat' : intent.kind)
+      if (intent.kind === 'blocked') {
+        this.#showActionError(intent.reason === 'occupied-seat' ? 'KOLTUK DOLU' : 'YOL KAPALI')
+        return
+      }
+      if (intent.kind === 'sit') {
+        void this.walkToSeat(intent.seatId).catch(() => this.#showActionError('KOLTUK KULLANILAMIYOR'))
+        return
+      }
+      void this.#walkToNode(intent.nodeId)
     })
   }
 
