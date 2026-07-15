@@ -30,13 +30,32 @@ describe('AvatarController', () => {
 
     controller.applyMovement({ x: 6, y: -2 })
     expect(controller.action).toBe('walk')
-    expect(controller.direction).toBe('ne')
+    expect(controller.direction).toBe('e')
     expect(controller.appearance).toBe(originalAppearance)
 
     controller.applyMovement({ x: 0, y: 0 })
     expect(controller.action).toBe('idle')
-    expect(controller.direction).toBe('ne')
+    expect(controller.direction).toBe('e')
     expect(controller.appearance).toBe(originalAppearance)
+  })
+
+  it('uses angular hysteresis so tiny motion jitter does not flip direction rows', () => {
+    const controller = new AvatarController(DEFAULT_AVATAR_ASSET_MANIFEST, BASE_APPEARANCE)
+
+    controller.applyMovement({ x: 10, y: 0 })
+    expect(controller.direction).toBe('e')
+
+    controller.applyMovement({ x: 10, y: 4 })
+    expect(controller.direction).toBe('e')
+
+    controller.applyMovement({ x: 10, y: 7 })
+    expect(controller.direction).toBe('se')
+
+    controller.applyMovement({ x: 10, y: 4 })
+    expect(controller.direction).toBe('se')
+
+    controller.applyMovement({ x: 10, y: 1 })
+    expect(controller.direction).toBe('e')
   })
 
   it('handles sit -> stand transitions without mutating appearance', () => {

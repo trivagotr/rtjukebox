@@ -21,23 +21,40 @@ function isMoving(delta: MovementDelta): boolean {
   return delta.x !== 0 || delta.y !== 0
 }
 
+const DIRECTION_BY_SECTOR: readonly Direction8[] = ['e', 'se', 's', 'sw', 'w', 'nw', 'n', 'ne']
+const DIRECTION_ANGLE: Readonly<Record<Direction8, number>> = {
+  e: 0,
+  se: 45,
+  s: 90,
+  sw: 135,
+  w: 180,
+  nw: 225,
+  n: 270,
+  ne: 315,
+}
+const DIRECTION_HYSTERESIS_DEGREES = 7.5
+
+function normalizedDegrees(value: number): number {
+  return ((value % 360) + 360) % 360
+}
+
+function angularDistance(left: number, right: number): number {
+  const difference = Math.abs(normalizedDegrees(left) - normalizedDegrees(right))
+  return Math.min(difference, 360 - difference)
+}
+
 function directionFromDelta(delta: MovementDelta, previous: Direction8): Direction8 {
   if (!isMoving(delta)) {
     return previous
   }
 
-  const horizontal = delta.x > 0 ? 'e' : 'w'
-  const vertical = delta.y > 0 ? 's' : 'n'
+  const angle = normalizedDegrees((Math.atan2(delta.y, delta.x) * 180) / Math.PI)
+  const sector = Math.round(angle / 45) % DIRECTION_BY_SECTOR.length
+  const candidate = DIRECTION_BY_SECTOR[sector]!
+  if (candidate === previous) return previous
 
-  if (delta.x === 0) {
-    return vertical
-  }
-
-  if (delta.y === 0) {
-    return horizontal
-  }
-
-  return `${vertical}${horizontal}` as Direction8
+  const previousDistance = angularDistance(angle, DIRECTION_ANGLE[previous])
+  return previousDistance <= 22.5 + DIRECTION_HYSTERESIS_DEGREES ? previous : candidate
 }
 
 function updateAppearanceSlot(

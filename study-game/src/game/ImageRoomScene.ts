@@ -15,13 +15,15 @@ import { StudyPresenceLoop } from '../session/StudyPresenceLoop'
 import { AvatarController } from './AvatarController'
 import { AvatarActivityMachine, type ActivityToken } from './AvatarActivityMachine'
 import { calculateOverviewZoom } from './CameraFraming'
-import { buildMotionPath, sampleMotionPath } from './PathMotion'
+import { buildMotionPath, sampleMotionPathAtTime, walkFrameAtDistance } from './PathMotion'
 
 const ACTION_FRAMES: Record<AvatarAction, number> = { idle: 1, walk: 4, sit: 1, stand: 3 }
 const RENDERED_LAYERS: AvatarLayerSlot[] = ['body', 'skin', 'hair', 'top', 'bottom', 'shoes', 'hat']
 const ASSET_BASE = `${import.meta.env.BASE_URL}assets/avatars/engine-proof`
 const ROOM_BASE = import.meta.env.BASE_URL
 const SUPPORTED_ITEMS = ['short-hair', 'radio-hoodie', 'varsity-jacket', 'jeans', 'black-cargos', 'sneakers', 'boots', 'bucket-hat', 'beanie'] as const
+const AVATAR_WALK_SPEED = 280
+const AVATAR_WALK_STRIDE = 18
 
 type GameState = 'ready' | 'walking' | 'stair' | 'sitting' | 'seated' | 'standing' | 'spark' | 'rock'
 
@@ -422,21 +424,22 @@ export class ImageRoomScene extends Phaser.Scene {
     }
     const motion = buildMotionPath(routePoints)
     if (motion.totalLength === 0) return
-    const travel = { distance: 0 }
+    const durationMs = (motion.totalLength / AVATAR_WALK_SPEED) * 1_000
+    const travel = { elapsedMs: 0 }
     let activeSegmentIndex = -1
     const updateMotion = () => {
-      const sample = sampleMotionPath(motion, travel.distance)
+      const sample = sampleMotionPathAtTime(motion, travel.elapsedMs, AVATAR_WALK_SPEED)
       if (sample.segmentIndex !== activeSegmentIndex) {
         activeSegmentIndex = sample.segmentIndex
         this.#activeSegmentFromId = this.#graph.node(sample.from.id) ? sample.from.id : this.#currentNodeId
         this.#activeSegmentToId = this.#graph.node(sample.to.id) ? sample.to.id : this.#currentNodeId
         if (this.#graph.node(sample.from.id)) this.#currentNodeId = sample.from.id
-        this.#avatarController.applyMovement({ x: sample.to.x - sample.from.x, y: sample.to.y - sample.from.y })
+        this.#avatarController.applyMovement(sample.direction)
         this.#setState(sample.from.z !== sample.to.z ? 'stair' : 'walking')
       }
       this.#avatar.setPosition(sample.x, sample.y)
       this.#shadow.setPosition(sample.x, sample.y + 5)
-      this.#updateAvatarFrame(Math.floor(travel.distance / 18) % ACTION_FRAMES.walk)
+      this.#updateAvatarFrame(walkFrameAtDistance(sample.distance, ACTION_FRAMES.walk, AVATAR_WALK_STRIDE))
       this.#setAvatarDepth((sample.y / this.#room.image.height) * 100)
     }
     updateMotion()
@@ -444,8 +447,8 @@ export class ImageRoomScene extends Phaser.Scene {
       let routeTween!: Phaser.Tweens.Tween
       routeTween = this.tweens.add({
         targets: travel,
-        distance: motion.totalLength,
-        duration: Phaser.Math.Clamp(Math.round(motion.totalLength * 3.2), 320, 8_000),
+        elapsedMs: durationMs,
+        duration: durationMs,
         ease: 'Linear',
         onUpdate: () => {
           if (!this.#activity.isCurrent(activityToken)) {
