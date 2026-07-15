@@ -27,12 +27,20 @@ describe('InteractionController', () => {
     })
   })
 
-  it('only enters sitting after reaching the exact approach tile', () => {
+  it('aligns at the exact approach tile before entering sitting', () => {
     const controller = new InteractionController()
     controller.beginSit(seat)
 
     expect(() => controller.arriveAtApproach({ x: 6, y: 8, z: 0 })).toThrow(/approach tile/i)
     expect(controller.arriveAtApproach({ x: 7, y: 8, z: 0 })).toEqual({
+      action: 'align',
+      direction: 'ne',
+      anchor: { x: 2, y: -14 },
+      seatTile: { x: 8, y: 7, z: 1 },
+    })
+    expect(controller.phase).toBe('aligning')
+
+    expect(controller.completeAlignment()).toEqual({
       action: 'sit',
       direction: 'ne',
       anchor: { x: 2, y: -14 },
@@ -45,6 +53,7 @@ describe('InteractionController', () => {
     const controller = new InteractionController()
     controller.beginSit(seat)
     controller.arriveAtApproach(seat.approach)
+    controller.completeAlignment()
 
     expect(controller.beginStand()).toEqual({
       action: 'stand',
@@ -64,5 +73,16 @@ describe('InteractionController', () => {
 
     controller.beginSit(seat)
     expect(() => controller.beginSit({ ...seat, id: 'another-seat' })).toThrow(/interaction/i)
+  })
+
+  it('can cancel an approach or alignment without retaining the seat', () => {
+    const controller = new InteractionController()
+    controller.beginSit(seat)
+    controller.arriveAtApproach(seat.approach)
+
+    controller.cancel()
+
+    expect(controller.phase).toBe('idle')
+    expect(controller.activeSeatId).toBeNull()
   })
 })

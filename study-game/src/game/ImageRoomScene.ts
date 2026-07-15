@@ -16,6 +16,7 @@ import { AvatarController } from './AvatarController'
 import { AvatarActivityMachine, type ActivityToken } from './AvatarActivityMachine'
 import { calculateOverviewZoom } from './CameraFraming'
 import { buildMotionPath, sampleMotionPathAtTime, walkFrameAtDistance } from './PathMotion'
+import { SeatReservationBook } from './SeatReservationBook'
 import { resolveTouchIntent, type TouchWorldPoint } from './TouchIntentResolver'
 
 const ACTION_FRAMES: Record<AvatarAction, number> = { idle: 1, walk: 4, sit: 1, stand: 3 }
@@ -78,6 +79,7 @@ export class ImageRoomScene extends Phaser.Scene {
   #currentNodeId = this.#room.spawnNodeId
   #state: GameState = 'ready'
   #activity = new AvatarActivityMachine()
+  #seatReservations = new SeatReservationBook()
   #routeTween: Phaser.Tweens.Tween | null = null
   #activeSegmentFromId: string | null = null
   #activeSegmentToId: string | null = null
@@ -181,6 +183,9 @@ export class ImageRoomScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.#presenceLoop?.stop()
       this.#presenceLoop = null
+      const ownerId = this.#adapter.session().account.id
+      if (this.#seatReservations.releaseOwner(ownerId) > 0) void this.#adapter.releaseSeat()
+      void this.#sessionTracker?.stood().catch(() => undefined)
     })
     this.scale.on(Phaser.Scale.Events.RESIZE, this.#fitCamera, this)
     document.documentElement.dataset.studyReady = 'true'
@@ -333,6 +338,7 @@ export class ImageRoomScene extends Phaser.Scene {
     try {
       await this.#adapter.refreshPresence?.(roomId)
       if (roomId !== this.#roomId) return
+      this.#syncSeatReservations(this.#adapter.presence(roomId))
       this.#createSocialActors()
       window.dispatchEvent(new CustomEvent('radiotedu:study-presence-updated', {
         detail: { roomId, presence: this.#adapter.presence(roomId) },
@@ -396,7 +402,11 @@ export class ImageRoomScene extends Phaser.Scene {
     }
   }
 
-  async #walkToNode(targetId: string, activityToken: ActivityToken = this.#activity.beginWalk()): Promise<void> {
+  async #walkToNode(
+    targetId: string,
+    activityToken: ActivityToken = this.#activity.beginWalk(),
+    beforeRoute?: () => Promise<boolean>,
+  ): Promise<void> {
     const resumeState = this.#activity.snapshot().state
     this.#cancelActiveRoute()
     if (this.#seatTransitionPromise) await this.#seatTransitionPromise
@@ -407,6 +417,8 @@ export class ImageRoomScene extends Phaser.Scene {
       if (!this.#activity.isCurrent(activityToken)) return
       this.#activity.transition(activityToken, resumeState)
     }
+    if (beforeRoute && !(await beforeRoute())) return
+    if (!this.#activity.isCurrent(activityToken)) return
     const path = smoothNavigationRoute(
       this.#graph.findPath(this.#currentNodeId, targetId).map((id) => this.#graph.node(id)!),
       this.#room.edges,
@@ -510,31 +522,47 @@ export class ImageRoomScene extends Phaser.Scene {
     const seat = this.#room.seats.find((candidate) => candidate.id === seatId)
     if (!seat) throw new Error(`Unknown seat ${this.#roomId}:${seatId}`)
     const activityToken = this.#activity.beginSeatApproach(seat.id)
-    const movement = this.#walkToNode(seat.approachNodeId, activityToken)
-    await movement
-    if (!this.#activity.isCurrent(activityToken) || this.#currentNodeId !== seat.approachNodeId) return
-    await this.#adapter.reserveSeat(this.#roomId, seat.id)
-    if (!this.#activity.isCurrent(activityToken) || this.#routeTween) {
-      await this.#adapter.releaseSeat()
-      return
+    const ownerId = this.#adapter.session().account.id
+    const roomId = this.#roomId
+    let adapterReserved = false
+    let seated = false
+    try {
+      await this.#walkToNode(seat.approachNodeId, activityToken, async () => {
+        this.#syncSeatReservations(this.#adapter.presence(roomId))
+        if (!this.#seatReservations.reserve(roomId, seat.id, ownerId)) {
+          throw new Error(`Seat ${roomId}:${seat.id} is occupied`)
+        }
+        try {
+          await this.#adapter.reserveSeat(roomId, seat.id)
+          adapterReserved = true
+          return this.#activity.isCurrent(activityToken) && this.#roomId === roomId
+        } catch (error) {
+          this.#seatReservations.release(roomId, seat.id, ownerId)
+          throw error
+        }
+      })
+      if (!this.#activity.isCurrent(activityToken) || this.#currentNodeId !== seat.approachNodeId || this.#roomId !== roomId) return
+      this.#activity.transition(activityToken, 'aligning-seat')
+      await this.#sit(seat, activityToken)
+      if (!this.#activity.isCurrent(activityToken)) return
+      this.#seatReservations.occupy(roomId, seat.id, ownerId)
+      seated = true
+      await this.#sessionTracker?.seated(roomId, seat.id, { x: seat.sit.x, y: seat.sit.y })
+      void this.#pushPresence()
+    } finally {
+      if (adapterReserved && !seated) {
+        this.#seatReservations.release(roomId, seat.id, ownerId)
+        await this.#adapter.releaseSeat()
+      }
     }
-    this.#activity.transition(activityToken, 'aligning-seat')
-    await this.#sit(seat, activityToken)
-    if (!this.#activity.isCurrent(activityToken)) {
-      await this.#adapter.releaseSeat()
-      return
-    }
-    await this.#sessionTracker?.seated(this.#roomId, seat.id, { x: seat.sit.x, y: seat.sit.y })
-    void this.#pushPresence()
   }
 
   async #sit(seat: ImageRoomSeat, activityToken: ActivityToken): Promise<void> {
     this.#avatarController.applyMovement(FACING_DELTA[seat.facing])
-    this.#avatarController.sit()
+    this.#updateAvatarFrame(0)
     const sitPixel = roomPointToPixel(this.#room, seat.sit)
     const distance = Math.hypot(sitPixel.x - this.#avatar.x, sitPixel.y - this.#avatar.y)
     this.#setState('sitting')
-    this.#shadow.setVisible(false)
     const transition = new Promise<void>((resolve) => this.tweens.add({
       targets: this.#avatar,
       x: sitPixel.x,
@@ -550,6 +578,8 @@ export class ImageRoomScene extends Phaser.Scene {
       if (this.#seatTransitionPromise === transition) this.#seatTransitionPromise = null
     }
     if (!this.#activity.isCurrent(activityToken)) return
+    this.#avatarController.sit()
+    this.#shadow.setVisible(false)
     this.#seatedSeat = seat
     this.#activity.transition(activityToken, 'seated')
     this.#setState('seated')
@@ -580,6 +610,7 @@ export class ImageRoomScene extends Phaser.Scene {
     if (!seat) return
     this.#seatedSeat = null
     const finishSession = this.#sessionTracker?.stood() ?? Promise.resolve()
+    this.#seatReservations.release(this.#roomId, seat.id, this.#adapter.session().account.id)
     await this.#adapter.releaseSeat()
     this.#setSeatForeground(null)
     this.#avatarController.stand()
@@ -613,9 +644,12 @@ export class ImageRoomScene extends Phaser.Scene {
 
   async switchRoom(roomId: ImageRoomId): Promise<void> {
     if (roomId === this.#roomId) return
+    const previousRoomId = this.#roomId
+    const ownerId = this.#adapter.session().account.id
     if (!this.#seatedSeat) this.#activity.cancel()
     this.#cancelActiveRoute()
     if (this.#seatedSeat) await this.stand()
+    else if (this.#seatReservations.releaseOwner(ownerId, previousRoomId) > 0) await this.#adapter.releaseSeat()
     this.#renderRoom(roomId)
     await this.#refreshSocialActors()
   }
@@ -635,6 +669,15 @@ export class ImageRoomScene extends Phaser.Scene {
 
   #nodeIsReachable(nodeId: string): boolean {
     return nodeId === this.#currentNodeId || this.#graph.findPath(this.#currentNodeId, nodeId).length > 0
+  }
+
+  #syncSeatReservations(presence: readonly StudyPresence[]): void {
+    const ownerId = this.#adapter.session().account.id
+    this.#seatReservations.syncRemoteOccupants(this.#roomId, presence.flatMap((person) => (
+      person.userId !== ownerId && person.seatId
+        ? [{ seatId: person.seatId, ownerId: person.userId }]
+        : []
+    )))
   }
 
   #clearIntentMarker(): void {
@@ -668,9 +711,7 @@ export class ImageRoomScene extends Phaser.Scene {
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       const accountId = this.#adapter.session().account.id
       const presence = this.#adapter.presence(this.#roomId)
-      const occupiedSeats = new Set(
-        presence.filter((person) => person.userId !== accountId && person.seatId).map((person) => person.seatId!),
-      )
+      this.#syncSeatReservations(presence)
       const intent = resolveTouchIntent({
         world: { x: pointer.worldX, y: pointer.worldY },
         uiConsumed: pointer.event.target instanceof Element
@@ -686,7 +727,7 @@ export class ImageRoomScene extends Phaser.Scene {
           id: seat.id,
           ...roomPointToPixel(this.#room, seat.sit),
           reachable: this.#nodeIsReachable(seat.approachNodeId),
-          occupied: occupiedSeats.has(seat.id),
+          occupied: !this.#seatReservations.isAvailable(this.#roomId, seat.id, accountId),
         })),
         players: presence.flatMap((person) => {
           if (person.userId === accountId) return []

@@ -1,7 +1,7 @@
 import type { GridPoint, SeatDefinition } from '../rooms/RoomDefinition'
 import { sameGridPoint } from '../rooms/RoomDefinition'
 
-export type InteractionPhase = 'idle' | 'approaching' | 'sitting' | 'standing'
+export type InteractionPhase = 'idle' | 'approaching' | 'aligning' | 'sitting' | 'standing'
 
 type SeatInteractionPlan = {
   seatId: string
@@ -47,6 +47,20 @@ export class InteractionController {
       throw new Error('Avatar must reach the exact approach tile before sitting')
     }
 
+    this.currentPhase = 'aligning'
+    return {
+      action: 'align' as const,
+      direction: this.currentSeat.facing,
+      anchor: { ...this.currentSeat.sitAnchor },
+      seatTile: { ...this.currentSeat.tile },
+    }
+  }
+
+  completeAlignment() {
+    if (this.currentPhase !== 'aligning' || !this.currentSeat) {
+      throw new Error('Avatar must align with the seat before sitting')
+    }
+
     this.currentPhase = 'sitting'
     return {
       action: 'sit' as const,
@@ -77,6 +91,14 @@ export class InteractionController {
       throw new Error('Avatar must return to the approach tile after standing')
     }
 
+    this.currentSeat = null
+    this.currentPhase = 'idle'
+  }
+
+  cancel(): void {
+    if (this.currentPhase === 'sitting' || this.currentPhase === 'standing') {
+      throw new Error('A seated avatar must stand before cancelling the interaction')
+    }
     this.currentSeat = null
     this.currentPhase = 'idle'
   }

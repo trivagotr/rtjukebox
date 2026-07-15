@@ -88,6 +88,34 @@ describe('StudySessionTracker', () => {
     expect(adapter.startStudySession).toHaveBeenLastCalledWith('library', 'second-session')
   })
 
+  it('stops accumulating eligible time as soon as standing begins', async () => {
+    const clock = createClock()
+    let finishSession!: (summary: { todaySeconds: number; monthSeconds: number; totalSeconds: number }) => void
+    const finish = new Promise<{ todaySeconds: number; monthSeconds: number; totalSeconds: number }>((resolve) => {
+      finishSession = resolve
+    })
+    const adapter = {
+      startStudySession: vi.fn().mockResolvedValue(undefined),
+      heartbeatStudySession: vi.fn().mockResolvedValue(0),
+      finishStudySession: vi.fn(() => finish),
+    }
+    const tracker = new StudySessionTracker(adapter, {
+      now: clock.now,
+      setInterval: vi.fn(() => 1),
+      clearInterval: vi.fn(),
+    })
+
+    await tracker.seated('library', 'front-left', { x: 4, y: 8 })
+    clock.advance(12_000)
+    const standing = tracker.stood()
+    const secondsWhenStandingBegan = tracker.snapshot().activeSeconds
+    clock.advance(25_000)
+
+    expect(tracker.snapshot().activeSeconds).toBe(secondsWhenStandingBegan)
+    finishSession({ todaySeconds: 12, monthSeconds: 12, totalSeconds: 12 })
+    await standing
+  })
+
   it('retains a failed finish so standing or disposal can retry it', async () => {
     const adapter = {
       startStudySession: vi.fn().mockResolvedValue(undefined),
