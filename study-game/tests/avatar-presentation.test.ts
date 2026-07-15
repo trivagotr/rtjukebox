@@ -1,0 +1,32 @@
+import { describe, expect, it } from 'vitest'
+
+import type { AvatarAppearance } from '../src/avatar/AvatarAppearance'
+import { shouldUseCanonicalAvatar } from '../src/avatar/AvatarPresentation'
+
+const canonical: AvatarAppearance = {
+  bodyType: 'masc',
+  skinTone: 'warm',
+  hairId: 'short-hair',
+  hairColor: 'brown',
+  topId: 'radio-hoodie',
+  bottomId: 'black-cargos',
+  shoesId: 'sneakers',
+  hatId: 'bucket-hat',
+  accessoryId: null,
+}
+
+describe('canonical avatar presentation', () => {
+  it('uses ImageGen-derived art for the matching RadioTEDU outfit', () => {
+    expect(shouldUseCanonicalAvatar(canonical)).toBe(true)
+  })
+
+  it.each([
+    ['topId', 'varsity-jacket'],
+    ['bottomId', 'jeans'],
+    ['shoesId', 'boots'],
+    ['hatId', 'beanie'],
+    ['hatId', null],
+  ] as const)('falls back to layered wardrobe art when %s changes', (field, value) => {
+    expect(shouldUseCanonicalAvatar({ ...canonical, [field]: value })).toBe(false)
+  })
+})

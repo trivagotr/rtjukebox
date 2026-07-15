@@ -4,6 +4,7 @@ import { LocalStudyAdapter } from '../adapters/LocalStudyAdapter'
 import type { StudyAdapter, StudyPresence } from '../adapters/StudyAdapter'
 import { DIRECTIONS, type AvatarAction, type AvatarAppearance, type AvatarLayerSlot, type Direction8 } from '../avatar/AvatarAppearance'
 import { DEFAULT_AVATAR_ASSET_MANIFEST } from '../avatar/AvatarAssetManifest'
+import { canonicalAvatarTextureKey, shouldUseCanonicalAvatar } from '../avatar/AvatarPresentation'
 import { InventoryStore } from '../inventory/InventoryStore'
 import { WearableCatalog, type WardrobeItem, type WardrobeSlot } from '../inventory/WearableCatalog'
 import { WardrobeController } from '../inventory/WardrobeController'
@@ -35,7 +36,7 @@ const DEFAULT_APPEARANCE: AvatarAppearance = Object.freeze({
   hairId: 'short-hair',
   hairColor: 'brown',
   topId: 'radio-hoodie',
-  bottomId: 'jeans',
+  bottomId: 'black-cargos',
   shoesId: 'sneakers',
   hatId: 'bucket-hat',
   accessoryId: null,
@@ -88,6 +89,7 @@ export class ImageRoomScene extends Phaser.Scene {
   #seatedSeat: ImageRoomSeat | null = null
   #background!: Phaser.GameObjects.Image
   #avatar!: Phaser.GameObjects.Container
+  #canonicalAvatar!: Phaser.GameObjects.Sprite
   #shadow!: Phaser.GameObjects.Ellipse
   #avatarSprites = new Map<AvatarLayerSlot, Phaser.GameObjects.Sprite>()
   #avatarController!: AvatarController
@@ -120,6 +122,9 @@ export class ImageRoomScene extends Phaser.Scene {
       }
     }
     for (const action of Object.keys(ACTION_FRAMES) as AvatarAction[]) {
+      this.load.spritesheet(canonicalAvatarTextureKey(action), `${ASSET_BASE}/canonical-${action}.png`, {
+        frameWidth: 64, frameHeight: 96, endFrame: DIRECTIONS.length * ACTION_FRAMES[action] - 1,
+      })
       for (const layer of ['body', 'skin', 'hair'] as const) {
         this.load.spritesheet(`avatar:${layer}-${action}`, `${ASSET_BASE}/${layer}-${action}.png`, {
           frameWidth: 64, frameHeight: 96, endFrame: DIRECTIONS.length * ACTION_FRAMES[action] - 1,
@@ -194,6 +199,7 @@ export class ImageRoomScene extends Phaser.Scene {
   #createAvatar(): void {
     this.#shadow = this.add.ellipse(0, 0, 38, 14, 0x020609, 0.42)
     this.#avatar = this.add.container(0, 0).setScale(1.08)
+    this.#canonicalAvatar = this.add.sprite(0, 0, canonicalAvatarTextureKey('idle')).setOrigin(0.5, 0.88)
     for (const layer of RENDERED_LAYERS) {
       const key = textureKey(layer, 'idle', this.#avatarController.appearance)
       if (!key) continue
@@ -311,12 +317,17 @@ export class ImageRoomScene extends Phaser.Scene {
       const shadow = this.add.ellipse(0, 5, 34, 11, 0x020609, 0.35)
       shadow.setVisible(!seat)
       const layers: Phaser.GameObjects.Sprite[] = []
-      for (const layer of RENDERED_LAYERS) {
-        const key = textureKey(layer, action, appearance)
-        if (!key) continue
-        const sprite = this.add.sprite(0, 0, key).setOrigin(0.5, 0.88).setFrame(DIRECTIONS.indexOf(direction) * ACTION_FRAMES[action])
-        if (layer === 'top' && !(presence.equippedWearableIds?.length)) sprite.setTint(presence.color)
-        layers.push(sprite)
+      const sheetFrame = DIRECTIONS.indexOf(direction) * ACTION_FRAMES[action]
+      if (shouldUseCanonicalAvatar(appearance)) {
+        layers.push(this.add.sprite(0, 0, canonicalAvatarTextureKey(action)).setOrigin(0.5, 0.88).setFrame(sheetFrame))
+      } else {
+        for (const layer of RENDERED_LAYERS) {
+          const key = textureKey(layer, action, appearance)
+          if (!key) continue
+          const sprite = this.add.sprite(0, 0, key).setOrigin(0.5, 0.88).setFrame(sheetFrame)
+          if (layer === 'top' && !(presence.equippedWearableIds?.length)) sprite.setTint(presence.color)
+          layers.push(sprite)
+        }
       }
       const name = this.add.text(0, -86, presence.displayName, {
         color: '#ffffff', fontFamily: 'Segoe UI, sans-serif', fontSize: '10px',
@@ -375,7 +386,13 @@ export class ImageRoomScene extends Phaser.Scene {
     const sheetFrame = DIRECTIONS.indexOf(direction) * frameCount + (frameIndex % frameCount)
     const orderedSlots = this.#avatarController.layers(frameIndex).map((layer) => layer.slot)
     this.#avatar.removeAll(false)
+    this.#canonicalAvatar.setVisible(false)
     for (const sprite of this.#avatarSprites.values()) sprite.setVisible(false)
+    if (shouldUseCanonicalAvatar(this.#avatarController.appearance)) {
+      this.#canonicalAvatar.setTexture(canonicalAvatarTextureKey(action), sheetFrame).setVisible(true)
+      this.#avatar.add(this.#canonicalAvatar)
+      return
+    }
     for (const slot of orderedSlots) {
       const sprite = this.#avatarSprites.get(slot)
       const key = textureKey(slot, action, this.#avatarController.appearance)

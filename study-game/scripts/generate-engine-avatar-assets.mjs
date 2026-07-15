@@ -5,6 +5,9 @@ import { pathToFileURL } from 'node:url'
 
 import sharp from 'sharp'
 
+import { renderReferenceLayer } from './avatar-reference-renderer.mjs'
+import { generateCanonicalAvatarSheets } from './generate-canonical-avatar-sheets.mjs'
+
 export const FRAME_WIDTH = 64
 export const FRAME_HEIGHT = 96
 export const DIRECTIONS = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
@@ -219,13 +222,13 @@ function hatLayer(p, variant = 'bucket-hat') {
 }
 
 const LAYER_RENDERER = {
-  body: bodyLayer,
-  skin: skinLayer,
-  hair: hairLayer,
-  top: topLayer,
-  bottom: bottomLayer,
-  shoes: shoesLayer,
-  hat: hatLayer,
+  body: (avatarPose, variant) => renderReferenceLayer('body', avatarPose, variant),
+  skin: (avatarPose, variant) => renderReferenceLayer('skin', avatarPose, variant),
+  hair: (avatarPose, variant) => renderReferenceLayer('hair', avatarPose, variant),
+  top: (avatarPose, variant) => renderReferenceLayer('top', avatarPose, variant),
+  bottom: (avatarPose, variant) => renderReferenceLayer('bottom', avatarPose, variant),
+  shoes: (avatarPose, variant) => renderReferenceLayer('shoes', avatarPose, variant),
+  hat: (avatarPose, variant) => renderReferenceLayer('hat', avatarPose, variant),
 }
 
 function createSheetSvg(layer, action, frameCount, variant) {
@@ -278,12 +281,15 @@ export async function generateAvatarAssets(outputDir) {
     }
   }
 
+  const { canonical, canonicalSha256 } = await generateCanonicalAvatarSheets(outputDir, ACTION_FRAMES)
+
   const manifest = {
     schemaVersion: 2,
     provenance: {
       generator: 'study-game/scripts/generate-engine-avatar-assets.mjs',
       license: 'RadioTEDU project-owned original procedural artwork',
       thirdPartyArtwork: false,
+      visualReference: 'study-game/art/avatar-reference/radiotedu-turnaround.png',
     },
     frame: { width: FRAME_WIDTH, height: FRAME_HEIGHT },
     directions: DIRECTIONS,
@@ -293,6 +299,8 @@ export async function generateAvatarAssets(outputDir) {
     sha256,
     wearables,
     wearableSha256,
+    canonical,
+    canonicalSha256,
   }
   const manifestPath = path.join(outputDir, 'manifest.json')
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
