@@ -8,6 +8,7 @@ import { InventoryStore } from '../inventory/InventoryStore'
 import { WearableCatalog, type WardrobeItem, type WardrobeSlot } from '../inventory/WearableCatalog'
 import { WardrobeController } from '../inventory/WardrobeController'
 import { NavigationGraph, type NavigationNode } from '../pathfinding/NavigationGraph'
+import { smoothNavigationRoute } from '../pathfinding/RouteSmoother'
 import { IMAGE_ROOMS, roomPointToPixel, type ImageRoomDefinition, type ImageRoomId, type ImageRoomSeat } from '../rooms/ImageRoomDefinition'
 import type { StudySessionTracker } from '../session/StudySessionTracker'
 import { StudyPresenceLoop } from '../session/StudyPresenceLoop'
@@ -401,7 +402,10 @@ export class ImageRoomScene extends Phaser.Scene {
       if (!this.#activity.isCurrent(activityToken)) return
       this.#activity.transition(activityToken, resumeState)
     }
-    const path = this.#graph.findPath(this.#currentNodeId, targetId)
+    const path = smoothNavigationRoute(
+      this.#graph.findPath(this.#currentNodeId, targetId).map((id) => this.#graph.node(id)!),
+      this.#room.edges,
+    ).map((node) => node.id)
     const routePoints = path.map((id) => {
       const node = this.#graph.node(id)!
       const pixel = roomPointToPixel(this.#room, node)

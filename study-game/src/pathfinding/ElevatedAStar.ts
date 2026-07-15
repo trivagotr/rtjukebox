@@ -112,6 +112,62 @@ const hasBlockedCorner = (
   return blocked.has(keyOf(horizontal)) || blocked.has(keyOf(vertical))
 }
 
+export function isElevatedSegmentWalkable(
+  from: GridPoint,
+  to: GridPoint,
+  options: ElevatedAStarOptions = {},
+): boolean {
+  if (from.z !== to.z) return false
+
+  const blocked = buildBlockedSet(options.blockedTiles)
+  const walkable = buildWalkableSet(options.walkableTiles)
+  const isTraversable = (point: GridPoint): boolean => {
+    const key = keyOf(point)
+    return isWithinBoard(point) && !blocked.has(key) && (!walkable || walkable.has(key))
+  }
+
+  if (!isTraversable(from) || !isTraversable(to)) return false
+
+  const stepX = Math.sign(to.x - from.x)
+  const stepY = Math.sign(to.y - from.y)
+  const distanceX = Math.abs(to.x - from.x)
+  const distanceY = Math.abs(to.y - from.y)
+  let traversedX = 0
+  let traversedY = 0
+  let x = from.x
+  let y = from.y
+
+  while (traversedX < distanceX || traversedY < distanceY) {
+    const decision = (1 + (2 * traversedX)) * distanceY - (1 + (2 * traversedY)) * distanceX
+    let nextX = x
+    let nextY = y
+
+    if (decision === 0) {
+      nextX += stepX
+      nextY += stepY
+      traversedX += 1
+      traversedY += 1
+
+      const horizontal = { x: nextX, y, z: from.z }
+      const vertical = { x, y: nextY, z: from.z }
+      if (!isTraversable(horizontal) || !isTraversable(vertical)) return false
+    } else if (decision < 0) {
+      nextX += stepX
+      traversedX += 1
+    } else {
+      nextY += stepY
+      traversedY += 1
+    }
+
+    const next = { x: nextX, y: nextY, z: from.z }
+    if (!isTraversable(next)) return false
+    x = nextX
+    y = nextY
+  }
+
+  return x === to.x && y === to.y
+}
+
 const reconstructPath = (
   cameFrom: Map<string, string>,
   goalKey: string,
