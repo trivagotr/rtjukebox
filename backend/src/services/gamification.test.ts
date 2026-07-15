@@ -3,6 +3,7 @@ import {
   buildSpendablePointUpdate,
   getGameAwardedPoints,
   normalizeGamificationCategory,
+  normalizeGoldIdempotencyKey,
   normalizeMarketItemKind,
 } from './gamification';
 
@@ -40,5 +41,11 @@ describe('gamification service helpers', () => {
       nextSpendablePoints: 20,
       canRedeem: false,
     });
+  });
+
+  it('normalizes Gold idempotency keys without accepting blank values', () => {
+    expect(normalizeGoldIdempotencyKey('  study:finish:session-1  ')).toBe('study:finish:session-1');
+    expect(normalizeGoldIdempotencyKey('')).toBeNull();
+    expect(normalizeGoldIdempotencyKey('x'.repeat(200))).toHaveLength(180);
   });
 });

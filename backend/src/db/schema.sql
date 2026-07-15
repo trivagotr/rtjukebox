@@ -494,6 +494,23 @@ CREATE TABLE IF NOT EXISTS points_ledger (
 );
 CREATE INDEX IF NOT EXISTS idx_points_ledger_user_created ON points_ledger(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_points_ledger_category_created ON points_ledger(category, created_at DESC);
+ALTER TABLE points_ledger ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(180);
+ALTER TABLE points_ledger ADD COLUMN IF NOT EXISTS balance_after INTEGER;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_points_ledger_user_idempotency
+    ON points_ledger(user_id, idempotency_key)
+    WHERE idempotency_key IS NOT NULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'user_points_spendable_nonnegative'
+    ) THEN
+        ALTER TABLE user_points
+        ADD CONSTRAINT user_points_spendable_nonnegative
+        CHECK (spendable_points >= 0);
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS badges (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

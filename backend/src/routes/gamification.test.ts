@@ -5,6 +5,7 @@ const {
   mockSendSuccess,
   mockSendError,
   mockAuthMiddleware,
+  mockAwardUserPoints,
   mockRouteHandlers,
   mockRouter,
 } = vi.hoisted(() => {
@@ -29,6 +30,7 @@ const {
     mockSendSuccess: vi.fn(),
     mockSendError: vi.fn(),
     mockAuthMiddleware: vi.fn(),
+    mockAwardUserPoints: vi.fn(),
     mockRouteHandlers: handlers,
     mockRouter: router,
   };
@@ -43,6 +45,14 @@ vi.mock('../db', () => ({
 vi.mock('../middleware/auth', () => ({
   authMiddleware: mockAuthMiddleware,
 }));
+
+vi.mock('../services/gamification', async () => {
+  const actual = await vi.importActual<typeof import('../services/gamification')>('../services/gamification');
+  return {
+    ...actual,
+    awardUserPoints: mockAwardUserPoints,
+  };
+});
 
 vi.mock('../utils/response', () => ({
   sendSuccess: mockSendSuccess,
@@ -60,6 +70,14 @@ describe('gamification router', () => {
     mockDbQuery.mockReset();
     mockSendSuccess.mockReset();
     mockSendError.mockReset();
+    mockAwardUserPoints.mockReset();
+    mockAwardUserPoints.mockResolvedValue({
+      applied: true,
+      amount: 10,
+      awarded: 10,
+      spendablePoints: 10,
+      ledgerId: 'ledger-test',
+    });
   });
 
   it('requires auth before exposing gamification endpoints', () => {
