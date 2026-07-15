@@ -764,7 +764,7 @@ git commit -m "feat(study): use the account Gold balance"
 - Produces: a copy/paste prompt for Codex running on the production web server.
 - Consumes: branch `codex/study-game-oss`; the server resolves and records the exact fetched commit instead of relying on a self-referential SHA placeholder.
 
-- [ ] **Step 1: Write the failing prompt verifier**
+- [x] **Step 1: Write the failing prompt verifier**
 
 Create `docs/study-game/verify-web-server-prompt.mjs` that reads the Markdown and exits non-zero unless it finds:
 
@@ -798,7 +798,7 @@ if (/<STUDY_COMMIT_SHA>|\bTBD\b|\bTODO\b/.test(prompt)) {
 }
 ```
 
-- [ ] **Step 2: Run the verifier and verify RED**
+- [x] **Step 2: Run the verifier and verify RED**
 
 Run: `node docs/study-game/verify-web-server-prompt.mjs`
 
@@ -806,7 +806,7 @@ Working directory: repository root.
 
 Expected: FAIL because the current 114-line prompt lacks the full three-project, Account, and Gold checklist and still has a SHA placeholder.
 
-- [ ] **Step 3: Rewrite the prompt as ordered checkboxes**
+- [x] **Step 3: Rewrite the prompt as ordered checkboxes**
 
 The prompt must contain these top-level sections, with every executable action written as `- [ ]`:
 
@@ -826,7 +826,7 @@ The prompt must contain these top-level sections, with every executable action w
 
 The prompt must tell the server Codex to adapt server routes to the existing mobile contract and never modify mobile code on the server.
 
-- [ ] **Step 4: Run prompt verification and inspect the contract**
+- [x] **Step 4: Run prompt verification and inspect the contract**
 
 Run: `node docs/study-game/verify-web-server-prompt.mjs`
 
@@ -834,7 +834,7 @@ Run: `git diff --check -- docs/study-game/WEB_SERVER_CODEX_PROMPT.md docs/study-
 
 Expected: both commands exit 0.
 
-- [ ] **Step 5: Commit the deployment prompt**
+- [x] **Step 5: Commit the deployment prompt**
 
 ```bash
 git add docs/study-game/WEB_SERVER_CODEX_PROMPT.md docs/study-game/verify-web-server-prompt.mjs
