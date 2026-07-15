@@ -888,7 +888,7 @@ Run: `npm run package:study`
 
 Expected: tests and packaging exit 0; lint has no errors. Existing warning-only inline-style debt may be reported but must not be called an error-free lint if warnings remain.
 
-- [ ] **Step 5: Run prompt and whitespace verification**
+- [x] **Step 5: Run prompt and whitespace verification**
 
 Working directory: repository root.
 
@@ -927,17 +927,17 @@ Result: the smoke check exposed bcrypt's 72-byte refresh-token truncation; versi
 
 Verify no generated artifacts, videos, screenshots, random-walk output, secrets, `.env` files, or the pre-existing `backend/package-lock.json` change are included in planned commits.
 
-- [ ] **Step 9: Push the branch**
+- [x] **Step 9: Push the branch**
 
 ```bash
 git push origin codex/study-game-oss
 ```
 
-- [ ] **Step 10: Verify the remote commit**
+- [x] **Step 10: Verify the remote commit**
 
 Fetch the remote and confirm `origin/codex/study-game-oss` equals local `HEAD`. Record the exact SHA for the user and for the server operator’s deployment report.
 
-- [ ] **Step 11: Deliver the final handoff**
+- [x] **Step 11: Deliver the final handoff**
 
 Provide:
 
