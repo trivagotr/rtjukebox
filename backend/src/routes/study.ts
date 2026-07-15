@@ -156,7 +156,19 @@ export async function handleFinishStudySession(req: AuthRequest, res: Response) 
       return sendError(res, 'Study session not found', 404);
     }
     if (session.status === 'finished') {
-      return sendSuccess(res, { session: mapSession(session), awarded_points: toNumber(session.awarded_points) }, 'Study session already finished');
+      const pointsResult = await db.query(
+        'SELECT spendable_points FROM user_points WHERE user_id = $1',
+        [req.user!.id],
+      );
+      return sendSuccess(
+        res,
+        {
+          session: mapSession(session),
+          awarded_points: toNumber(session.awarded_points),
+          spendable_points: toNumber(pointsResult.rows[0]?.spendable_points),
+        },
+        'Study session already finished',
+      );
     }
     if (session.current_nonce_hash !== hashStudyNonce(nonce)) {
       return sendError(res, 'Invalid session nonce', 409);
@@ -177,13 +189,15 @@ export async function handleFinishStudySession(req: AuthRequest, res: Response) 
     });
     const pointsToAward = Math.min(rawAward, remainingDailyPoints);
 
+    let spendablePoints = 0;
     if (pointsToAward > 0) {
-      await awardUserPoints({
+      const awardResult = await awardUserPoints({
         userId: req.user!.id,
         amount: pointsToAward,
         category: 'social',
         sourceType: session.session_type === 'pomodoro' ? 'pomodoro_session' : 'study_session',
         sourceId: session.id,
+        idempotencyKey: `study:finish:${session.id}`,
         metadata: {
           location: session.location,
           session_type: normalizeSessionType(session.session_type),
@@ -192,6 +206,13 @@ export async function handleFinishStudySession(req: AuthRequest, res: Response) 
           valid_heartbeat_count: toNumber(session.valid_heartbeat_count),
         },
       });
+      spendablePoints = awardResult.spendablePoints;
+    } else {
+      const pointsResult = await db.query(
+        'SELECT spendable_points FROM user_points WHERE user_id = $1',
+        [req.user!.id],
+      );
+      spendablePoints = toNumber(pointsResult.rows[0]?.spendable_points);
     }
 
     const updateResult = await db.query(
@@ -204,7 +225,11 @@ export async function handleFinishStudySession(req: AuthRequest, res: Response) 
 
     return sendSuccess(
       res,
-      { session: mapSession(updateResult.rows[0]), awarded_points: pointsToAward },
+      {
+        session: mapSession(updateResult.rows[0]),
+        awarded_points: pointsToAward,
+        spendable_points: spendablePoints,
+      },
       'Study session finished',
     );
   } catch (error) {

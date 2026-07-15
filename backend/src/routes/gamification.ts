@@ -656,15 +656,25 @@ export async function handleQrClaimRequest(req: AuthRequest, res: Response) {
              VALUES ($1, $2, $3)`,
             [reward.id, req.user?.id, reward.points],
         );
-        await awardUserPoints({
+        const awardResult = await awardUserPoints({
             userId: req.user!.id,
             amount: toNumber(reward.points),
             category: 'events',
             sourceType: 'qr_reward',
             sourceId: reward.id,
+            idempotencyKey: `qr:${reward.id}:${req.user!.id}`,
         });
 
-        return sendSuccess(res, { points_awarded: toNumber(reward.points) }, 'QR reward claimed', undefined, 201);
+        return sendSuccess(
+            res,
+            {
+                points_awarded: awardResult.awarded,
+                spendable_points: awardResult.spendablePoints,
+            },
+            'QR reward claimed',
+            undefined,
+            201,
+        );
     } catch (error: any) {
         if (error?.code === '23505') {
             return sendError(res, 'QR reward already claimed', 409);
@@ -698,6 +708,12 @@ export async function handleGameScoreRequest(req: AuthRequest, res: Response) {
 
     try {
         const score = Math.max(0, Math.floor(toNumber(req.body?.score)));
+        const clientRoundId = typeof req.body?.client_round_id === 'string'
+            ? req.body.client_round_id.trim()
+            : '';
+        if (!clientRoundId || clientRoundId.length > 120) {
+            return sendError(res, 'Valid client_round_id required', 400);
+        }
         const gameResult = await db.query(
             `SELECT id, point_rate, daily_point_limit, is_active
              FROM arcade_games
@@ -726,15 +742,24 @@ export async function handleGameScoreRequest(req: AuthRequest, res: Response) {
         });
         const pointsAwarded = Math.min(calculatedAward, remainingDailyLimit);
 
+        let spendablePoints = 0;
         if (pointsAwarded > 0) {
-            await awardUserPoints({
+            const awardResult = await awardUserPoints({
                 userId: req.user!.id,
                 amount: pointsAwarded,
                 category: 'games',
                 sourceType: 'arcade_game',
                 sourceId: game.id,
-                metadata: { score },
+                idempotencyKey: `game:${clientRoundId}`,
+                metadata: { score, client_round_id: clientRoundId },
             });
+            spendablePoints = awardResult.spendablePoints;
+        } else {
+            const pointsResult = await db.query(
+                'SELECT spendable_points FROM user_points WHERE user_id = $1',
+                [req.user!.id],
+            );
+            spendablePoints = toNumber(pointsResult.rows[0]?.spendable_points);
         }
 
         await db.query(
@@ -743,7 +768,13 @@ export async function handleGameScoreRequest(req: AuthRequest, res: Response) {
             [game.id, req.user?.id, score, pointsAwarded],
         );
 
-        return sendSuccess(res, { score, points_awarded: pointsAwarded }, 'Game score submitted', undefined, 201);
+        return sendSuccess(
+            res,
+            { score, points_awarded: pointsAwarded, spendable_points: spendablePoints },
+            'Game score submitted',
+            undefined,
+            201,
+        );
     } catch (error) {
         console.error('Game score error:', error);
         return sendError(res, 'Failed to submit game score', 500);
@@ -757,38 +788,98 @@ export async function handleListeningHeartbeatRequest(req: AuthRequest, res: Res
 
     try {
         const listenedSeconds = Math.max(0, Math.floor(toNumber(req.body?.listened_seconds)));
-        const pointsAwarded = Math.min(10, Math.floor(listenedSeconds / 300));
-        const result = await db.query(
-            `INSERT INTO listening_sessions (
-                user_id, content_type, content_id, content_title, listened_seconds, points_awarded, last_heartbeat_at
-             )
-             VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        const contentType = req.body?.content_type ?? 'radio';
+        const contentId = req.body?.content_id ?? null;
+        const existingResult = await db.query(
+            `SELECT *
+             FROM listening_sessions
+             WHERE user_id = $1
+               AND content_type = $2
+               AND content_id IS NOT DISTINCT FROM $3
+               AND last_heartbeat_at >= NOW() - INTERVAL '2 hours'
+             ORDER BY last_heartbeat_at DESC
+             LIMIT 1`,
+            [req.user!.id, contentType, contentId],
+        );
+
+        let session = existingResult.rows[0];
+        if (!session) {
+            const insertResult = await db.query(
+                `INSERT INTO listening_sessions (
+                    user_id, content_type, content_id, content_title, listened_seconds, points_awarded, last_heartbeat_at
+                 )
+                 VALUES ($1, $2, $3, $4, $5, 0, NOW())
+                 RETURNING *`,
+                [
+                    req.user!.id,
+                    contentType,
+                    contentId,
+                    req.body?.content_title ?? null,
+                    listenedSeconds,
+                ],
+            );
+            session = insertResult.rows[0];
+        }
+
+        const cumulativeSeconds = Math.max(
+            listenedSeconds,
+            toNumber(session.listened_seconds),
+        );
+        const cumulativeAward = Math.min(10, Math.floor(cumulativeSeconds / 300));
+        const storedAward = Math.max(0, toNumber(session.points_awarded));
+        const pointsToAward = Math.max(0, cumulativeAward - storedAward);
+        let spendablePoints = 0;
+
+        if (pointsToAward > 0) {
+            const awardResult = await awardUserPoints({
+                userId: req.user!.id,
+                amount: pointsToAward,
+                category: 'listening',
+                sourceType: 'listening_session',
+                sourceId: session.id,
+                idempotencyKey: `listening:${session.id}:${cumulativeAward}`,
+                metadata: {
+                    content_type: contentType,
+                    listened_seconds: cumulativeSeconds,
+                    cumulative_points_awarded: cumulativeAward,
+                },
+            });
+            spendablePoints = awardResult.spendablePoints;
+        } else {
+            const pointsResult = await db.query(
+                'SELECT spendable_points FROM user_points WHERE user_id = $1',
+                [req.user!.id],
+            );
+            spendablePoints = toNumber(pointsResult.rows[0]?.spendable_points);
+        }
+
+        const updateResult = await db.query(
+            `UPDATE listening_sessions
+             SET content_title = COALESCE($1, content_title),
+                 listened_seconds = $2,
+                 points_awarded = GREATEST(points_awarded, $3),
+                 last_heartbeat_at = NOW()
+             WHERE id = $4 AND user_id = $5
              RETURNING *`,
             [
-                req.user?.id,
-                req.body?.content_type ?? 'radio',
-                req.body?.content_id ?? null,
                 req.body?.content_title ?? null,
-                listenedSeconds,
-                pointsAwarded,
+                cumulativeSeconds,
+                cumulativeAward,
+                session.id,
+                req.user!.id,
             ],
         );
 
-        if (pointsAwarded > 0) {
-            await awardUserPoints({
-                userId: req.user!.id,
-                amount: pointsAwarded,
-                category: 'listening',
-                sourceType: 'listening_session',
-                sourceId: result.rows[0]?.id ?? null,
-                metadata: {
-                    content_type: req.body?.content_type ?? 'radio',
-                    listened_seconds: listenedSeconds,
-                },
-            });
-        }
-
-        return sendSuccess(res, { session: result.rows[0], points_awarded: pointsAwarded }, 'Listening heartbeat saved');
+        return sendSuccess(
+            res,
+            {
+                session: updateResult.rows[0] ?? session,
+                points_awarded: pointsToAward,
+                cumulative_points_awarded: cumulativeAward,
+                spendable_points: spendablePoints,
+            },
+            'Listening heartbeat saved',
+        );
     } catch (error) {
         console.error('Listening heartbeat error:', error);
         return sendError(res, 'Failed to save listening heartbeat', 500);

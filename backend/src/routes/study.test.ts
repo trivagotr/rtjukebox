@@ -68,6 +68,13 @@ describe('study router', () => {
   beforeEach(() => {
     mockDbQuery.mockReset();
     mockAwardUserPoints.mockReset();
+    mockAwardUserPoints.mockResolvedValue({
+      applied: true,
+      amount: 1,
+      awarded: 1,
+      spendablePoints: 1,
+      ledgerId: 'ledger-study',
+    });
     mockSendSuccess.mockReset();
     mockSendError.mockReset();
   });
@@ -291,19 +298,35 @@ describe('study router', () => {
       .mockResolvedValueOnce({ rows: [{ awarded_today: '6' }] })
       .mockResolvedValueOnce({
         rows: [{ id: 'session-1', location: 'chim-alan', status: 'finished', session_type: 'pomodoro', pomodoro_target_minutes: 25, awarded_points: 19 }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'session-1', location: 'chim-alan', status: 'finished', session_type: 'pomodoro', pomodoro_target_minutes: 25, awarded_points: 19 }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ spendable_points: 119 }],
       });
-    mockAwardUserPoints.mockResolvedValueOnce({ awarded: 19 });
+    mockAwardUserPoints.mockResolvedValueOnce({
+      applied: true,
+      awarded: 19,
+      spendablePoints: 119,
+    });
 
     await handler(
       { params: { id: 'session-1' }, body: { nonce: 'finish-nonce' }, user: { id: 'user-1', role: 'user' } },
       {},
     );
+    await handler(
+      { params: { id: 'session-1' }, body: { nonce: 'finish-nonce' }, user: { id: 'user-1', role: 'user' } },
+      {},
+    );
 
+    expect(mockAwardUserPoints).toHaveBeenCalledOnce();
     expect(mockAwardUserPoints).toHaveBeenCalledWith(expect.objectContaining({
       userId: 'user-1',
       amount: 19,
       sourceType: 'pomodoro_session',
       sourceId: 'session-1',
+      idempotencyKey: 'study:finish:session-1',
       metadata: expect.objectContaining({
         session_type: 'pomodoro',
         pomodoro_target_minutes: 25,
@@ -311,10 +334,17 @@ describe('study router', () => {
         valid_heartbeat_count: 4,
       }),
     }));
-    expect(mockSendSuccess).toHaveBeenCalledWith(
+    expect(mockSendSuccess).toHaveBeenNthCalledWith(
+      1,
       {},
-      expect.objectContaining({ awarded_points: 19 }),
+      expect.objectContaining({ awarded_points: 19, spendable_points: 119 }),
       'Study session finished',
+    );
+    expect(mockSendSuccess).toHaveBeenNthCalledWith(
+      2,
+      {},
+      expect.objectContaining({ awarded_points: 19, spendable_points: 119 }),
+      'Study session already finished',
     );
   });
 

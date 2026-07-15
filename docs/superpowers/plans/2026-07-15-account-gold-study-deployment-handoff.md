@@ -438,7 +438,7 @@ git commit -m "feat(account): complete session and deletion lifecycle"
 - Consumes: `awardUserPoints` with required `idempotencyKey`.
 - Produces stable keys for Study, QR, arcade, and listening awards.
 
-- [ ] **Step 1: Add failing Study finish replay tests**
+- [x] **Step 1: Add failing Study finish replay tests**
 
 In `backend/src/routes/study.test.ts`, assert two finishes of the same session produce one award call with:
 
@@ -452,7 +452,7 @@ expect(awardUserPoints).toHaveBeenCalledWith(expect.objectContaining({
 
 The replay response must return the original `awarded_points` and current `spendable_points` without a second mutation.
 
-- [ ] **Step 2: Add failing gamification award-key tests**
+- [x] **Step 2: Add failing gamification award-key tests**
 
 In `backend/src/routes/gamification.test.ts`, assert these exact key shapes:
 
@@ -467,7 +467,7 @@ submission. For listening, award only
 `max(0, newCumulativeAward - storedPointsAwarded)` and key the mutation by the
 new cumulative total.
 
-- [ ] **Step 3: Run route tests and verify RED**
+- [x] **Step 3: Run route tests and verify RED**
 
 Run: `npm test -- --run src/routes/study.test.ts src/routes/gamification.test.ts`
 
@@ -475,7 +475,7 @@ Working directory: `backend`
 
 Expected: FAIL because award callers do not yet supply stable idempotency keys and listening currently does not award only the delta.
 
-- [ ] **Step 4: Implement stable award identities**
+- [x] **Step 4: Implement stable award identities**
 
 Update callers:
 
@@ -496,7 +496,7 @@ await awardUserPoints({
 - Listening key: `listening:${session.id}:${newCumulativeAward}` and award only the delta from stored `points_awarded`.
 - Ensure the route returns the authoritative `spendable_points` from the Gold mutation result.
 
-- [ ] **Step 5: Run focused backend route tests and verify GREEN**
+- [x] **Step 5: Run focused backend route tests and verify GREEN**
 
 Run: `npm test -- --run src/routes/study.test.ts src/routes/gamification.test.ts src/services/goldTransactions.test.ts`
 
@@ -504,7 +504,7 @@ Working directory: `backend`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit award idempotency**
+- [x] **Step 6: Commit award idempotency**
 
 ```bash
 git add backend/src/routes/study.ts backend/src/routes/study.test.ts backend/src/routes/gamification.ts backend/src/routes/gamification.test.ts

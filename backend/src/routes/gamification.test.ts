@@ -165,18 +165,115 @@ describe('gamification router', () => {
 
     await handler({
       params: { gameId: 'game-1' },
-      body: { score: 100 },
+      body: { score: 100, client_round_id: 'round-1' },
       user: { id: 'user-1', role: 'user' },
     }, {});
 
+    expect(mockAwardUserPoints).toHaveBeenCalledWith(expect.objectContaining({
+      amount: 10,
+      idempotencyKey: 'game:round-1',
+    }));
     expect(mockSendSuccess).toHaveBeenCalledWith(
       {},
       expect.objectContaining({
         points_awarded: 10,
+        spendable_points: 10,
       }),
       'Game score submitted',
       undefined,
       201,
+    );
+  });
+
+  it('uses a per-account QR reward identity and returns the authoritative Gold balance', async () => {
+    const handler = mockRouteHandlers.post['/events/qr/claim'];
+    expect(handler).toBeTypeOf('function');
+    mockDbQuery
+      .mockResolvedValueOnce({rows: [{id: 'reward-1', points: 15}]})
+      .mockResolvedValueOnce({rows: []});
+    mockAwardUserPoints.mockResolvedValueOnce({
+      applied: true,
+      amount: 15,
+      awarded: 15,
+      spendablePoints: 42,
+      ledgerId: 'ledger-qr',
+    });
+
+    await handler(
+      {body: {code: 'TEDU-QR'}, user: {id: 'user-1', role: 'user'}},
+      {},
+    );
+
+    expect(mockAwardUserPoints).toHaveBeenCalledWith(expect.objectContaining({
+      sourceType: 'qr_reward',
+      sourceId: 'reward-1',
+      idempotencyKey: 'qr:reward-1:user-1',
+    }));
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      {points_awarded: 15, spendable_points: 42},
+      'QR reward claimed',
+      undefined,
+      201,
+    );
+  });
+
+  it('awards only the new cumulative listening delta with a stable session key', async () => {
+    const handler = mockRouteHandlers.post['/listening/heartbeat'];
+    expect(handler).toBeTypeOf('function');
+    mockDbQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'session-1',
+          listened_seconds: 300,
+          points_awarded: 1,
+          content_type: 'radio',
+          content_id: 'main',
+        }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'session-1',
+          listened_seconds: 600,
+          points_awarded: 2,
+          content_type: 'radio',
+          content_id: 'main',
+        }],
+      });
+    mockAwardUserPoints.mockResolvedValueOnce({
+      applied: true,
+      amount: 1,
+      awarded: 1,
+      spendablePoints: 43,
+      ledgerId: 'ledger-listening',
+    });
+
+    await handler(
+      {
+        body: {
+          content_type: 'radio',
+          content_id: 'main',
+          listened_seconds: 600,
+        },
+        user: {id: 'user-1', role: 'user'},
+      },
+      {},
+    );
+
+    expect(String(mockDbQuery.mock.calls[0][0])).toContain('FROM listening_sessions');
+    expect(mockAwardUserPoints).toHaveBeenCalledWith(expect.objectContaining({
+      amount: 1,
+      sourceId: 'session-1',
+      idempotencyKey: 'listening:session-1:2',
+    }));
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        points_awarded: 1,
+        cumulative_points_awarded: 2,
+        spendable_points: 43,
+      }),
+      'Listening heartbeat saved',
     );
   });
 
