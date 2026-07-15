@@ -78,7 +78,7 @@ const GamesScreen = () => {
 
   const handlePlay = (game: ArcadeGame) => {
     if (isAccountRequired) {
-      Alert.alert('Hesap gerekli', 'Oyun puanı kazanmak için giriş yapmalısın.');
+      Alert.alert('Hesap gerekli', 'Oyun Gold ödülü kazanmak için giriş yapmalısın.');
       return;
     }
 
@@ -135,7 +135,7 @@ const GamesScreen = () => {
                 <Text style={styles.gameTitle}>{game.title}</Text>
                 {game.description ? <Text style={styles.gameDescription} numberOfLines={2}>{game.description}</Text> : null}
                 <View style={styles.gameMetaRow}>
-                  <Text style={styles.gameMeta}>Günlük limit {game.daily_point_limit || 0} XP</Text>
+                  <Text style={styles.gameMeta}>Günlük limit {game.daily_point_limit || 0} Gold</Text>
                   <Text style={styles.gameMeta}>Slug {game.slug || 'yok'}</Text>
                 </View>
                 <TouchableOpacity
@@ -161,7 +161,7 @@ const GamesScreen = () => {
           {market.slice(0, 8).map((item) => (
             <View key={item.id} style={styles.marketCard}>
               <Text style={styles.marketTitle} numberOfLines={2}>{item.title}</Text>
-              <Text style={styles.marketCost}>{item.cost_points} XP</Text>
+              <Text style={styles.marketCost}>{item.cost_points} Gold</Text>
             </View>
           ))}
         </ScrollView>

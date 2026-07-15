@@ -63,7 +63,7 @@ const EventsScreen = () => {
 
   const handleRegister = async (event: AppEvent) => {
     if (isAccountRequired) {
-      Alert.alert('Hesap gerekli', 'Etkinliğe katılım ve puan için giriş yapmalısın.');
+      Alert.alert('Hesap gerekli', 'Etkinliğe katılım ve Gold için giriş yapmalısın.');
       return;
     }
 
@@ -84,7 +84,7 @@ const EventsScreen = () => {
     }
 
     if (isAccountRequired) {
-      Alert.alert('Hesap gerekli', 'QR puanı için giriş yapmalısın.');
+      Alert.alert('Hesap gerekli', 'QR Gold ödülü için giriş yapmalısın.');
       return;
     }
 
@@ -92,7 +92,7 @@ const EventsScreen = () => {
     try {
       const result: any = await claimQrReward(code);
       setQrCode('');
-      Alert.alert('Puan eklendi', `+${result?.points_awarded ?? 0} puan hesabına işlendi.`);
+      Alert.alert('Gold earned', `+${result?.points_awarded ?? 0} Gold hesabına işlendi.`);
     } catch (error) {
       console.error('Failed to claim QR reward:', error);
       Alert.alert('Hata', 'Bu QR ödülü işlenemedi.');
@@ -132,7 +132,7 @@ const EventsScreen = () => {
         showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
           <Text style={styles.kicker}>Kampüs görevleri</Text>
-          <Text style={styles.title}>Bilet, check-in ve QR görevlerinden puan kazan.</Text>
+          <Text style={styles.title}>Bilet, check-in ve QR görevlerinden Gold kazan.</Text>
           <Text style={styles.subtitle}>Etkinliğe katıl, kapıda check-in yap, kampüsteki QR görevlerini tamamla.</Text>
         </View>
 
@@ -156,7 +156,7 @@ const EventsScreen = () => {
               style={[styles.primaryButton, (isAccountRequired || claiming) && styles.disabledButton]}
               onPress={handleQrClaim}
               disabled={isAccountRequired || claiming}>
-              <Text style={styles.primaryButtonText}>{isAccountRequired ? 'Hesap gerekli' : claiming ? 'İşleniyor...' : 'Puanı Al'}</Text>
+              <Text style={styles.primaryButtonText}>{isAccountRequired ? 'Hesap gerekli' : claiming ? 'İşleniyor...' : "Gold'u Al"}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -173,7 +173,7 @@ const EventsScreen = () => {
               <Text style={styles.eventMeta}>{formatEventDate(event.starts_at)} · {event.location || 'Kampüs'}</Text>
               {event.description ? <Text style={styles.eventDescription} numberOfLines={3}>{event.description}</Text> : null}
               <View style={styles.eventFooter}>
-                <Text style={styles.eventPoints}>+{event.check_in_points || 0} check-in puanı</Text>
+                <Text style={styles.eventPoints}>+{event.check_in_points || 0} check-in Gold</Text>
                 <TouchableOpacity style={styles.secondaryButton} onPress={() => handleRegister(event)}>
                   <Text style={styles.secondaryButtonText}>Katıl</Text>
                 </TouchableOpacity>
@@ -192,7 +192,7 @@ const EventsScreen = () => {
           <View key={item.id} style={styles.rewardRow}>
             <Icon name="ticket-percent-outline" size={22} color={COLORS.primary} />
             <Text style={styles.rewardTitle} numberOfLines={1}>{item.title}</Text>
-            <Text style={styles.rewardCost}>{item.cost_points} XP</Text>
+            <Text style={styles.rewardCost}>{item.cost_points} Gold</Text>
           </View>
         ))}
       </ScrollView>

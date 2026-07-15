@@ -631,7 +631,7 @@ git commit -m "feat(gold): make purchases atomic and replay-safe"
 - Consumes: `useAuth().deleteAccount(password?)`.
 - Displays: `Gold` for all spendable/reward amounts while keeping ranking totals semantically historical.
 
-- [ ] **Step 1: Write failing mobile contract tests**
+- [x] **Step 1: Write failing mobile contract tests**
 
 Create `mobile/__tests__/goldAccountContract.test.ts` to assert source-level product contracts:
 
@@ -645,7 +645,7 @@ expect(profileSource).toContain("confirmation: 'DELETE'");
 
 Also assert that the account deletion action requires a destructive confirmation and does not call ordinary `logout` as a substitute for server deletion.
 
-- [ ] **Step 2: Run the mobile contract test and verify RED**
+- [x] **Step 2: Run the mobile contract test and verify RED**
 
 Run: `npm test -- --runInBand __tests__/goldAccountContract.test.ts`
 
@@ -653,7 +653,7 @@ Working directory: `mobile`
 
 Expected: FAIL on old PTS/XP/puan copy and missing deletion flow.
 
-- [ ] **Step 3: Implement deliberate account deletion UI**
+- [x] **Step 3: Implement deliberate account deletion UI**
 
 In `ProfileScreen.tsx`:
 
@@ -664,7 +664,7 @@ In `ProfileScreen.tsx`:
 - Disable the action while the request is pending.
 - On failure, keep the user signed in and show the sanitized server error.
 
-- [ ] **Step 4: Normalize product-facing Gold copy**
+- [x] **Step 4: Normalize product-facing Gold copy**
 
 Use these concepts consistently:
 
@@ -675,7 +675,7 @@ Use these concepts consistently:
 
 Do not rename TypeScript fields or JSON keys.
 
-- [ ] **Step 5: Run focused and neighboring mobile tests and verify GREEN**
+- [x] **Step 5: Run focused and neighboring mobile tests and verify GREEN**
 
 Run: `npm test -- --runInBand __tests__/goldAccountContract.test.ts __tests__/gamificationService.test.ts __tests__/profileReadiness.test.ts __tests__/App.test.tsx`
 
@@ -683,7 +683,7 @@ Working directory: `mobile`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit mobile Account/Gold UX**
+- [x] **Step 6: Commit mobile Account/Gold UX**
 
 ```bash
 git add mobile/src/screens/ProfileScreen.tsx mobile/src/screens/HomeScreen.tsx mobile/src/screens/MarketScreen.tsx mobile/src/screens/EventsScreen.tsx mobile/src/screens/GamesScreen.tsx mobile/src/screens/LeaderboardScreen.tsx mobile/__tests__/goldAccountContract.test.ts

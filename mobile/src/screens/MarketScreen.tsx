@@ -96,9 +96,9 @@ const MarketScreen = () => {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
         showsVerticalScrollIndicator={false}>
         <View style={styles.walletCard}>
-          <Text style={styles.walletLabel}>Harcanabilir XP</Text>
+          <Text style={styles.walletLabel}>Gold balance</Text>
           <Text style={styles.walletValue}>{points?.spendable_points ?? 0}</Text>
-          <Text style={styles.walletText}>Market harcaması lifetime rank puanını düşürmez.</Text>
+          <Text style={styles.walletText}>Market spending does not reduce Lifetime Gold.</Text>
         </View>
 
         {loading && !refreshing ? (
@@ -120,7 +120,7 @@ const MarketScreen = () => {
                   <Text style={styles.itemTitle}>{item.title}</Text>
                   {item.description ? <Text style={styles.itemDescription} numberOfLines={3}>{item.description}</Text> : null}
                   <View style={styles.itemFooter}>
-                    <Text style={styles.itemCost}>{item.cost_points} XP</Text>
+                <Text style={styles.itemCost}>{item.cost_points} Gold</Text>
                     <TouchableOpacity
                       style={[styles.redeemButton, (!canAfford || isAccountRequired || isRedeeming) && styles.disabledButton]}
                       disabled={!canAfford || isAccountRequired || isRedeeming}

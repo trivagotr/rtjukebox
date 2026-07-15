@@ -45,10 +45,12 @@ import {
   type NotificationPreferences,
 } from '../services/notificationService';
 
+const ACCOUNT_DELETE_CONFIRMATION = { confirmation: 'DELETE' } as const;
+
 const ProfileScreen = () => {
   const navigation = useNavigation<any>();
   const { t } = useTranslation();
-  const { user, logout, refreshSession } = useAuth();
+  const { user, logout, deleteAccount, refreshSession } = useAuth();
   const isAdmin = user?.role === 'admin';
 
   const [showAdminTab, setShowAdminTab] = useState(false);
@@ -72,6 +74,10 @@ const ProfileScreen = () => {
     events: true,
   });
   const [isSavingNotifications, setIsSavingNotifications] = useState(false);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deletePassword, setDeletePassword] = useState('');
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   const STORAGE_API_LOCAL = STORAGE_API;
   const androidReadiness = useMemo(
@@ -335,6 +341,46 @@ const ProfileScreen = () => {
     (user?.avatar_url
       ? `${STORAGE_API_LOCAL}${user.avatar_url}`
       : 'https://ui-avatars.com/api/?name=User&background=E31E24&color=fff&size=200');
+
+  const handleDeleteAccount = () => {
+    if (deleteConfirmation.trim().toUpperCase() !== ACCOUNT_DELETE_CONFIRMATION.confirmation) {
+      Alert.alert('Confirmation required', 'Type DELETE to confirm account deletion.');
+      return;
+    }
+    if (!user?.is_guest && !deletePassword) {
+      Alert.alert('Password required', 'Enter your current password to delete your account.');
+      return;
+    }
+
+    Alert.alert(
+      'Delete account permanently?',
+      'Account-owned Gold, Study inventory, and personal profile data will be deleted according to server policy.',
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {
+          text: 'Delete account',
+          style: 'destructive',
+          onPress: async () => {
+            setIsDeletingAccount(true);
+            try {
+              await deleteAccount(user?.is_guest ? undefined : deletePassword);
+              setShowDeleteAccount(false);
+              setDeleteConfirmation('');
+              setDeletePassword('');
+              Alert.alert('Account deleted', 'Your account has been deleted.');
+            } catch {
+              Alert.alert(
+                'Account not deleted',
+                'Check your password and connection, then try again. Your account is still signed in.',
+              );
+            } finally {
+              setIsDeletingAccount(false);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -685,6 +731,53 @@ const ProfileScreen = () => {
             </View>
             <Text style={[styles.menuText, { color: COLORS.error }]}>Log out</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.deleteAccountButton}
+            onPress={() => setShowDeleteAccount((current) => !current)}
+            disabled={isDeletingAccount}>
+            <Icon name="account-remove-outline" size={22} color={COLORS.error} />
+            <Text style={styles.deleteAccountButtonText}>Delete account</Text>
+          </TouchableOpacity>
+
+          {showDeleteAccount ? (
+            <View style={styles.deleteAccountPanel}>
+              <Text style={styles.deleteAccountTitle}>Permanent account deletion</Text>
+              <Text style={styles.deleteAccountText}>
+                Account-owned Gold, Study inventory, and personal profile data will be deleted according to server policy.
+              </Text>
+              <TextInput
+                style={styles.deleteAccountInput}
+                value={deleteConfirmation}
+                onChangeText={setDeleteConfirmation}
+                autoCapitalize="characters"
+                placeholder="Type DELETE"
+                placeholderTextColor={COLORS.textMuted}
+                editable={!isDeletingAccount}
+              />
+              {!user?.is_guest ? (
+                <TextInput
+                  style={styles.deleteAccountInput}
+                  value={deletePassword}
+                  onChangeText={setDeletePassword}
+                  secureTextEntry
+                  placeholder="Current password"
+                  placeholderTextColor={COLORS.textMuted}
+                  editable={!isDeletingAccount}
+                />
+              ) : null}
+              <TouchableOpacity
+                style={styles.deleteAccountConfirmButton}
+                onPress={handleDeleteAccount}
+                disabled={isDeletingAccount}>
+                {isDeletingAccount ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.deleteAccountConfirmText}>Delete permanently</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -859,6 +952,62 @@ const styles = StyleSheet.create({
   },
   logoutIconContainer: {
     backgroundColor: 'rgba(255, 59, 48, 0.1)',
+  },
+  deleteAccountButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.sm,
+    padding: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.error,
+    borderRadius: 16,
+    marginBottom: SPACING.sm,
+  },
+  deleteAccountButtonText: {
+    color: COLORS.error,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  deleteAccountPanel: {
+    backgroundColor: 'rgba(255, 59, 48, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 59, 48, 0.35)',
+    borderRadius: 16,
+    padding: SPACING.md,
+    marginBottom: SPACING.lg,
+  },
+  deleteAccountTitle: {
+    color: COLORS.error,
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: SPACING.xs,
+  },
+  deleteAccountText: {
+    color: COLORS.textMuted,
+    lineHeight: 20,
+    marginBottom: SPACING.md,
+  },
+  deleteAccountInput: {
+    color: COLORS.text,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    marginBottom: SPACING.sm,
+  },
+  deleteAccountConfirmButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: COLORS.error,
+  },
+  deleteAccountConfirmText: {
+    color: '#fff',
+    fontWeight: '800',
   },
   menuText: {
     flex: 1,

@@ -124,7 +124,7 @@ const LeaderboardScreen = () => {
 
         <View style={styles.pointsContainer}>
           <Text style={styles.points}>{item.score ?? item.monthly_rank_score ?? item.rank_score ?? 0}</Text>
-          <Text style={styles.pointsLabel}>Puan</Text>
+          <Text style={styles.pointsLabel}>Lifetime Gold</Text>
         </View>
       </View>
     );
@@ -137,7 +137,7 @@ const LeaderboardScreen = () => {
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Sıralama</Text>
           <Text style={styles.headerSubtitle}>
-            {category === 'total' ? 'Genel rank puanı' : 'Kategori bazlı rekabet'}
+            {category === 'total' ? 'Lifetime Gold sıralaması' : 'Kategori bazlı Gold rekabeti'}
           </Text>
           <View style={styles.periodToggle}>
             {(['total', 'monthly'] as const).map((value) => (
@@ -195,7 +195,7 @@ const LeaderboardScreen = () => {
                   <View key={item.id} style={styles.rewardRow}>
                     <Icon name="shopping-outline" size={20} color={COLORS.primary} />
                     <Text style={styles.rewardText} numberOfLines={1}>{item.title}</Text>
-                    <Text style={styles.rewardCost}>{item.cost_points} XP</Text>
+                    <Text style={styles.rewardCost}>{item.cost_points} Gold</Text>
                   </View>
                 ))}
               </View>

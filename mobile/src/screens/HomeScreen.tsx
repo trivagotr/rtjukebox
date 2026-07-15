@@ -83,18 +83,18 @@ const HomeScreen = () => {
           showsVerticalScrollIndicator={false}>
           <View style={styles.hero}>
             <View style={styles.heroGlow} />
-            <Text style={styles.kicker}>RadioTEDU XP Merkezi</Text>
+            <Text style={styles.kicker}>RadioTEDU Gold</Text>
             <Text style={styles.title}>
-              Yayını dinle, etkinliğe katıl, puanı markete çevir.
+              Yayını dinle, etkinliğe katıl ve Gold kazan.
             </Text>
             <Text style={styles.subtitle}>
-              Jukebox, podcast, oyun ve kampüs etkinlikleri tek puan sistemine bağlı çalışır.
+              Jukebox, podcast, oyun ve kampüs etkinlikleri tek Gold sistemine bağlı çalışır.
             </Text>
 
             <View style={styles.pointsRow}>
-              <MetricCard label="Toplam" value={home.points.lifetime_points || user?.rank_score || 0} />
-              <MetricCard label="Harcanabilir" value={home.points.spendable_points || 0} accent />
-              <MetricCard label="Bu ay" value={home.points.monthly_points || user?.monthly_rank_score || 0} />
+              <MetricCard label="Lifetime Gold" value={home.points.lifetime_points || user?.rank_score || 0} />
+              <MetricCard label="Gold balance" value={home.points.spendable_points || 0} accent />
+              <MetricCard label="Monthly Gold" value={home.points.monthly_points || user?.monthly_rank_score || 0} />
             </View>
           </View>
 
@@ -102,8 +102,8 @@ const HomeScreen = () => {
             <View style={styles.lockedCard}>
               <Icon name="account-star-outline" size={26} color={COLORS.primary} />
               <View style={styles.lockedBody}>
-                <Text style={styles.lockedTitle}>Puan kazanmak için hesap gerekli</Text>
-                <Text style={styles.lockedText}>Misafirler gezebilir; market, etkinlik, oyun puanı ve yorumlar üyelikle açılır.</Text>
+                <Text style={styles.lockedTitle}>Gold kazanmak için hesap gerekli</Text>
+                <Text style={styles.lockedText}>Misafirler gezebilir; market, etkinlik, oyun Gold'u ve yorumlar üyelikle açılır.</Text>
               </View>
               <TouchableOpacity style={styles.lockedButton} onPress={() => navigation.navigate('Auth', {screen: 'Login'})}>
                 <Text style={styles.lockedButtonText}>Giriş</Text>
@@ -194,7 +194,7 @@ function EventPreview({event}: {event: AppEvent}) {
       <Icon name="calendar-heart" size={24} color={COLORS.primary} />
       <View style={styles.previewBody}>
         <Text style={styles.previewTitle}>{event.title}</Text>
-        <Text style={styles.previewMeta}>{event.location || 'Kampüs'} · +{event.check_in_points || 0} puan</Text>
+              <Text style={styles.previewMeta}>{event.location || 'Kampüs'} · +{event.check_in_points || 0} Gold</Text>
       </View>
     </View>
   );
@@ -206,7 +206,7 @@ function GamePreview({game}: {game: ArcadeGame}) {
       <Icon name="controller-classic" size={24} color={COLORS.primary} />
       <View style={styles.previewBody}>
         <Text style={styles.previewTitle}>{game.title}</Text>
-        <Text style={styles.previewMeta}>Günlük limit {game.daily_point_limit || 0} puan</Text>
+              <Text style={styles.previewMeta}>Günlük limit {game.daily_point_limit || 0} Gold</Text>
       </View>
     </View>
   );
@@ -217,7 +217,7 @@ function MarketPreview({item}: {item: MarketItem}) {
     <View style={styles.marketMini}>
       <Icon name={item.item_kind === 'badge' ? 'shield-star' : 'shopping'} size={22} color={COLORS.primary} />
       <Text style={styles.marketTitle} numberOfLines={2}>{item.title}</Text>
-      <Text style={styles.marketCost}>{item.cost_points} XP</Text>
+              <Text style={styles.marketCost}>{item.cost_points} Gold</Text>
     </View>
   );
 }
