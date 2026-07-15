@@ -77,13 +77,13 @@
 - Keeps Voting independent from Juke-local while requiring a registered Account.
 - Restores the tested notification and network-quality service contracts omitted during branch consolidation.
 
-- [ ] **Step 1: Verify the five baseline failures**
+- [x] **Step 1: Verify the five baseline failures**
 
 Run the five suites independently and record the exact expected failures:
 `config.test.ts`, `radioChannels.test.ts`, `nextSongVoteNavigation.test.ts`,
 `notificationService.test.ts`, and `languageAndFlacReadiness.test.ts`.
 
-- [ ] **Step 2: Confirm root causes against history and working patterns**
+- [x] **Step 2: Confirm root causes against history and working patterns**
 
 - Config expectations predate the consumed Focus/Social return fields.
 - `buildChannelTrack` bypasses `resolveStreamQuality`, and generic RadioTEDU
@@ -93,14 +93,14 @@ Run the five suites independently and record the exact expected failures:
 - Notification and network-quality tests were consolidated without the small
   production service files already implemented on the source branch.
 
-- [ ] **Step 3: Apply one minimal fix per root cause**
+- [x] **Step 3: Apply one minimal fix per root cause**
 
 Update only the files listed above. Restore the two omitted services from their
 last complete implementations, use the existing AuthGuard pattern, resolve
 track quality before URL selection, and match specific mount aliases before
 the generic main-channel fallback.
 
-- [ ] **Step 4: Run the five focused suites**
+- [x] **Step 4: Run the five focused suites**
 
 Run: `npm test -- --runInBand __tests__/config.test.ts __tests__/radioChannels.test.ts __tests__/nextSongVoteNavigation.test.ts __tests__/notificationService.test.ts __tests__/languageAndFlacReadiness.test.ts`
 
@@ -108,7 +108,7 @@ Working directory: `mobile`
 
 Expected: 5 suites PASS.
 
-- [ ] **Step 5: Run the complete mobile baseline**
+- [x] **Step 5: Run the complete mobile baseline**
 
 Run: `npm test -- --runInBand`
 
@@ -116,7 +116,7 @@ Working directory: `mobile`
 
 Expected: all mobile suites PASS before Account/Gold implementation starts.
 
-- [ ] **Step 6: Commit the baseline repair**
+- [x] **Step 6: Commit the baseline repair**
 
 ```bash
 git add mobile/__tests__/config.test.ts mobile/src/services/playbackQueue.ts mobile/src/screens/next-song-vote/NextSongVoteScreen.tsx mobile/src/services/notificationService.ts mobile/src/services/networkQualityPolicy.ts docs/superpowers/plans/2026-07-15-account-gold-study-deployment-handoff.md
@@ -173,7 +173,7 @@ own `BEGIN`/`COMMIT`/`ROLLBACK`; with one they participate in the caller's
 transaction and never commit or roll back it themselves. This is required so
 balance, ledger, inventory, stock, and redemption writes can be atomic.
 
-- [ ] **Step 1: Write failing schema-contract tests**
+- [x] **Step 1: Write failing schema-contract tests**
 
 Add assertions to `backend/src/db/migrate.test.ts`:
 
@@ -184,7 +184,7 @@ expect(schemaSql).toContain('idx_points_ledger_user_idempotency');
 expect(schemaSql).toContain('user_points_spendable_nonnegative');
 ```
 
-- [ ] **Step 2: Run the schema test and verify RED**
+- [x] **Step 2: Run the schema test and verify RED**
 
 Run: `npm test -- --run src/db/migrate.test.ts`
 
@@ -192,7 +192,7 @@ Working directory: `backend`
 
 Expected: FAIL because the Gold columns, unique index, and non-negative constraint do not exist.
 
-- [ ] **Step 3: Add the additive schema**
+- [x] **Step 3: Add the additive schema**
 
 Append immediately after the existing `points_ledger` indexes in `backend/src/db/schema.sql`:
 
@@ -217,7 +217,7 @@ BEGIN
 END $$;
 ```
 
-- [ ] **Step 4: Write failing transaction tests**
+- [x] **Step 4: Write failing transaction tests**
 
 Create `backend/src/services/goldTransactions.test.ts` with mocked pool-client behavior covering:
 
@@ -255,7 +255,7 @@ it('rejects a spend that would make Gold negative', async () => {
 });
 ```
 
-- [ ] **Step 5: Run the Gold transaction test and verify RED**
+- [x] **Step 5: Run the Gold transaction test and verify RED**
 
 Run: `npm test -- --run src/services/goldTransactions.test.ts`
 
@@ -263,7 +263,7 @@ Working directory: `backend`
 
 Expected: FAIL because `GoldMutationResult`, required idempotency, and `spendUserPoints` are not implemented.
 
-- [ ] **Step 6: Implement the canonical transaction behavior**
+- [x] **Step 6: Implement the canonical transaction behavior**
 
 In `backend/src/services/gamification.ts`:
 
@@ -288,7 +288,7 @@ INSERT INTO points_ledger (
 RETURNING id, amount, balance_after
 ```
 
-- [ ] **Step 7: Run focused and schema tests and verify GREEN**
+- [x] **Step 7: Run focused and schema tests and verify GREEN**
 
 Run: `npm test -- --run src/services/gamification.test.ts src/services/goldTransactions.test.ts src/db/migrate.test.ts`
 
@@ -296,7 +296,7 @@ Working directory: `backend`
 
 Expected: PASS with zero failed tests.
 
-- [ ] **Step 8: Commit the Gold foundation**
+- [x] **Step 8: Commit the Gold foundation**
 
 ```bash
 git add backend/src/db/schema.sql backend/src/db/migrate.test.ts backend/src/services/gamification.ts backend/src/services/gamification.test.ts backend/src/services/goldTransactions.test.ts
@@ -321,7 +321,7 @@ Do not stage `backend/package-lock.json`.
 - Produces: `DELETE /api/v1/auth/account` with `{confirmation: 'DELETE', password?: string}`.
 - Produces mobile context methods `logout(): Promise<void>` and `deleteAccount(password?: string): Promise<void>`.
 
-- [ ] **Step 1: Write failing backend lifecycle tests**
+- [x] **Step 1: Write failing backend lifecycle tests**
 
 Create `backend/src/routes/authLifecycle.test.ts` using the router/db mocking pattern from `authRegister.test.ts` and assert:
 
@@ -341,7 +341,7 @@ Add cases proving:
 - Successful deletion removes refresh sessions and then the `users` row inside one transaction.
 - Responses never include `password_hash`, `token_hash`, access tokens, or internal guest email.
 
-- [ ] **Step 2: Run backend lifecycle tests and verify RED**
+- [x] **Step 2: Run backend lifecycle tests and verify RED**
 
 Run: `npm test -- --run src/routes/authLifecycle.test.ts`
 
@@ -349,7 +349,7 @@ Working directory: `backend`
 
 Expected: FAIL because the lifecycle routes do not exist.
 
-- [ ] **Step 3: Implement idempotent logout and deletion**
+- [x] **Step 3: Implement idempotent logout and deletion**
 
 In `backend/src/routes/auth.ts`:
 
@@ -375,7 +375,7 @@ Implement `DELETE /account` with a single checked-out database client:
 5. Commit and return `{deleted: true}`.
 6. Roll back and redact database details on error.
 
-- [ ] **Step 4: Write failing mobile lifecycle tests**
+- [x] **Step 4: Write failing mobile lifecycle tests**
 
 Create `mobile/__tests__/accountLifecycle.test.ts` and verify that:
 
@@ -391,7 +391,7 @@ expect(deleteAccountRequest('secret')).toEqual({
 
 Also assert that local token removal runs in `finally` when logout returns a network error.
 
-- [ ] **Step 5: Run mobile lifecycle tests and verify RED**
+- [x] **Step 5: Run mobile lifecycle tests and verify RED**
 
 Run: `npm test -- --runInBand __tests__/accountLifecycle.test.ts`
 
@@ -399,7 +399,7 @@ Working directory: `mobile`
 
 Expected: FAIL because server-aware lifecycle helpers/context methods do not exist.
 
-- [ ] **Step 6: Implement the mobile account lifecycle**
+- [x] **Step 6: Implement the mobile account lifecycle**
 
 In `AuthContext.tsx`:
 
@@ -409,7 +409,7 @@ In `AuthContext.tsx`:
 - Add `deleteAccount(password?)`, call `DELETE ${API_URL}/auth/account` with confirmation and password, then clear local state only after a successful deletion.
 - Keep refresh-token values out of logs and thrown user messages.
 
-- [ ] **Step 7: Run focused Account tests and verify GREEN**
+- [x] **Step 7: Run focused Account tests and verify GREEN**
 
 Run backend: `npm test -- --run src/routes/authRegister.test.ts src/routes/authLifecycle.test.ts`
 
@@ -417,7 +417,7 @@ Run mobile: `npm test -- --runInBand __tests__/accountLifecycle.test.ts`
 
 Expected: both commands PASS.
 
-- [ ] **Step 8: Commit Account lifecycle changes**
+- [x] **Step 8: Commit Account lifecycle changes**
 
 ```bash
 git add backend/src/routes/auth.ts backend/src/routes/authLifecycle.test.ts mobile/src/context/AuthContext.tsx mobile/__tests__/accountLifecycle.test.ts

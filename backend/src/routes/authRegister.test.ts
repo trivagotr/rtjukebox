@@ -8,11 +8,16 @@ const {
   mockSendSuccess,
 } = vi.hoisted(() => {
   const handlers: Record<string, Record<string, (...args: any[]) => any>> = {
+    delete: {},
     get: {},
     post: {},
   };
 
   const router: any = {};
+  router.delete = vi.fn((path: string, ...routeHandlers: Array<(...args: any[]) => any>) => {
+    handlers.delete[path] = routeHandlers[routeHandlers.length - 1];
+    return router;
+  });
   router.get = vi.fn((path: string, ...routeHandlers: Array<(...args: any[]) => any>) => {
     handlers.get[path] = routeHandlers[routeHandlers.length - 1];
     return router;

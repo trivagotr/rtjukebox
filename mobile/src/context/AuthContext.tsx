@@ -3,6 +3,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 
 import { BASE_API } from '../services/config';
+import {
+    deleteAccountAndClearSession,
+    logoutAccountSession,
+} from '../services/accountLifecycleService';
 
 const API_URL = BASE_API;
 
@@ -27,6 +31,7 @@ interface AuthContextType {
     register: (email: string, password: string, displayName: string) => Promise<void>;
     guestLogin: (displayName: string) => Promise<void>;
     logout: () => Promise<void>;
+    deleteAccount: (password?: string) => Promise<void>;
     refreshSession: () => Promise<User | null>;
 }
 
@@ -142,10 +147,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
-    const logout = clearSessionState;
+    const logout = useCallback(async () => {
+        try {
+            await logoutAccountSession();
+        } finally {
+            setUser(null);
+        }
+    }, []);
+
+    const deleteAccount = useCallback(async (password?: string) => {
+        await deleteAccountAndClearSession(password);
+        setUser(null);
+    }, []);
 
     return (
-        <AuthContext.Provider value={{ user, isLoading, login, register, guestLogin, logout, refreshSession }}>
+        <AuthContext.Provider value={{ user, isLoading, login, register, guestLogin, logout, deleteAccount, refreshSession }}>
             {children}
         </AuthContext.Provider>
     );

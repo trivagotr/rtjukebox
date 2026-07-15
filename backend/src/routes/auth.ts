@@ -116,6 +116,26 @@ async function createAuthSession(userId: string, email: string, role: string) {
     };
 }
 
+async function findRefreshTokenSession(
+    refreshToken: string,
+    userId: string
+): Promise<string | null> {
+    const result = await db.query(
+        `SELECT id, token_hash
+         FROM refresh_tokens
+         WHERE user_id = $1 AND expires_at > NOW()`,
+        [userId]
+    );
+
+    for (const row of result.rows) {
+        if (await bcrypt.compare(refreshToken, row.token_hash)) {
+            return row.id;
+        }
+    }
+
+    return null;
+}
+
 router.post('/register', async (req: Request, res: Response) => {
     try {
         const { email, password, display_name } = registerSchema.parse(req.body);
@@ -252,6 +272,123 @@ router.post('/refresh', async (req: Request, res: Response) => {
         return sendSuccess(res, tokens, 'Token refreshed');
     } catch (error) {
         return sendError(res, 'Invalid refresh token', 401);
+    }
+});
+
+router.post('/logout', async (req: Request, res: Response) => {
+    const logoutSucceeded = () => sendSuccess(
+        res,
+        { revoked: true },
+        'Session logged out'
+    );
+
+    try {
+        const refreshToken = String(req.body?.refresh_token ?? '').trim();
+        if (!refreshToken) return logoutSucceeded();
+
+        const decoded = jwt.verify(
+            refreshToken,
+            JWT_REFRESH_SECRET
+        ) as { id?: string };
+
+        if (!decoded.id) return logoutSucceeded();
+
+        const matchedTokenId = await findRefreshTokenSession(refreshToken, decoded.id);
+        if (matchedTokenId) {
+            await db.query(
+                'DELETE FROM refresh_tokens WHERE id = $1 AND user_id = $2',
+                [matchedTokenId, decoded.id]
+            );
+        }
+
+        return logoutSucceeded();
+    } catch {
+        // Logout is intentionally idempotent and does not reveal token state.
+        return logoutSucceeded();
+    }
+});
+
+router.post('/logout-all', authMiddleware, async (req: AuthRequest, res: Response) => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) return sendError(res, 'Authentication required', 401);
+
+        const result = await db.query(
+            'DELETE FROM refresh_tokens WHERE user_id = $1',
+            [userId]
+        );
+
+        return sendSuccess(
+            res,
+            { revoked_sessions: result.rowCount ?? 0 },
+            'All sessions logged out'
+        );
+    } catch {
+        return sendError(res, 'Failed to log out all sessions', 500);
+    }
+});
+
+router.delete('/account', authMiddleware, async (req: AuthRequest, res: Response) => {
+    if (req.body?.confirmation !== 'DELETE') {
+        return sendError(res, 'Type DELETE to confirm account deletion', 400);
+    }
+
+    const userId = req.user?.id;
+    if (!userId) return sendError(res, 'Authentication required', 401);
+
+    const client = await db.pool.connect();
+    let transactionOpen = false;
+
+    try {
+        await client.query('BEGIN');
+        transactionOpen = true;
+
+        const accountResult = await client.query(
+            `SELECT id, is_guest, password_hash
+             FROM users
+             WHERE id = $1
+             FOR UPDATE`,
+            [userId]
+        );
+        const account = accountResult.rows[0];
+
+        if (!account) {
+            await client.query('ROLLBACK');
+            transactionOpen = false;
+            return sendError(res, 'User not found', 404);
+        }
+
+        if (!account.is_guest) {
+            const password = String(req.body?.password ?? '');
+            const passwordMatches = Boolean(account.password_hash)
+                && await bcrypt.compare(password, account.password_hash);
+
+            if (!passwordMatches) {
+                await client.query('ROLLBACK');
+                transactionOpen = false;
+                return sendError(res, 'Current password is incorrect', 401);
+            }
+        }
+
+        await client.query(
+            'DELETE FROM refresh_tokens WHERE user_id = $1',
+            [userId]
+        );
+        await client.query(
+            'DELETE FROM users WHERE id = $1 RETURNING id',
+            [userId]
+        );
+        await client.query('COMMIT');
+        transactionOpen = false;
+
+        return sendSuccess(res, { deleted: true }, 'Account deleted');
+    } catch {
+        if (transactionOpen) {
+            await client.query('ROLLBACK');
+        }
+        return sendError(res, 'Failed to delete account', 500);
+    } finally {
+        client.release();
     }
 });
 
