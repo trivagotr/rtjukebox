@@ -2,6 +2,7 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { BASE_API } from './config';
+import { notifyAuthSessionChanged } from './authSessionEvents';
 
 const api = axios.create({
   baseURL: BASE_API,
@@ -60,12 +61,14 @@ api.interceptors.response.use(
         if (refresh_token) {
           await AsyncStorage.setItem('refresh_token', refresh_token);
         }
+        notifyAuthSessionChanged();
 
         originalRequest.headers.Authorization = `Bearer ${access_token}`;
         return api(originalRequest);
       } catch (refreshError) {
         await AsyncStorage.removeItem('access_token');
         await AsyncStorage.removeItem('refresh_token');
+        notifyAuthSessionChanged();
         return Promise.reject(refreshError);
       }
     }

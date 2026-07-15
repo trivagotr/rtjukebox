@@ -7,6 +7,7 @@ import {
     deleteAccountAndClearSession,
     logoutAccountSession,
 } from '../services/accountLifecycleService';
+import { notifyAuthSessionChanged } from '../services/authSessionEvents';
 
 const API_URL = BASE_API;
 
@@ -57,6 +58,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const clearSessionState = useCallback(async () => {
         await AsyncStorage.multiRemove(['access_token', 'refresh_token']);
+        notifyAuthSessionChanged();
         delete axios.defaults.headers.common['Authorization'];
         setUser(null);
     }, []);
@@ -103,6 +105,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
             await AsyncStorage.setItem('access_token', access_token);
             await AsyncStorage.setItem('refresh_token', refresh_token);
+            notifyAuthSessionChanged();
 
             axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
             setUser(normalizeUser(userData));
@@ -122,6 +125,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
             await AsyncStorage.setItem('access_token', access_token);
             await AsyncStorage.setItem('refresh_token', refresh_token);
+            notifyAuthSessionChanged();
 
             axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
             setUser(normalizeUser(userData));
@@ -139,6 +143,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
             await AsyncStorage.setItem('access_token', access_token);
             await AsyncStorage.setItem('refresh_token', refresh_token);
+            notifyAuthSessionChanged();
 
             axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
             setUser(normalizeUser(userData));
@@ -152,12 +157,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             await logoutAccountSession();
         } finally {
             setUser(null);
+            notifyAuthSessionChanged();
         }
     }, []);
 
     const deleteAccount = useCallback(async (password?: string) => {
         await deleteAccountAndClearSession(password);
         setUser(null);
+        notifyAuthSessionChanged();
     }, []);
 
     return (

@@ -25,13 +25,12 @@ describe('next-song vote navigation', () => {
     expect(homeSource).toContain("navigation.navigate('Leaderboard')");
   });
 
-  it('blocks anonymous and guest users from next-song voting', () => {
+  it('delegates anonymous, guest, and registered auth decisions to the Voting WebView bridge', () => {
     const screenSource = fs.readFileSync(path.join(__dirname, '../src/screens/next-song-vote/NextSongVoteScreen.tsx'), 'utf8');
 
-    expect(screenSource).toContain('AuthGuard');
-    expect(screenSource).toContain('const isRegisteredUser = Boolean(user && !user.is_guest)');
-    expect(screenSource).toContain('if (!isRegisteredUser)');
-    expect(screenSource).toContain('Now register');
-    expect(screenSource).toContain('Next Song voting is only available for registered RadioTEDU accounts.');
+    expect(screenSource).not.toContain('AuthGuard');
+    expect(screenSource).toContain('accessToken: null');
+    expect(screenSource).toContain('user: null');
+    expect(screenSource).toContain('AsyncStorage.getItem(ACCESS_TOKEN_KEY)');
   });
 });
