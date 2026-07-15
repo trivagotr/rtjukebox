@@ -108,6 +108,17 @@ describe('db migration helper', () => {
         expect(constraintIndex).toBeLessThan(bucketHatSeedIndex);
     });
 
+    it('adds instance isolation columns and indexes for Study presence and chat', () => {
+        const schemaSql = loadSchemaSql();
+
+        expect(schemaSql).toContain('ALTER TABLE study_room_presence ADD COLUMN IF NOT EXISTS instance_id');
+        expect(schemaSql).toContain('ALTER TABLE study_room_presence ADD COLUMN IF NOT EXISTS client_session_id');
+        expect(schemaSql).toContain('idx_study_room_presence_instance_active');
+        expect(schemaSql).toContain('ALTER TABLE study_chat_messages ADD COLUMN IF NOT EXISTS instance_id');
+        expect(schemaSql).toContain('idx_study_chat_instance_created');
+        expect(schemaSql).toContain("room_id || '-1'");
+    });
+
     it('applies schema sql inside a single transaction and forces UTF-8 client encoding', async () => {
         const query = vi.fn().mockResolvedValue({ rows: [] });
 

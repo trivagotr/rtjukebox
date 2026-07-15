@@ -6,10 +6,12 @@ import {
   type StudyHeartbeatInput,
   type StudyPresence,
   type StudyRoomId,
+  type StudyRoomInstance,
   type StudySeatReservation,
   type StudySession,
   type StudyTimeSummary,
 } from './StudyAdapter'
+import { getOrCreateStudyClientSessionId, normalizeStudyClientSessionId } from './StudyClientSession'
 
 const STARTER_WEARABLES = Object.freeze(['short-hair', 'radio-hoodie', 'jeans', 'sneakers', 'bucket-hat'])
 const EMPTY_SUMMARY: StudyTimeSummary = Object.freeze({ todaySeconds: 0, monthSeconds: 0, totalSeconds: 0 })
@@ -33,6 +35,7 @@ export interface RadioTEDUStudyAdapterConfig {
   globalPoints?: number
   fetchImpl?: typeof fetch
   now?: () => number
+  clientSessionId?: string
 }
 
 export class RadioTEDUStudyAdapter implements StudyAdapter {
@@ -42,13 +45,17 @@ export class RadioTEDUStudyAdapter implements StudyAdapter {
   readonly #fetch: typeof fetch
   readonly #now: () => number
   readonly #account: StudyAccount
+  readonly #clientSessionId: string
   readonly #owned = new Set<string>(STARTER_WEARABLES)
   readonly #equipped = new Set<string>()
   readonly #presence = new Map<StudyRoomId, readonly StudyPresence[]>()
+  readonly #instances = new Map<StudyRoomId, StudyRoomInstance>()
+  readonly #roomJoins = new Map<StudyRoomId, Promise<StudyRoomInstance>>()
   #globalPoints: number
   #summary: StudyTimeSummary = EMPTY_SUMMARY
   #activeSession: ActiveRemoteSession | null = null
   #activeSeat: StudySeatReservation | null = null
+  #activeRoomId: StudyRoomId | null = null
 
   constructor(config: RadioTEDUStudyAdapterConfig) {
     if (!config.account.authenticated || !config.accessToken.trim()) {
@@ -59,6 +66,8 @@ export class RadioTEDUStudyAdapter implements StudyAdapter {
     this.#fetch = config.fetchImpl ?? fetch
     this.#now = config.now ?? Date.now
     this.#account = Object.freeze({ ...config.account })
+    this.#clientSessionId = normalizeStudyClientSessionId(config.clientSessionId)
+      ?? getOrCreateStudyClientSessionId(typeof sessionStorage === 'undefined' ? null : sessionStorage, this.#now)
     this.#globalPoints = nonNegativeInteger(config.globalPoints)
   }
 
@@ -99,8 +108,16 @@ export class RadioTEDUStudyAdapter implements StudyAdapter {
     return this.#presence.get(roomId) ?? []
   }
 
-  enterRoom(): void {
+  roomInstance(roomId: StudyRoomId): StudyRoomInstance | null {
+    return this.#instances.get(roomId) ?? null
+  }
+
+  async enterRoom(roomId: StudyRoomId, nodeId: string): Promise<void> {
     this.releaseSeat()
+    const returningToRoom = this.#activeRoomId !== null && this.#activeRoomId !== roomId
+    this.#activeRoomId = roomId
+    if (!returningToRoom && this.#instances.has(roomId)) return
+    await this.#joinRoom(roomId, nodeId)
   }
 
   reserveSeat(roomId: StudyRoomId, seatId: string): StudySeatReservation {
@@ -207,11 +224,18 @@ export class RadioTEDUStudyAdapter implements StudyAdapter {
   }
 
   async refreshPresence(roomId: StudyRoomId): Promise<readonly StudyPresence[]> {
-    const data = await this.#request<{ presence?: unknown }>(`/presence?roomId=${encodeURIComponent(roomId)}`)
+    const instance = await this.#ensureRoomJoined(roomId)
+    const data = await this.#request<{ presence?: unknown }>(
+      `/presence?roomId=${encodeURIComponent(roomId)}&instanceId=${encodeURIComponent(instance.id)}`,
+    )
     const entries = Array.isArray(data.presence) ? data.presence : []
     const mapped = entries.flatMap((value) => {
       const row = value as Record<string, unknown>
-      if (typeof row.userId !== 'string' || row.userId === this.#account.id || typeof row.displayName !== 'string' || typeof row.nodeId !== 'string') return []
+      if (
+        typeof row.userId !== 'string' || row.userId === this.#account.id
+        || typeof row.displayName !== 'string' || typeof row.nodeId !== 'string'
+        || row.instanceId !== instance.id
+      ) return []
       const equipped = row.equipped && typeof row.equipped === 'object' ? Object.values(row.equipped) : []
       return [{
         userId: row.userId,
@@ -224,26 +248,90 @@ export class RadioTEDUStudyAdapter implements StudyAdapter {
       } satisfies StudyPresence]
     })
     this.#presence.set(roomId, mapped)
+    this.#publishRoomInstance(Object.freeze({
+      ...instance,
+      occupancy: Math.min(instance.capacity, mapped.length + 1),
+    }))
     return mapped
   }
 
   async heartbeatPresence(input: Omit<StudyHeartbeatInput, 'interaction' | 'focused' | 'foreground'>): Promise<void> {
-    await this.#request('/presence/heartbeat', {
-      method: 'POST',
-      body: { roomId: input.roomId, nodeId: input.nodeId, seatId: input.seatId, position: input.position },
+    let instance = await this.#ensureRoomJoined(input.roomId, input.nodeId)
+    const send = () => this.#request('/presence/heartbeat', {
+      method: 'POST' as const,
+      body: {
+        roomId: input.roomId, instanceId: instance.id, clientSessionId: this.#clientSessionId,
+        nodeId: input.nodeId, seatId: input.seatId, position: input.position,
+      },
     })
+    try {
+      await send()
+    } catch {
+      this.#instances.delete(input.roomId)
+      instance = await this.#joinRoom(input.roomId, input.nodeId)
+      await send()
+    }
   }
 
   async refreshChat(roomId: StudyRoomId): Promise<readonly StudyChatMessage[]> {
-    const data = await this.#request<{ messages?: unknown }>(`/chat?roomId=${encodeURIComponent(roomId)}`)
+    const instance = await this.#ensureRoomJoined(roomId)
+    const data = await this.#request<{ messages?: unknown }>(
+      `/chat?roomId=${encodeURIComponent(roomId)}&instanceId=${encodeURIComponent(instance.id)}`,
+    )
     return (Array.isArray(data.messages) ? data.messages : []).flatMap(mapRemoteMessage)
   }
 
   async sendChat(text: string, roomId: StudyRoomId = 'library'): Promise<StudyChatMessage> {
-    const data = await this.#request<{ message?: unknown }>('/chat', { method: 'POST', body: { roomId, text } })
+    const instance = await this.#ensureRoomJoined(roomId)
+    const data = await this.#request<{ message?: unknown }>('/chat', {
+      method: 'POST', body: { roomId, instanceId: instance.id, text },
+    })
     const messages = mapRemoteMessage(data.message)
     if (!messages[0]) throw new StudyAdapterError('INVALID_CHAT_RESPONSE')
     return messages[0]
+  }
+
+  async #ensureRoomJoined(roomId: StudyRoomId, nodeId = 'spawn'): Promise<StudyRoomInstance> {
+    const pending = this.#roomJoins.get(roomId)
+    if (pending) return pending
+    const instance = this.#instances.get(roomId)
+    if (instance && this.#activeRoomId === roomId) return instance
+    this.#activeRoomId = roomId
+    return this.#joinRoom(roomId, nodeId)
+  }
+
+  async #joinRoom(roomId: StudyRoomId, nodeId: string): Promise<StudyRoomInstance> {
+    const pending = this.#roomJoins.get(roomId)
+    if (pending) return pending
+    const preferredInstanceId = this.#instances.get(roomId)?.id ?? null
+    const joining = this.#request<{ instance?: unknown }>('/instances/join', {
+      method: 'POST',
+      body: {
+        roomId,
+        preferredInstanceId,
+        nodeId,
+        position: { x: 0, y: 0 },
+        clientSessionId: this.#clientSessionId,
+      },
+    }).then((data) => mapRoomInstance(data.instance, roomId))
+    this.#roomJoins.set(roomId, joining)
+    try {
+      const instance = await joining
+      this.#publishRoomInstance(instance)
+      return instance
+    } catch (error) {
+      this.#instances.delete(roomId)
+      throw error
+    } finally {
+      if (this.#roomJoins.get(roomId) === joining) this.#roomJoins.delete(roomId)
+    }
+  }
+
+  #publishRoomInstance(instance: StudyRoomInstance): void {
+    this.#instances.set(instance.roomId, instance)
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('radiotedu:study-instance-changed', { detail: { instance } }))
+    }
   }
 
   async #request<T = Record<string, never>>(
@@ -271,6 +359,27 @@ export class RadioTEDUStudyAdapter implements StudyAdapter {
 function nonNegativeInteger(value: unknown, fallback = 0) {
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : fallback
+}
+
+function mapRoomInstance(value: unknown, expectedRoomId: StudyRoomId): StudyRoomInstance {
+  const row = value as Record<string, unknown> | null
+  const number = nonNegativeInteger(row?.number)
+  const occupancy = nonNegativeInteger(row?.occupancy)
+  const capacity = nonNegativeInteger(row?.capacity)
+  if (
+    !row || row.roomId !== expectedRoomId || typeof row.id !== 'string'
+    || row.id !== `${expectedRoomId}-${number}` || number < 1 || capacity < 1 || occupancy > capacity
+  ) {
+    throw new StudyAdapterError('INVALID_ROOM_INSTANCE_RESPONSE')
+  }
+  return Object.freeze({
+    id: row.id,
+    roomId: expectedRoomId,
+    number,
+    occupancy,
+    capacity,
+    preferredInstanceFull: row.preferredInstanceFull === true,
+  })
 }
 
 function colorForUser(userId: string) {

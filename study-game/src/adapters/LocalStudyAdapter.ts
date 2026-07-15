@@ -6,6 +6,7 @@ import {
   type StudyHeartbeatInput,
   type StudyPresence,
   type StudyRoomId,
+  type StudyRoomInstance,
   type StudySeatReservation,
   type StudySession,
   type StudyTimeSummary,
@@ -65,6 +66,15 @@ export class LocalStudyAdapter implements StudyAdapter {
 
   presence(roomId: StudyRoomId): readonly StudyPresence[] {
     return FAKE_PRESENCE.filter((entry) => entry.roomId === roomId)
+  }
+
+  roomInstance(roomId: StudyRoomId): StudyRoomInstance {
+    return {
+      id: `${roomId}-1`, roomId, number: 1,
+      occupancy: this.presence(roomId).length + 1,
+      capacity: roomId === 'library' ? 51 : 9,
+      preferredInstanceFull: false,
+    }
   }
 
   enterRoom(roomId: StudyRoomId, nodeId: string): void {

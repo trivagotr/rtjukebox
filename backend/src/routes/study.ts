@@ -4,6 +4,12 @@ import { db } from '../db';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { sendSuccess, sendError } from '../utils/response';
 import { awardUserPoints, spendUserPoints } from '../services/gamification';
+import {
+  parseStudyRoomInstanceId,
+  selectStudyRoomInstance,
+  STUDY_ROOM_CAPACITIES,
+  type StudyPhysicalRoomId,
+} from '../services/studyRoomInstances';
 
 const router = express.Router();
 
@@ -270,13 +276,135 @@ export async function handleStudySummary(req: AuthRequest, res: Response) {
   }
 }
 
+export async function handleStudyInstanceJoin(req: AuthRequest, res: Response) {
+  if (!ensureRegisteredAccount(req, res)) {
+    return undefined;
+  }
+  const roomId = normalizeLocation(req.body?.roomId ?? req.body?.room_id) as StudyPhysicalRoomId | null;
+  const nodeId = normalizeNodeId(req.body?.nodeId ?? req.body?.node_id);
+  const clientSessionId = normalizeClientSessionId(req.body?.clientSessionId ?? req.body?.client_session_id);
+  const preferredValue = req.body?.preferredInstanceId ?? req.body?.preferred_instance_id;
+  const preferredInstanceId = preferredValue === null || preferredValue === undefined || preferredValue === ''
+    ? null
+    : typeof preferredValue === 'string' ? preferredValue : null;
+  const position = normalizeStudyRoomPosition(req.body?.position);
+  if (!roomId || !nodeId || !clientSessionId || !position) {
+    return sendError(res, 'Invalid Study room instance payload', 400);
+  }
+  if (preferredInstanceId && !parseStudyRoomInstanceId(preferredInstanceId, roomId)) {
+    return sendError(res, 'Invalid Study room instance', 400);
+  }
+
+  const client = await db.pool.connect();
+  let transactionStarted = false;
+  try {
+    await client.query('BEGIN');
+    transactionStarted = true;
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtext($1::text)) AS locked`,
+      [`study-instance:${roomId}`],
+    );
+    const stickyResult = await client.query(
+      `SELECT instance_id
+       FROM study_room_presence
+       WHERE user_id = $1
+         AND room_id = $2
+         AND client_session_id = $3
+         AND is_active = true
+         AND last_heartbeat_at >= NOW() - ($4 * INTERVAL '1 second')
+       FOR UPDATE`,
+      [req.user!.id, roomId, clientSessionId, PRESENCE_TTL_SECONDS],
+    );
+    const occupancyResult = await client.query(
+      `SELECT instance_id, COUNT(*)::integer AS occupancy
+       FROM study_room_presence
+       WHERE room_id = $1
+         AND instance_id IS NOT NULL
+         AND is_active = true
+         AND last_heartbeat_at >= NOW() - ($2 * INTERVAL '1 second')
+       GROUP BY instance_id
+       ORDER BY instance_id`,
+      [roomId, PRESENCE_TTL_SECONDS],
+    );
+    const stickyInstanceId = typeof stickyResult.rows[0]?.instance_id === 'string'
+      && parseStudyRoomInstanceId(stickyResult.rows[0].instance_id, roomId)
+      ? stickyResult.rows[0].instance_id as string
+      : null;
+    const occupancies = occupancyResult.rows.map((row: Record<string, unknown>) => ({
+      instanceId: String(row.instance_id),
+      occupancy: toNumber(row.occupancy),
+    }));
+    const stickyParsed = stickyInstanceId ? parseStudyRoomInstanceId(stickyInstanceId, roomId) : null;
+    const selected = stickyInstanceId && stickyParsed
+      ? {
+          id: stickyInstanceId,
+          roomId,
+          number: stickyParsed.number,
+          occupancy: occupancies.find((row) => row.instanceId === stickyInstanceId)?.occupancy ?? 1,
+          capacity: STUDY_ROOM_CAPACITIES[roomId],
+          preferredInstanceFull: false,
+        }
+      : selectStudyRoomInstance(roomId, occupancies, preferredInstanceId);
+
+    await client.query(
+      `INSERT INTO study_room_presence (
+         user_id, room_id, instance_id, client_session_id, day_key,
+         node_id, position_x, position_y, presence_mode, is_active,
+         current_session_started_at, last_heartbeat_at, updated_at
+       )
+       VALUES (
+         $1, $2, $3, $4, to_char(timezone('Europe/Istanbul', NOW()), 'YYYY-MM-DD'),
+         $5, $6, $7, 'studying', true, NOW(), NOW(), NOW()
+       )
+       ON CONFLICT (user_id) DO UPDATE SET
+         room_id = EXCLUDED.room_id,
+         instance_id = EXCLUDED.instance_id,
+         client_session_id = EXCLUDED.client_session_id,
+         day_key = EXCLUDED.day_key,
+         node_id = EXCLUDED.node_id,
+         position_x = EXCLUDED.position_x,
+         position_y = EXCLUDED.position_y,
+         seat_id = NULL,
+         presence_mode = 'studying',
+         is_active = true,
+         current_session_started_at = CASE
+           WHEN study_room_presence.instance_id IS DISTINCT FROM EXCLUDED.instance_id THEN NOW()
+           ELSE study_room_presence.current_session_started_at
+         END,
+         last_heartbeat_at = NOW(),
+         updated_at = NOW()
+       RETURNING instance_id`,
+      [
+        req.user!.id, roomId, selected.id, clientSessionId,
+        nodeId, position.x, position.y,
+      ],
+    );
+    await client.query('COMMIT');
+    transactionStarted = false;
+
+    return sendSuccess(res, {
+      instance: {
+        ...selected,
+        occupancy: stickyInstanceId ? Math.max(1, selected.occupancy) : selected.occupancy + 1,
+      },
+    }, 'Study room instance assigned');
+  } catch (error) {
+    if (transactionStarted) await client.query('ROLLBACK');
+    console.error('Study room instance join error:', error);
+    return sendError(res, 'Failed to join Study room instance', 500);
+  } finally {
+    client.release();
+  }
+}
+
 export async function handleStudyPresence(req: AuthRequest, res: Response) {
   if (!ensureRegisteredAccount(req, res)) {
     return undefined;
   }
-  const roomId = normalizeLocation(req.query?.roomId);
-  if (!roomId) {
-    return sendError(res, 'Invalid Study room', 400);
+  const roomId = normalizeLocation(req.query?.roomId) as StudyPhysicalRoomId | null;
+  const instanceId = typeof req.query?.instanceId === 'string' ? req.query.instanceId : null;
+  if (!roomId || !instanceId || !parseStudyRoomInstanceId(instanceId, roomId)) {
+    return sendError(res, 'Invalid Study room instance', 400);
   }
 
   try {
@@ -291,11 +419,12 @@ export async function handleStudyPresence(req: AuthRequest, res: Response) {
        FROM study_room_presence p
        JOIN users u ON u.id = p.user_id
        WHERE p.room_id = $1
+         AND p.instance_id = $2
          AND p.is_active = true
-         AND p.last_heartbeat_at >= NOW() - ($2 * INTERVAL '1 second')
+         AND p.last_heartbeat_at >= NOW() - ($3 * INTERVAL '1 second')
        ORDER BY p.last_heartbeat_at DESC
        LIMIT 80`,
-      [roomId, PRESENCE_TTL_SECONDS],
+      [roomId, instanceId, PRESENCE_TTL_SECONDS],
     );
     return sendSuccess(res, { presence: result.rows.map(mapPresence) }, 'Study presence fetched');
   } catch (error) {
@@ -308,43 +437,53 @@ export async function handleStudyPresenceHeartbeat(req: AuthRequest, res: Respon
   if (!ensureRegisteredAccount(req, res)) {
     return undefined;
   }
-  const roomId = normalizeLocation(req.body?.roomId ?? req.body?.room_id);
+  const roomId = normalizeLocation(req.body?.roomId ?? req.body?.room_id) as StudyPhysicalRoomId | null;
+  const instanceId = typeof (req.body?.instanceId ?? req.body?.instance_id) === 'string'
+    ? req.body.instanceId ?? req.body.instance_id
+    : null;
+  const clientSessionId = normalizeClientSessionId(req.body?.clientSessionId ?? req.body?.client_session_id);
   const nodeId = normalizeNodeId(req.body?.nodeId ?? req.body?.node_id);
   const rawSeatId = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'seatId')
     ? req.body?.seatId
     : req.body?.seat_id;
   const seatId = rawSeatId === null || rawSeatId === undefined ? null : normalizeSeatId(rawSeatId);
   const position = normalizePosition(req.body?.position);
-  if (!roomId || !nodeId || (rawSeatId !== null && rawSeatId !== undefined && !seatId)) {
+  if (
+    !roomId || !instanceId || !parseStudyRoomInstanceId(instanceId, roomId)
+    || !clientSessionId || !nodeId
+    || (rawSeatId !== null && rawSeatId !== undefined && !seatId)
+  ) {
     return sendError(res, 'Invalid Study presence payload', 400);
   }
 
   try {
     const result = await db.query(
-      `INSERT INTO study_room_presence (
-         user_id, room_id, day_key, node_id, position_x, position_y, seat_id,
-         presence_mode, is_active, current_session_started_at,
-         last_heartbeat_at, updated_at
-       )
-       VALUES (
-         $1, $2, to_char(timezone('Europe/Istanbul', NOW()), 'YYYY-MM-DD'),
-         $3, $4, $5, $6, 'studying', true, NOW(), NOW(), NOW()
-       )
-       ON CONFLICT (user_id) DO UPDATE SET
-         room_id = EXCLUDED.room_id,
-         day_key = EXCLUDED.day_key,
-         node_id = EXCLUDED.node_id,
-         position_x = EXCLUDED.position_x,
-         position_y = EXCLUDED.position_y,
-         seat_id = EXCLUDED.seat_id,
-         presence_mode = EXCLUDED.presence_mode,
-         is_active = true,
-         last_heartbeat_at = NOW(),
-         updated_at = NOW()
+      `UPDATE study_room_presence
+       SET day_key = to_char(timezone('Europe/Istanbul', NOW()), 'YYYY-MM-DD'),
+           node_id = $5,
+           position_x = $6,
+           position_y = $7,
+           seat_id = $8,
+           presence_mode = 'studying',
+           is_active = true,
+           last_heartbeat_at = NOW(),
+           updated_at = NOW()
+       WHERE user_id = $1
+         AND room_id = $2
+         AND instance_id = $3
+         AND client_session_id = $4
+         AND is_active = true
+         AND last_heartbeat_at >= NOW() - INTERVAL '${PRESENCE_TTL_SECONDS} seconds'
        RETURNING user_id, room_id, node_id, position_x, position_y,
-                 seat_id, presence_mode, last_heartbeat_at`,
-      [req.user!.id, roomId, nodeId, position.x, position.y, seatId],
+                  instance_id, seat_id, presence_mode, last_heartbeat_at`,
+      [
+        req.user!.id, roomId, instanceId, clientSessionId,
+        nodeId, position.x, position.y, seatId,
+      ],
     );
+    if (!result.rows[0]) {
+      return sendError(res, 'Study room instance rejoin required', 409);
+    }
     return sendSuccess(res, { presence: mapPresence(result.rows[0]) }, 'Study presence updated');
   } catch (error) {
     console.error('Study presence heartbeat error:', error);
@@ -356,24 +495,26 @@ export async function handleStudyChat(req: AuthRequest, res: Response) {
   if (!ensureRegisteredAccount(req, res)) {
     return undefined;
   }
-  const roomId = normalizeLocation(req.query?.roomId);
-  if (!roomId) {
-    return sendError(res, 'Invalid Study room', 400);
+  const roomId = normalizeLocation(req.query?.roomId) as StudyPhysicalRoomId | null;
+  const instanceId = typeof req.query?.instanceId === 'string' ? req.query.instanceId : null;
+  if (!roomId || !instanceId || !parseStudyRoomInstanceId(instanceId, roomId)) {
+    return sendError(res, 'Invalid Study room instance', 400);
   }
 
   try {
     const result = await db.query(
       `SELECT * FROM (
-         SELECT m.id, m.user_id, u.display_name, m.room_id,
+         SELECT m.id, m.user_id, u.display_name, m.room_id, m.instance_id,
                 m.message_text, m.created_at
          FROM study_chat_messages m
          JOIN users u ON u.id = m.user_id
          WHERE m.room_id = $1
+           AND m.instance_id = $2
          ORDER BY m.created_at DESC
          LIMIT 50
        ) recent
        ORDER BY created_at ASC`,
-      [roomId],
+      [roomId, instanceId],
     );
     return sendSuccess(res, { messages: result.rows.map(mapChatMessage) }, 'Study messages fetched');
   } catch (error) {
@@ -386,9 +527,12 @@ export async function handleStudyChatSend(req: AuthRequest, res: Response) {
   if (!ensureRegisteredAccount(req, res)) {
     return undefined;
   }
-  const roomId = normalizeLocation(req.body?.roomId ?? req.body?.room_id);
+  const roomId = normalizeLocation(req.body?.roomId ?? req.body?.room_id) as StudyPhysicalRoomId | null;
+  const instanceId = typeof (req.body?.instanceId ?? req.body?.instance_id) === 'string'
+    ? req.body.instanceId ?? req.body.instance_id
+    : null;
   const text = normalizeChatText(req.body?.text);
-  if (!roomId || !text) {
+  if (!roomId || !instanceId || !parseStudyRoomInstanceId(instanceId, roomId) || !text) {
     return sendError(res, 'Invalid Study message', 400);
   }
 
@@ -402,20 +546,29 @@ export async function handleStudyChatSend(req: AuthRequest, res: Response) {
          LEFT JOIN study_chat_messages messages
            ON locked_user.acquired
           AND messages.user_id = $2
-          AND messages.created_at >= NOW() - ($4 * INTERVAL '1 second')
+           AND messages.created_at >= NOW() - ($5 * INTERVAL '1 second')
          GROUP BY locked_user.acquired
        ), inserted AS (
-         INSERT INTO study_chat_messages (room_id, user_id, message_text, created_at)
-         SELECT $1, $2, $3, NOW()
+         INSERT INTO study_chat_messages (room_id, instance_id, user_id, message_text, created_at)
+         SELECT $1, $3, $2, $4, NOW()
          FROM recent
-         WHERE acquired AND recent_count < $5
-         RETURNING id, user_id, room_id, message_text, created_at
+         WHERE acquired AND recent_count < $6
+           AND EXISTS (
+             SELECT 1
+             FROM study_room_presence presence
+             WHERE presence.user_id = $2
+               AND presence.room_id = $1
+               AND presence.instance_id = $3
+               AND presence.is_active = true
+               AND presence.last_heartbeat_at >= NOW() - INTERVAL '${PRESENCE_TTL_SECONDS} seconds'
+           )
+         RETURNING id, user_id, room_id, instance_id, message_text, created_at
        )
-       SELECT i.id, i.user_id, u.display_name, i.room_id,
+       SELECT i.id, i.user_id, u.display_name, i.room_id, i.instance_id,
               i.message_text, i.created_at
        FROM inserted i
        JOIN users u ON u.id = i.user_id`,
-      [roomId, req.user!.id, text, CHAT_WINDOW_SECONDS, CHAT_WINDOW_LIMIT],
+      [roomId, req.user!.id, instanceId, text, CHAT_WINDOW_SECONDS, CHAT_WINDOW_LIMIT],
     );
     if (!result.rows[0]) {
       return sendError(res, 'Study chat rate limit exceeded', 429);
@@ -739,11 +892,23 @@ function mapAvatarItem(row: Record<string, unknown>) {
   };
 }
 
+function normalizeStudyRoomPosition(value: unknown) {
+  const maybePosition = value as Record<string, unknown> | undefined;
+  const x = toNumber(maybePosition?.x, Number.NaN);
+  const y = toNumber(maybePosition?.y, Number.NaN);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return {
+    x: Math.max(0, Math.min(10_000, x)),
+    y: Math.max(0, Math.min(10_000, y)),
+  };
+}
+
 function mapPresence(row: Record<string, unknown> = {}) {
   return {
     userId: row.user_id,
     displayName: row.display_name,
     roomId: row.room_id,
+    instanceId: row.instance_id,
     nodeId: row.node_id,
     position: { x: toNumber(row.position_x), y: toNumber(row.position_y) },
     seatId: row.seat_id ?? null,
@@ -759,6 +924,7 @@ function mapChatMessage(row: Record<string, unknown> = {}) {
     userId: row.user_id,
     displayName: row.display_name,
     roomId: row.room_id,
+    instanceId: row.instance_id,
     text: row.message_text,
     createdAt: row.created_at,
   };
@@ -781,6 +947,7 @@ router.post('/sessions/start', handleStartStudySession);
 router.post('/sessions/:id/heartbeat', handleStudyHeartbeat);
 router.post('/sessions/:id/finish', handleFinishStudySession);
 router.get('/summary', handleStudySummary);
+router.post('/instances/join', handleStudyInstanceJoin);
 router.get('/presence', handleStudyPresence);
 router.post('/presence/heartbeat', handleStudyPresenceHeartbeat);
 router.get('/chat', handleStudyChat);

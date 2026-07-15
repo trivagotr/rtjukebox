@@ -16,6 +16,7 @@ import { StudyPresenceLoop } from '../session/StudyPresenceLoop'
 import { AvatarController } from './AvatarController'
 import { AvatarActivityMachine, type ActivityToken } from './AvatarActivityMachine'
 import { calculateOverviewZoom } from './CameraFraming'
+import { imageRoomActorDepth } from './ImageRoomDepth'
 import { buildMotionPath, sampleMotionPathAtTime, walkFrameAtDistance } from './PathMotion'
 import { SeatReservationBook } from './SeatReservationBook'
 import { resolveTouchIntent, type TouchWorldPoint } from './TouchIntentResolver'
@@ -247,10 +248,12 @@ export class ImageRoomScene extends Phaser.Scene {
     this.#avatar.setPosition(pixel.x, pixel.y)
     this.#seatedUpperAvatar.setPosition(pixel.x, pixel.y).setVisible(false)
     this.#shadow.setPosition(pixel.x, pixel.y + 5).setVisible(true)
-    this.#setAvatarDepth(spawn.y)
+    this.#setAvatarDepth(spawn)
     this.#avatarController.applyMovement({ x: 0, y: 0 })
     this.#updateAvatarFrame(0)
-    void Promise.resolve(this.#adapter.enterRoom(this.#roomId, this.#currentNodeId))
+    void Promise.resolve(this.#adapter.enterRoom(this.#roomId, this.#currentNodeId)).catch(() => {
+      if (this.#roomId === roomId) this.#showActionError('ROOM UNAVAILABLE')
+    })
 
     this.cameras.main.stopFollow()
     this.cameras.main.removeBounds()
@@ -321,7 +324,8 @@ export class ImageRoomScene extends Phaser.Scene {
       const direction = seat?.facing ?? 's'
       const appearance = appearanceForPresence(presence)
       const pixel = roomPointToPixel(this.#room, anchor)
-      const container = this.add.container(pixel.x, pixel.y).setDepth(anchor.y * 100 + 12).setScale(0.88)
+      const depth = seat ? anchor.y * 100 + 12 : imageRoomActorDepth(anchor, 12)
+      const container = this.add.container(pixel.x, pixel.y).setDepth(depth).setScale(0.88)
       const shadow = this.add.ellipse(0, 5, 34, 11, 0x020609, 0.35)
       shadow.setVisible(!seat)
       const layers: Phaser.GameObjects.Sprite[] = []
@@ -370,12 +374,16 @@ export class ImageRoomScene extends Phaser.Scene {
   async #pushPresence(): Promise<void> {
     if (!this.#adapter.heartbeatPresence) return
     const point = this.#seatedSeat?.sit ?? this.#graph.node(this.#currentNodeId) ?? { x: 0, y: 0 }
-    await this.#adapter.heartbeatPresence({
-      roomId: this.#roomId,
-      nodeId: this.#seatedSeat ? `seat:${this.#seatedSeat.id}` : this.#currentNodeId,
-      seatId: this.#seatedSeat?.id ?? null,
-      position: { x: point.x, y: point.y },
-    })
+    try {
+      await this.#adapter.heartbeatPresence({
+        roomId: this.#roomId,
+        nodeId: this.#seatedSeat ? `seat:${this.#seatedSeat.id}` : this.#currentNodeId,
+        seatId: this.#seatedSeat?.id ?? null,
+        position: { x: point.x, y: point.y },
+      })
+    } catch {
+      this.#showActionError('ROOM SYNC RETRY')
+    }
   }
 
   #setSeatForeground(seat: ImageRoomSeat | null): void {
@@ -435,8 +443,8 @@ export class ImageRoomScene extends Phaser.Scene {
     }
   }
 
-  #setAvatarDepth(yPercent: number): void {
-    const depth = yPercent * 100 + 10
+  #setAvatarDepth(point: Readonly<{ y: number; z: number }>): void {
+    const depth = imageRoomActorDepth(point)
     this.#avatar.setDepth(depth)
     this.#seatedUpperAvatar.setDepth(depth + 1)
     this.#shadow.setDepth(depth - 2)
@@ -506,7 +514,10 @@ export class ImageRoomScene extends Phaser.Scene {
       this.#avatar.setPosition(sample.x, sample.y)
       this.#shadow.setPosition(sample.x, sample.y + 5)
       this.#updateAvatarFrame(walkFrameAtDistance(sample.distance, ACTION_FRAMES.walk, AVATAR_WALK_STRIDE))
-      this.#setAvatarDepth((sample.y / this.#room.image.height) * 100)
+      this.#setAvatarDepth({
+        y: (sample.y / this.#room.image.height) * 100,
+        z: sample.z,
+      })
     }
     updateMotion()
     await new Promise<void>((resolve) => {
@@ -634,7 +645,7 @@ export class ImageRoomScene extends Phaser.Scene {
     this.#seatedSeat = seat
     this.#activity.transition(activityToken, 'seated')
     this.#setState('seated')
-    this.#setAvatarDepth(seat.sit.y)
+    this.#setAvatarDepth(seat.sit)
     this.#seatedUpperAvatar.setDepth(Math.max(
       this.#avatar.depth + 1,
       ...this.#room.occluders.map((occluder) => occluder.depthY * 100 + 1),
@@ -686,7 +697,7 @@ export class ImageRoomScene extends Phaser.Scene {
       onComplete: () => resolve(),
     }))
     this.#shadow.setPosition(pixel.x, pixel.y + 5).setVisible(true)
-    this.#setAvatarDepth(approach.y)
+    this.#setAvatarDepth(approach)
     this.#avatarController.applyMovement({ x: 0, y: 0 })
     this.#updateAvatarFrame(0)
     await finishSession

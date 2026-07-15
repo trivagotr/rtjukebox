@@ -50,6 +50,15 @@ export interface StudyTimeSummary {
   totalSeconds: number
 }
 
+export interface StudyRoomInstance {
+  id: string
+  roomId: StudyRoomId
+  number: number
+  occupancy: number
+  capacity: number
+  preferredInstanceFull: boolean
+}
+
 export interface StudyHeartbeatInput {
   roomId: StudyRoomId
   nodeId: string
@@ -65,6 +74,7 @@ export type Awaitable<T> = T | Promise<T>
 export interface StudyAdapter {
   readonly authoritativeInventory?: boolean
   session(): StudySession
+  roomInstance?(roomId: StudyRoomId): StudyRoomInstance | null
   presence(roomId: StudyRoomId): readonly StudyPresence[]
   enterRoom(roomId: StudyRoomId, nodeId: string): Awaitable<void>
   reserveSeat(roomId: StudyRoomId, seatId: string): Awaitable<StudySeatReservation>

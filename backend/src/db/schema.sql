@@ -660,6 +660,8 @@ CREATE INDEX IF NOT EXISTS idx_listening_sessions_user_started ON listening_sess
 CREATE TABLE IF NOT EXISTS study_room_presence (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     room_id VARCHAR(80) NOT NULL DEFAULT 'sesli-kutuphane',
+    instance_id VARCHAR(96),
+    client_session_id VARCHAR(128),
     day_key VARCHAR(10) NOT NULL,
     node_id VARCHAR(120) NOT NULL DEFAULT 'spawn',
     avatar_style VARCHAR(80) NOT NULL DEFAULT 'classic-red',
@@ -678,7 +680,17 @@ CREATE TABLE IF NOT EXISTS study_room_presence (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 ALTER TABLE study_room_presence ADD COLUMN IF NOT EXISTS node_id VARCHAR(120) NOT NULL DEFAULT 'spawn';
+ALTER TABLE study_room_presence ADD COLUMN IF NOT EXISTS instance_id VARCHAR(96);
+ALTER TABLE study_room_presence ADD COLUMN IF NOT EXISTS client_session_id VARCHAR(128);
+UPDATE study_room_presence
+SET instance_id = room_id || '-1'
+WHERE instance_id IS NULL;
 CREATE INDEX IF NOT EXISTS idx_study_room_presence_room_active ON study_room_presence(room_id, last_heartbeat_at DESC);
+CREATE INDEX IF NOT EXISTS idx_study_room_presence_instance_active
+    ON study_room_presence(instance_id, last_heartbeat_at DESC)
+    WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_study_room_presence_client_session
+    ON study_room_presence(client_session_id, last_heartbeat_at DESC);
 CREATE INDEX IF NOT EXISTS idx_study_room_presence_room_seat_active ON study_room_presence(room_id, seat_id, last_heartbeat_at DESC);
 CREATE INDEX IF NOT EXISTS idx_study_room_presence_today ON study_room_presence(day_key, studied_seconds_today DESC);
 CREATE INDEX IF NOT EXISTS idx_study_room_presence_total ON study_room_presence(studied_seconds_total DESC);
@@ -686,12 +698,19 @@ CREATE INDEX IF NOT EXISTS idx_study_room_presence_total ON study_room_presence(
 CREATE TABLE IF NOT EXISTS study_chat_messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     room_id VARCHAR(40) NOT NULL CHECK (room_id IN ('library', 'chim-alan')),
+    instance_id VARCHAR(96),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     message_text VARCHAR(180) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+ALTER TABLE study_chat_messages ADD COLUMN IF NOT EXISTS instance_id VARCHAR(96);
+UPDATE study_chat_messages
+SET instance_id = room_id || '-1'
+WHERE instance_id IS NULL;
 CREATE INDEX IF NOT EXISTS idx_study_chat_room_created
     ON study_chat_messages(room_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_study_chat_instance_created
+    ON study_chat_messages(instance_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_study_chat_user_created
     ON study_chat_messages(user_id, created_at DESC);
 

@@ -21,6 +21,12 @@ public routes and the owning upstreams.
 > immutable release directories, verified backups, atomic symlink/root switches,
 > and scoped rollback only.
 
+> **ABSOLUTE USER RULE (verbatim):** NEVER AND NEVER DELETE AND NUKE RADIOTEDU.COM FILES, PERSONAL ACCOUNTS (WHERE RADIOTEDU STUFF DETAILS ARE THERE, most @tedu.edu.tr accounts) AND WORDPRESS PAGES.
+>
+> Interpret that sentence as a prohibition on either deleting or nuking any of
+> those assets. It is not limited to doing both actions together. If a deployment
+> tool cannot prove its write/delete scope before execution, do not run it.
+
 ## 1. Authority, safety, secrets, and stop conditions
 
 - [ ] Confirm you are operating on the intended production host and record the hostname, operating-system release, current UTC time, and deployment user.
@@ -186,6 +192,7 @@ spending. `points_ledger` is the audit trail.
 - [ ] Reconfirm the timestamped database backup, checksum, and restore command immediately before migration.
 - [ ] Apply the repository's database migration using the backend's production environment and record only safe migration names/status.
 - [ ] Verify Account and Gold constraints/indexes after migration before starting the new backend.
+- [ ] Verify the additive Study migration created/backfilled `study_room_presence.instance_id`, `study_room_presence.client_session_id`, and `study_chat_messages.instance_id` plus the instance-scoped indexes; do not drop or recreate either table.
 - [ ] Create or update an immutable backend release target for `DEPLOY_COMMIT` and preserve the previous target.
 - [ ] Start the candidate backend on an isolated port/socket or use the process manager's safe reload mechanism without taking Juke-local or Voting down unnecessarily.
 - [ ] Run local candidate health and contract checks before switching the public backend upstream.
@@ -212,10 +219,39 @@ The default avatar uses the generated full-angle Radio TEDU hoodie, black cargo,
 sneaker, and bucket-hat art with distinct front, rear, profile, and seated poses;
 wardrobe changes use the deterministic layered fallback.
 
+### Study logical room-instance contract
+
+Do not create a second backend process when a room fills. One backend owns
+server-authoritative logical instances of each physical map. The client still
+uses only the physical room IDs `library` and `chim-alan`; the server assigns an
+instance ID such as `library-1`, `library-2`, or `chim-alan-2`.
+
+| Concern | Required contract |
+| --- | --- |
+| Capacity | `library` is 51 users because it has 51 seats. `chim-alan` is 9 users because it has 9 seats. |
+| Allocation | Serialize joins per physical room with a PostgreSQL transaction and advisory lock. Fill/reuse the lowest non-full instance number. The 52nd Library user and 10th Çim Alan user enter instance 2. |
+| Join | `POST /jukebox/api/v1/study/instances/join` receives authenticated `roomId`, optional `preferredInstanceId`, `nodeId`, `position`, and stable tab-scoped `clientSessionId`; it returns `{ instance: { id, roomId, number, occupancy, capacity, preferredInstanceFull } }`. |
+| Reconnect | Reuse a recent assignment for the same account, physical room, and `clientSessionId`. Presence older than the server TTL is excluded from capacity and must rejoin. The client retries one rejoin after a stale-assignment rejection. |
+| Presence | `GET /jukebox/api/v1/study/presence?roomId=...&instanceId=...` and `POST /jukebox/api/v1/study/presence/heartbeat` are instance-scoped. A heartbeat may update only the authenticated user's server-issued `instanceId` plus `clientSessionId`; it must not move the user to an arbitrary client-supplied instance. |
+| Chat | `GET` and `POST /jukebox/api/v1/study/chat` require the assigned `instanceId`. Never leak presence, seat occupancy, or chat between logical instances. |
+| Seats | Seat reservations and occupancy conflicts are isolated by logical instance. Two users may use the same seat ID only when they are in different logical instances. |
+| Shared state | Account identity, Study time, Gold, inventory, wardrobe ownership, and equipment remain account-global. Do not copy or reset them when the user changes room instance. |
+| HUD | After assignment the Study HUD shows `Room N · occupancy/capacity`; while joining it shows `Finding room…`. |
+
+The Study adapter may remember an assigned instance as a preference, but the
+backend remains authoritative. Invalid or cross-room IDs such as requesting
+`chim-alan-1` while joining `library` must be rejected before a transaction is
+opened. A full preferred room falls back to the lowest non-full room. Empty or
+expired instance numbers are reusable; no destructive cleanup job is required.
+
 - [ ] Verify `GET https://radiotedu.com/study/` returns the new exact-commit Study `index.html` with correct HTML content type and no unrelated redirect.
 - [ ] Verify hashed JavaScript, CSS, maps if published, images, room data, and avatar assets resolve beneath `/study/` with correct MIME types.
 - [ ] Verify SPA fallback applies only to safe `/study/` navigation routes and never captures `/jukebox/api/v1/study` API requests or missing hashed assets.
 - [ ] Verify `/jukebox/api/v1/study` forwards Bearer authorization, JSON bodies, status codes, and response envelopes to the backend.
+- [ ] Verify the reverse proxy forwards `/jukebox/api/v1/study/instances/join`, instance-scoped presence, and instance-scoped chat without stripping query parameters or JSON keys.
+- [ ] Verify a candidate/staging concurrency test cannot place more than 51 active users in one Library instance or more than 9 in one Çim Alan instance, and that overflow selects instance 2 without a second backend server.
+- [ ] Verify presence, seat occupancy, and chat from `library-1` are invisible in `library-2`, while both instances still read the same authenticated Account and Gold state.
+- [ ] Verify a reload in the same WebView tab reuses the tab-scoped `clientSessionId`, a stale assignment receives a rejoin-required response, and the client successfully rejoins once.
 - [ ] Verify the production Study gate rejects a normal external browser without `RadioTEDUStudyBridge` rather than creating a local production identity.
 - [ ] Verify the app bridge account identity remains the Account platform identity and is not replaced by browser storage.
 - [ ] Verify the bridge access token is used only for authenticated API requests and is never written to logs, HTML, query strings, analytics events, localStorage, or sessionStorage.
@@ -260,7 +296,7 @@ tokens from output.
 - [ ] Smoke Voting independently: active-round REST, one authorized validation path, Socket.IO connection/upgrade, and continued Music PC communication.
 - [ ] Smoke Account independently: register/login/guest/refresh/me/logout/logout-all/deletion policy with redacted output.
 - [ ] Smoke Gold independently: balance read, one controlled award/spend replay test, non-negative invariant, and reconciliation.
-- [ ] Smoke Study independently: `/study/`, hashed assets, authenticated API, bridge gate, quiz-answer interaction, session finish, avatar purchase, and Gold refresh.
+- [ ] Smoke Study independently: `/study/`, hashed assets, authenticated API, bridge gate, logical room allocation, instance-isolated presence/chat, quiz-answer interaction, session finish, avatar purchase, and Gold refresh.
 - [ ] Compare all public status codes, response content types, safe response shapes, upstream owners, and latency against the captured baseline.
 - [ ] Inspect scoped reverse-proxy, backend, Juke-local, Voting, and Study logs for new errors without printing secrets.
 - [ ] If Juke-local alone fails, roll back only the Juke-local route/config/release change and re-smoke Juke-local.
@@ -281,6 +317,7 @@ tokens from output.
 - [ ] Report backend, Study, and prompt-verifier commands with exit codes and test totals.
 - [ ] Report each Juke-local, Voting, Account, Gold, and Study public smoke check with URL/path, method, status code, safe content type/shape, and owning upstream.
 - [ ] Report the disposable end-to-end account flow with redacted identifiers and before/after Gold invariants.
+- [ ] Report Study room capacity/overflow results, assigned instance IDs, reconnect behavior, and cross-instance presence/chat isolation using only redacted disposable account identifiers.
 - [ ] Report that the Music PC Voting information source and acquisition structure were preserved, or leave this check blocked with the exact reason communication could not be verified.
 - [ ] Report separate rollback decisions and paths for Juke-local, Voting, Account/Gold, and Study.
 - [ ] Report every unmarked checkbox as a blocker or deferred item with a redacted error, owner, impact, and safest next action.

@@ -126,6 +126,15 @@ button { cursor: pointer; }
   white-space: nowrap;
 }
 
+.room-instance {
+  min-width: 86px;
+  color: #b7d8c3;
+  font-family: Consolas, monospace;
+  font-size: 10px;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .game-status {
   color: #a9b9b6;
   font-family: Consolas, monospace;
@@ -617,7 +626,7 @@ button { cursor: pointer; }
 /* Unified touch-first HUD sheets. These late rules intentionally normalize the
    older side panels without changing their stable DOM ids or test hooks. */
 .study-bar {
-  grid-template-columns: auto auto minmax(48px, 1fr) auto auto minmax(96px, auto) auto auto auto auto;
+  grid-template-columns: auto auto minmax(48px, 1fr) auto auto auto minmax(96px, auto) auto auto auto auto;
   height: 58px;
   padding-block: 5px;
 }
@@ -758,6 +767,21 @@ button { cursor: pointer; }
     right: auto;
     left: max(8px, env(safe-area-inset-left));
     transform: none;
+  }
+
+  .room-instance {
+    position: absolute;
+    top: max(54px, calc(env(safe-area-inset-top) + 54px));
+    left: 50%;
+    min-width: 104px;
+    height: 28px;
+    padding: 7px 8px 0;
+    border: 1px solid rgba(111, 133, 130, 0.65);
+    border-radius: 5px;
+    background: rgba(12, 20, 22, 0.82);
+    transform: translateX(-50%);
+    pointer-events: none;
+    backdrop-filter: blur(8px);
   }
 
   .point-balance {

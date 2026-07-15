@@ -564,6 +564,98 @@ describe('study router', () => {
     );
   });
 
+  it('atomically assigns overflow users under a physical-room advisory lock', async () => {
+    const handler = mockRouteHandlers.post['/instances/join'];
+    expect(handler).toBeTypeOf('function');
+    mockClientQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ locked: true }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ instance_id: 'library-1', occupancy: '51' }] })
+      .mockResolvedValueOnce({ rows: [{ instance_id: 'library-2' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await handler(
+      {
+        body: {
+          roomId: 'library', preferredInstanceId: 'library-1',
+          nodeId: 'bottom-center-aisle', position: { x: 432.86, y: 1254 },
+          clientSessionId: 'webview-session-1',
+        },
+        user: { id: 'user-52', role: 'user' },
+      },
+      {},
+    );
+
+    expect(mockPoolConnect).toHaveBeenCalledTimes(1);
+    expect(mockClientQuery.mock.calls[0][0]).toBe('BEGIN');
+    expect(mockClientQuery.mock.calls[1][0]).toContain('pg_advisory_xact_lock');
+    expect(mockClientQuery.mock.calls[1][1]).toEqual(['study-instance:library']);
+    expect(mockClientQuery.mock.calls[4][0]).toContain('INSERT INTO study_room_presence');
+    expect(mockClientQuery.mock.calls[4][1]).toEqual([
+      'user-52', 'library', 'library-2', 'webview-session-1',
+      'bottom-center-aisle', 432.86, 1254,
+    ]);
+    expect(mockClientQuery.mock.calls[5][0]).toBe('COMMIT');
+    expect(mockClientRelease).toHaveBeenCalledTimes(1);
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      { instance: {
+        id: 'library-2', roomId: 'library', number: 2,
+        occupancy: 1, capacity: 51, preferredInstanceFull: true,
+      } },
+      'Study room instance assigned',
+    );
+  });
+
+  it('rejects a preferred instance from another physical room before opening a transaction', async () => {
+    const handler = mockRouteHandlers.post['/instances/join'];
+    expect(handler).toBeTypeOf('function');
+
+    await handler(
+      {
+        body: {
+          roomId: 'library', preferredInstanceId: 'chim-alan-1',
+          nodeId: 'bottom-center-aisle', position: { x: 432.86, y: 1254 },
+          clientSessionId: 'webview-session-1',
+        },
+        user: { id: 'user-1', role: 'user' },
+      },
+      {},
+    );
+
+    expect(mockPoolConnect).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith({}, 'Invalid Study room instance', 400);
+  });
+
+  it('keeps a recent reconnect in its assigned instance and reports live occupancy', async () => {
+    const handler = mockRouteHandlers.post['/instances/join'];
+    mockClientQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ locked: true }] })
+      .mockResolvedValueOnce({ rows: [{ instance_id: 'library-1' }] })
+      .mockResolvedValueOnce({ rows: [{ instance_id: 'library-1', occupancy: '17' }] })
+      .mockResolvedValueOnce({ rows: [{ instance_id: 'library-1' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await handler(
+      {
+        body: {
+          roomId: 'library', nodeId: 'bottom-center-aisle', position: { x: 50, y: 80 },
+          clientSessionId: 'webview-session-1',
+        },
+        user: { id: 'user-1', role: 'user' },
+      },
+      {},
+    );
+
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      { instance: expect.objectContaining({ id: 'library-1', occupancy: 17, capacity: 51 }) },
+      'Study room instance assigned',
+    );
+  });
+
   it('upserts authenticated room presence without trusting elapsed seconds', async () => {
     const handler = mockRouteHandlers.post['/presence/heartbeat'];
     expect(handler).toBeTypeOf('function');
@@ -577,7 +669,8 @@ describe('study router', () => {
     await handler(
       {
         body: {
-          roomId: 'library', nodeId: 'front-left', seatId: 'front-left',
+          roomId: 'library', instanceId: 'library-2', clientSessionId: 'webview-session-1',
+          nodeId: 'front-left', seatId: 'front-left',
           position: { x: 4, y: 8 }, studiedSecondsToday: 999999,
         },
         user: { id: 'user-1', role: 'user' },
@@ -585,14 +678,32 @@ describe('study router', () => {
       {},
     );
 
-    expect(mockDbQuery.mock.calls[0][0]).toContain('INSERT INTO study_room_presence');
+    expect(mockDbQuery.mock.calls[0][0]).toContain('UPDATE study_room_presence');
+    expect(mockDbQuery.mock.calls[0][0]).toContain('instance_id = $3');
+    expect(mockDbQuery.mock.calls[0][0]).toContain('client_session_id = $4');
     expect(mockDbQuery.mock.calls[0][0]).not.toMatch(/studied_seconds_today\s*=\s*\$\d+/);
-    expect(mockDbQuery.mock.calls[0][1]).toEqual(['user-1', 'library', 'front-left', 4, 8, 'front-left']);
+    expect(mockDbQuery.mock.calls[0][1]).toEqual([
+      'user-1', 'library', 'library-2', 'webview-session-1',
+      'front-left', 4, 8, 'front-left',
+    ]);
     expect(mockSendSuccess).toHaveBeenCalledWith(
       {},
       expect.objectContaining({ presence: expect.objectContaining({ roomId: 'library', seatId: 'front-left' }) }),
       'Study presence updated',
     );
+  });
+
+  it('fetches presence only from the assigned logical room instance', async () => {
+    const handler = mockRouteHandlers.get['/presence'];
+    mockDbQuery.mockResolvedValueOnce({ rows: [] });
+
+    await handler(
+      { query: { roomId: 'library', instanceId: 'library-2' }, user: { id: 'user-1', role: 'user' } },
+      {},
+    );
+
+    expect(mockDbQuery.mock.calls[0][0]).toContain('p.instance_id = $2');
+    expect(mockDbQuery.mock.calls[0][1]).toEqual(['library', 'library-2', 35]);
   });
 
   it('rejects invalid snake-case presence seat identifiers', async () => {
@@ -624,15 +735,19 @@ describe('study router', () => {
     });
 
     await handler(
-      { body: { roomId: 'library', text: '  Hello   Study  ' }, user: { id: 'user-1', role: 'user' } },
+      {
+        body: { roomId: 'library', instanceId: 'library-2', text: '  Hello   Study  ' },
+        user: { id: 'user-1', role: 'user' },
+      },
       {},
     );
 
     expect(mockDbQuery).toHaveBeenCalledTimes(1);
     expect(mockDbQuery.mock.calls[0][0]).toContain('pg_try_advisory_xact_lock');
-    expect(mockDbQuery.mock.calls[0][0]).toContain('WHERE acquired AND recent_count < $5');
+    expect(mockDbQuery.mock.calls[0][0]).toContain('WHERE acquired AND recent_count < $6');
+    expect(mockDbQuery.mock.calls[0][0]).toContain('instance_id = $3');
     expect(mockDbQuery.mock.calls[0][1]).toEqual([
-      'library', 'user-1', 'Hello Study', 10, 5,
+      'library', 'user-1', 'library-2', 'Hello Study', 10, 5,
     ]);
     expect(mockSendSuccess).toHaveBeenCalledWith(
       {},
@@ -643,12 +758,28 @@ describe('study router', () => {
     );
   });
 
+  it('fetches chat only from one logical room instance', async () => {
+    const handler = mockRouteHandlers.get['/chat'];
+    mockDbQuery.mockResolvedValueOnce({ rows: [] });
+
+    await handler(
+      { query: { roomId: 'library', instanceId: 'library-2' }, user: { id: 'user-1', role: 'user' } },
+      {},
+    );
+
+    expect(mockDbQuery.mock.calls[0][0]).toContain('m.instance_id = $2');
+    expect(mockDbQuery.mock.calls[0][1]).toEqual(['library', 'library-2']);
+  });
+
   it('returns 429 when the atomic chat insert is denied by the rate limit', async () => {
     const handler = mockRouteHandlers.post['/chat'];
     mockDbQuery.mockResolvedValueOnce({ rows: [] });
 
     await handler(
-      { body: { roomId: 'library', text: 'Too fast' }, user: { id: 'user-1', role: 'user' } },
+      {
+        body: { roomId: 'library', instanceId: 'library-1', text: 'Too fast' },
+        user: { id: 'user-1', role: 'user' },
+      },
       {},
     );
 

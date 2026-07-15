@@ -3,12 +3,13 @@ import './styles.css'
 import { createIcons, Hand, MessageCircle, Send, Shirt, UsersRound, X } from 'lucide'
 import { LocalStudyAdapter } from './adapters/LocalStudyAdapter'
 import { RadioTEDUStudyAdapter } from './adapters/RadioTEDUStudyAdapter'
-import type { StudyAccount, StudyAdapter, StudyChatMessage, StudyPresence, StudyRoomId, StudySession, StudyTimeSummary } from './adapters/StudyAdapter'
+import type { StudyAccount, StudyAdapter, StudyChatMessage, StudyPresence, StudyRoomId, StudyRoomInstance, StudySession, StudyTimeSummary } from './adapters/StudyAdapter'
 import { createStudyGame } from './game/StudyGame'
 import type { ImageRoomId } from './rooms/ImageRoomDefinition'
 import { StudySessionTracker, type StudySessionSnapshot, type StudySessionTransport } from './session/StudySessionTracker'
 import { applyStudyRoomResponse } from './chat/StudyChatCoordinator'
 import { HudPanelState, type HudPanelName } from './ui/HudPanelState'
+import { formatRoomInstanceLabel } from './ui/RoomInstancePresentation'
 
 const ui = document.querySelector<HTMLElement>('#game-ui')
 if (!ui) throw new Error('Study game UI root is missing')
@@ -17,6 +18,7 @@ const parameters = new URLSearchParams(window.location.search)
 const mode = parameters.get('scene') === 'engine-proof' ? 'engine-proof' : 'study'
 const requestedRoom = parameters.get('room')
 const initialRoom: ImageRoomId = requestedRoom === 'chim-alan' ? 'chim-alan' : 'library'
+document.documentElement.dataset.roomId = initialRoom
 const secureBridge = readSecureBridge()
 const isHostedProduction = import.meta.env.PROD && window.location.protocol !== 'file:'
 
@@ -46,6 +48,7 @@ async function bootStudy(secureBridge: ReturnType<typeof readSecureBridge>) {
 
   const tracker = createSessionTracker(adapter)
   const panels = bindPanels()
+  bindRoomInstance(adapter, initialRoom)
   bindChat(adapter)
   bindPresence(adapter, panels)
   bindAttention(tracker)
@@ -74,6 +77,7 @@ function renderStudyShell(session: StudySession) {
         <button type="button" role="tab" data-room-id="chim-alan" aria-label="Cim Alan" aria-selected="false">Çim Alan</button>
       </nav>
       <strong id="room-title" class="room-title">Library</strong>
+      <output id="room-instance" class="room-instance" aria-label="Room instance" aria-live="polite">Finding room…</output>
       <output id="game-status" class="game-status" data-state="loading" aria-live="polite">LOADING</output>
       <section class="study-clock" data-testid="study-summary" aria-label="Study time">
         <strong id="study-timer" data-testid="study-timer" data-running="false">00:00:00</strong>
@@ -223,6 +227,30 @@ function bindPanels(): BoundHudPanels {
     open: (panel) => { state.open(panel); render() },
     close: () => { state.close(); render() },
   }
+}
+
+function bindRoomInstance(adapter: StudyAdapter, initialRoomId: StudyRoomId) {
+  let roomId = initialRoomId
+  const render = () => {
+    const instance = adapter.roomInstance?.(roomId) ?? null
+    const output = document.querySelector<HTMLOutputElement>('#room-instance')
+    if (output) {
+      output.value = formatRoomInstanceLabel(instance)
+      output.textContent = output.value
+    }
+    document.documentElement.dataset.roomInstanceId = instance?.id ?? 'assigning'
+  }
+
+  window.addEventListener('radiotedu:study-room-changed', (event) => {
+    const detail = (event as CustomEvent<{ roomId: StudyRoomId }>).detail
+    if (detail?.roomId) roomId = detail.roomId
+    render()
+  })
+  window.addEventListener('radiotedu:study-instance-changed', (event) => {
+    const detail = (event as CustomEvent<{ instance: StudyRoomInstance }>).detail
+    if (detail?.instance.roomId === roomId) render()
+  })
+  render()
 }
 
 function bindChat(adapter: StudyAdapter) {
