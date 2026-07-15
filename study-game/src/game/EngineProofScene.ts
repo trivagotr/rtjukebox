@@ -417,10 +417,11 @@ export class EngineProofScene extends Phaser.Scene {
       this.#interaction.beginSit(seat)
       await this.#walkTo(seat.approach)
     }
-    const command = this.#interaction.arriveAtApproach(this.#currentTile)
-    const delta = directionDelta(command.direction)
+    const alignment = this.#interaction.arriveAtApproach(this.#currentTile)
+    const delta = directionDelta(alignment.direction)
     this.#avatarController.applyMovement(delta)
     this.#avatarController.applyMovement({ x: 0, y: 0 })
+    const command = this.#interaction.completeAlignment()
     this.#avatarController.sit()
     const seatWorld = this.#tileWorld(command.seatTile)
     this.#currentTile = { ...command.seatTile }

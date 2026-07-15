@@ -24,6 +24,13 @@ const required = [
   'idempotency',
   'account deletion',
   'rollback',
+  'NEVER AND NEVER DELETE OR NUKE RADIOTEDU.COM FILES',
+  'most @tedu.edu.tr accounts',
+  'WordPress pages',
+  'mobile-only touch game',
+  'tap-to-move',
+  'tap-to-sit',
+  'A*',
   'Do not change the structure where you get the information from Music PC when voting, if you can communicate to Music PC. Just change the way you communicate with the mobile app. If you can talk to that, do not change.',
 ];
 

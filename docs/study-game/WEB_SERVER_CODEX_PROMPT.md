@@ -11,6 +11,16 @@ mark completed checks, and leave blocked checks unmarked with the exact redacted
 reason. Do not claim success from configuration inspection alone: verify the
 public routes and the owning upstreams.
 
+> **NON-NEGOTIABLE PRODUCTION PRESERVATION RULE:** NEVER AND NEVER DELETE OR NUKE RADIOTEDU.COM FILES, PERSONAL ACCOUNTS WHERE RADIO TEDU DETAILS ARE
+> STORED (especially most @tedu.edu.tr accounts), OR WordPress pages. This
+> prohibition includes WordPress posts, page revisions, databases, uploads,
+> themes, plugins, configuration, mailboxes, home directories, account records,
+> credentials, and unrelated Radio TEDU services. Do not run a recursive delete,
+> replacement sync with deletion enabled, database reset, account cleanup, or
+> destructive WordPress command against production. Use additive changes,
+> immutable release directories, verified backups, atomic symlink/root switches,
+> and scoped rollback only.
+
 ## 1. Authority, safety, secrets, and stop conditions
 
 - [ ] Confirm you are operating on the intended production host and record the hostname, operating-system release, current UTC time, and deployment user.
@@ -21,6 +31,9 @@ public routes and the owning upstreams.
 - [ ] Redact secrets in command output and the final report; show only variable names, configured/not-configured state, and safe path ownership.
 - [ ] Do not rotate, replace, or expose production secrets unless separate explicit authority is provided.
 - [ ] Do not use destructive Git commands, overwrite the current release in place, or delete the previous release.
+- [ ] Inventory and explicitly preserve every existing `radiotedu.com`/Radio TEDU file root, WordPress root and database, personal/home/mail account, and `@tedu.edu.tr` account before any mutation.
+- [ ] Confirm that no deployment command uses `--delete`, destructive mirroring, recursive removal, WordPress reset, database recreation, or account pruning against an existing production root.
+- [ ] If a path contains mixed Radio TEDU, WordPress, personal-account, or university-account data, do not mutate it in place; create a separate immutable release target and switch only the narrowly owned application route.
 - [ ] Stop before mutation if the live reverse-proxy owner, process owner, static root, database target, or rollback path cannot be determined safely.
 - [ ] Stop before migration if a restorable database backup cannot be produced and verified.
 - [ ] Stop before release switching if repository tests, backend build, Study build, prompt verification, or migration fails.
@@ -190,6 +203,15 @@ base, and the current global balance. The Study production adapter calls
 `/jukebox/api/v1/study`. The browser page must not invent a production account
 or persist production Gold.
 
+The deployed Study is a mobile-only touch game. Its required gameplay contract
+is tap-to-move through collision-safe A* navigation, tap-to-sit on valid seats,
+tap while seated to stand, cancellable mid-walk redirection, and no keyboard or
+virtual joystick requirement. The compact HUD must preserve the full-screen
+canvas and show at most one Chat, People, Wardrobe, or Profile sheet at a time.
+The default avatar uses the generated full-angle Radio TEDU hoodie, black cargo,
+sneaker, and bucket-hat art with distinct front, rear, profile, and seated poses;
+wardrobe changes use the deterministic layered fallback.
+
 - [ ] Verify `GET https://radiotedu.com/study/` returns the new exact-commit Study `index.html` with correct HTML content type and no unrelated redirect.
 - [ ] Verify hashed JavaScript, CSS, maps if published, images, room data, and avatar assets resolve beneath `/study/` with correct MIME types.
 - [ ] Verify SPA fallback applies only to safe `/study/` navigation routes and never captures `/jukebox/api/v1/study` API requests or missing hashed assets.
@@ -202,6 +224,11 @@ or persist production Gold.
 - [ ] Verify an avatar purchase updates the displayed Gold balance from `data.points.spendable_points` or the compatible top-level response and a retry does not spend twice.
 - [ ] Verify paid avatar ownership and equipment come from the authenticated backend account, not local browser persistence.
 - [ ] Verify the Study page labels the balance `Gold`, labels item prices in Gold, and retains backward-compatible transport fields `globalPoints` and `spendable_points`.
+- [ ] Verify the generated `canonical-idle.png`, `canonical-walk.png`, `canonical-sit.png`, `canonical-stand.png`, layered wardrobe sheets, and avatar manifest resolve beneath `/study/assets/avatars/engine-proof/` without stale-cache or MIME errors.
+- [ ] On a real mobile-sized browser or app-equivalent WebView, verify tap-to-move follows A* walkable routes, a second floor tap redirects without teleporting, tap-to-sit reaches and reserves an available seat, and a later canvas tap stands the avatar.
+- [ ] Verify the Study game has no keyboard-only path, no required keyboard input, and no on-screen joystick; all required movement and sitting actions must work with touch alone.
+- [ ] Verify the compact HUD at 320x568, 390x844, and 430x932 keeps the canvas equal to the viewport, uses touch targets at least 44x44 CSS pixels, has no horizontal overflow, and never shows more than one sheet.
+- [ ] From `study-game`, run the mobile touch recording and frame analysis (`node scripts/qa-mobile-touch-journey.mjs` followed by `node scripts/analyze-mobile-touch-video.mjs`) against the candidate release; require observed `ready`, `walking`, `sitting`, `seated`, and `standing` states, zero console errors, and `unexpectedFreeze: false`.
 - [ ] Verify clicking or tapping a quiz answer does not close the Study WebView, navigate to an external page, dismiss the game, or trigger an unhandled form submission.
 - [ ] Verify correct and incorrect quiz answers update only in-game state and the next-question control remains usable.
 - [ ] Verify Android hardware back behavior is controlled by the native app and ordinary in-game taps do not masquerade as navigation/back events.

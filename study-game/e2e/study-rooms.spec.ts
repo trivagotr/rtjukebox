@@ -112,13 +112,21 @@ test('runs a seated Study timer and supports player interactions from the HUD', 
   if (testInfo.project.name === 'mobile-chromium') {
     const viewport = page.viewportSize()!
     const gameBounds = await page.locator('#game-canvas').boundingBox()
-    const chatBounds = await page.locator('.chat-dock').boundingBox()
+    const initialChatBounds = await page.locator('#chat-panel').boundingBox()
+    const chatToggleBounds = await page.locator('[data-hud-toggle="chat"]').boundingBox()
 
     expect(gameBounds?.y).toBeLessThanOrEqual(1)
     expect(gameBounds?.height).toBeGreaterThanOrEqual(viewport.height - 1)
+    expect(initialChatBounds).toBeNull()
+    expect(chatToggleBounds?.width).toBeGreaterThanOrEqual(44)
+    expect(chatToggleBounds?.height).toBeGreaterThanOrEqual(44)
+    await page.locator('[data-hud-toggle="chat"]').click()
+    const chatBounds = await page.locator('#chat-panel').boundingBox()
     expect(chatBounds?.x).toBeGreaterThanOrEqual(6)
     expect(chatBounds?.width).toBeLessThan(viewport.width)
-    expect(chatBounds?.height).toBeLessThanOrEqual(68)
+    expect(chatBounds?.height).toBeLessThanOrEqual(viewport.height * 0.52)
+    expect((chatBounds?.y ?? 0) + (chatBounds?.height ?? 0)).toBeLessThanOrEqual(viewport.height - 64)
+    await page.locator('[data-hud-toggle="chat"]').click()
     await expect(page.getByTestId('people-toggle').locator('svg.lucide-users-round')).toBeVisible()
     await expect(page.getByTestId('wardrobe-toggle').locator('svg.lucide-shirt')).toBeVisible()
   }
