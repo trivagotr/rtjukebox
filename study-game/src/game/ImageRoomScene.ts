@@ -4,7 +4,7 @@ import { LocalStudyAdapter } from '../adapters/LocalStudyAdapter'
 import type { StudyAdapter, StudyPresence } from '../adapters/StudyAdapter'
 import { DIRECTIONS, type AvatarAction, type AvatarAppearance, type AvatarLayerSlot, type Direction8 } from '../avatar/AvatarAppearance'
 import { DEFAULT_AVATAR_ASSET_MANIFEST } from '../avatar/AvatarAssetManifest'
-import { canonicalAvatarTextureKey, shouldUseCanonicalAvatar } from '../avatar/AvatarPresentation'
+import { avatarUpperBodyCrop, canonicalAvatarTextureKey, shouldUseCanonicalAvatar } from '../avatar/AvatarPresentation'
 import { InventoryStore } from '../inventory/InventoryStore'
 import { WearableCatalog, type WardrobeItem, type WardrobeSlot } from '../inventory/WearableCatalog'
 import { WardrobeController } from '../inventory/WardrobeController'
@@ -90,8 +90,11 @@ export class ImageRoomScene extends Phaser.Scene {
   #background!: Phaser.GameObjects.Image
   #avatar!: Phaser.GameObjects.Container
   #canonicalAvatar!: Phaser.GameObjects.Sprite
+  #seatedUpperAvatar!: Phaser.GameObjects.Container
+  #seatedUpperCanonical!: Phaser.GameObjects.Sprite
   #shadow!: Phaser.GameObjects.Ellipse
   #avatarSprites = new Map<AvatarLayerSlot, Phaser.GameObjects.Sprite>()
+  #seatedUpperSprites = new Map<AvatarLayerSlot, Phaser.GameObjects.Sprite>()
   #avatarController!: AvatarController
   #wardrobe!: WardrobeController
   #roomObjects: Phaser.GameObjects.GameObject[] = []
@@ -199,12 +202,16 @@ export class ImageRoomScene extends Phaser.Scene {
   #createAvatar(): void {
     this.#shadow = this.add.ellipse(0, 0, 38, 14, 0x020609, 0.42)
     this.#avatar = this.add.container(0, 0).setScale(1.08)
+    this.#seatedUpperAvatar = this.add.container(0, 0).setScale(1.08).setVisible(false)
     this.#canonicalAvatar = this.add.sprite(0, 0, canonicalAvatarTextureKey('idle')).setOrigin(0.5, 0.88)
+    this.#seatedUpperCanonical = this.add.sprite(0, 0, canonicalAvatarTextureKey('sit')).setOrigin(0.5, 0.88)
     for (const layer of RENDERED_LAYERS) {
       const key = textureKey(layer, 'idle', this.#avatarController.appearance)
       if (!key) continue
       const sprite = this.add.sprite(0, 0, key).setOrigin(0.5, 0.88)
+      const seatedUpperSprite = this.add.sprite(0, 0, key).setOrigin(0.5, 0.88)
       this.#avatarSprites.set(layer, sprite)
+      this.#seatedUpperSprites.set(layer, seatedUpperSprite)
     }
     this.#updateAvatarFrame(0)
   }
@@ -238,6 +245,7 @@ export class ImageRoomScene extends Phaser.Scene {
     const spawn = this.#graph.node(this.#currentNodeId)!
     const pixel = roomPointToPixel(this.#room, spawn)
     this.#avatar.setPosition(pixel.x, pixel.y)
+    this.#seatedUpperAvatar.setPosition(pixel.x, pixel.y).setVisible(false)
     this.#shadow.setPosition(pixel.x, pixel.y + 5).setVisible(true)
     this.#setAvatarDepth(spawn.y)
     this.#avatarController.applyMovement({ x: 0, y: 0 })
@@ -375,36 +383,62 @@ export class ImageRoomScene extends Phaser.Scene {
     this.#seatForegroundObjects = []
     if (!seat) return
     const asset = seat.foregroundAsset
-    const image = this.add.image(asset.x, asset.y, `seat-foreground:${this.#roomId}:${seat.id}`).setOrigin(0).setDepth(seat.sit.y * 100 + 20)
+    const image = this.add.image(asset.x, asset.y, `seat-foreground:${this.#roomId}:${seat.id}`)
+      .setOrigin(0)
+      .setDepth(Math.max(seat.sit.y * 100 + 20, this.#seatedUpperAvatar.depth + 5))
     this.#seatForegroundObjects.push(image)
   }
 
   #updateAvatarFrame(frameIndex: number): void {
     const action = this.#avatarController.action
     const direction = this.#avatarController.direction
+    const upperBodyCrop = avatarUpperBodyCrop(action)
     const frameCount = ACTION_FRAMES[action]
     const sheetFrame = DIRECTIONS.indexOf(direction) * frameCount + (frameIndex % frameCount)
     const orderedSlots = this.#avatarController.layers(frameIndex).map((layer) => layer.slot)
     this.#avatar.removeAll(false)
+    this.#seatedUpperAvatar.removeAll(false)
+    this.#seatedUpperAvatar.setPosition(this.#avatar.x, this.#avatar.y).setVisible(Boolean(upperBodyCrop))
     this.#canonicalAvatar.setVisible(false)
+    this.#seatedUpperCanonical.setVisible(false)
     for (const sprite of this.#avatarSprites.values()) sprite.setVisible(false)
+    for (const sprite of this.#seatedUpperSprites.values()) sprite.setVisible(false)
     if (shouldUseCanonicalAvatar(this.#avatarController.appearance)) {
-      this.#canonicalAvatar.setTexture(canonicalAvatarTextureKey(action), sheetFrame).setVisible(true)
+      this.#canonicalAvatar.setPosition(0, 0).setTexture(canonicalAvatarTextureKey(action), sheetFrame).setVisible(true)
       this.#avatar.add(this.#canonicalAvatar)
+      if (upperBodyCrop) {
+        this.#seatedUpperCanonical
+          .setPosition(0, 0)
+          .setTexture(canonicalAvatarTextureKey(action), sheetFrame)
+          .setCrop(upperBodyCrop.x, upperBodyCrop.y, upperBodyCrop.width, upperBodyCrop.height)
+          .setVisible(true)
+        this.#seatedUpperAvatar.add(this.#seatedUpperCanonical)
+      }
       return
     }
     for (const slot of orderedSlots) {
       const sprite = this.#avatarSprites.get(slot)
       const key = textureKey(slot, action, this.#avatarController.appearance)
       if (!sprite || !key) continue
-      sprite.setTexture(key, sheetFrame).setVisible(true)
+      sprite.setPosition(0, 0).setTexture(key, sheetFrame).setVisible(true)
       this.#avatar.add(sprite)
+      if (upperBodyCrop) {
+        const seatedUpperSprite = this.#seatedUpperSprites.get(slot)
+        if (!seatedUpperSprite) continue
+        seatedUpperSprite
+          .setPosition(0, 0)
+          .setTexture(key, sheetFrame)
+          .setCrop(upperBodyCrop.x, upperBodyCrop.y, upperBodyCrop.width, upperBodyCrop.height)
+          .setVisible(true)
+        this.#seatedUpperAvatar.add(seatedUpperSprite)
+      }
     }
   }
 
   #setAvatarDepth(yPercent: number): void {
     const depth = yPercent * 100 + 10
     this.#avatar.setDepth(depth)
+    this.#seatedUpperAvatar.setDepth(depth + 1)
     this.#shadow.setDepth(depth - 2)
   }
 
@@ -601,6 +635,10 @@ export class ImageRoomScene extends Phaser.Scene {
     this.#activity.transition(activityToken, 'seated')
     this.#setState('seated')
     this.#setAvatarDepth(seat.sit.y)
+    this.#seatedUpperAvatar.setDepth(Math.max(
+      this.#avatar.depth + 1,
+      ...this.#room.occluders.map((occluder) => occluder.depthY * 100 + 1),
+    ))
     this.#setSeatForeground(seat)
     this.#updateAvatarFrame(0)
   }

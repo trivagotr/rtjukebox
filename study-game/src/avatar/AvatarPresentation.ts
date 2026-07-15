@@ -21,3 +21,9 @@ export function shouldUseCanonicalAvatar(appearance: AvatarAppearance): boolean 
 export function canonicalAvatarTextureKey(action: AvatarAction): string {
   return `avatar:canonical-${action}`
 }
+
+const SEATED_UPPER_BODY_CROP = Object.freeze({ x: 0, y: 0, width: 64, height: 58 })
+
+export function avatarUpperBodyCrop(action: AvatarAction): Readonly<typeof SEATED_UPPER_BODY_CROP> | null {
+  return action === 'sit' ? SEATED_UPPER_BODY_CROP : null
+}

@@ -75,6 +75,47 @@ test('opens the requested packaged-app room directly', async ({ page }) => {
   await expect(page.getByRole('tab', { name: 'Cim Alan' })).toHaveAttribute('aria-selected', 'true')
 })
 
+test('keeps the seated avatar head and torso readable behind a Library table', async ({ page }, testInfo) => {
+  test.setTimeout(60_000)
+  await page.goto('/')
+  await expect(page.locator('html')).toHaveAttribute('data-study-ready', 'true', { timeout: 30_000 })
+
+  const seatId = 'bottom-back-mid-left'
+  const target = (await page.evaluate(() => window.__STUDY_GAME_APP__.tapTargets()))
+    .seats.find((seat) => seat.id === seatId)
+  if (!target) throw new Error(`Missing seat target: ${seatId}`)
+
+  const viewport = page.viewportSize()!
+  const canvasBounds = await page.locator('#game-canvas canvas').boundingBox()
+  if (!canvasBounds) throw new Error('Missing game canvas bounds')
+  const screen = {
+    x: canvasBounds.x + target.screen.x,
+    y: canvasBounds.y + target.screen.y,
+  }
+  const clip = {
+    x: Math.max(0, Math.min(viewport.width - 84, screen.x - 42)),
+    y: Math.max(0, Math.min(viewport.height - 112, screen.y - 96)),
+    width: 84,
+    height: 112,
+  }
+  const before = await page.screenshot({ clip })
+  await page.evaluate((id) => window.__STUDY_GAME_APP__.walkToSeat(id), seatId)
+  await expect(page.locator('html')).toHaveAttribute('data-game-state', 'seated', { timeout: 30_000 })
+  const after = await page.screenshot({ clip })
+  await page.screenshot({ path: path.join(artifactDir, `${testInfo.project.name}-10-occluded-seat-visible.png`) })
+  const beforePixels = await sharp(before).removeAlpha().raw().toBuffer()
+  const afterPixels = await sharp(after).removeAlpha().raw().toBuffer()
+  let visiblyChangedPixels = 0
+  for (let index = 0; index < beforePixels.length; index += 3) {
+    const delta = Math.abs(beforePixels[index]! - afterPixels[index]!)
+      + Math.abs(beforePixels[index + 1]! - afterPixels[index + 1]!)
+      + Math.abs(beforePixels[index + 2]! - afterPixels[index + 2]!)
+    if (delta >= 48) visiblyChangedPixels += 1
+  }
+
+  expect(visiblyChangedPixels / (beforePixels.length / 3)).toBeGreaterThan(0.025)
+})
+
 test('redirects an active walk to the latest destination without teleporting', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('html')).toHaveAttribute('data-study-ready', 'true', { timeout: 30_000 })
