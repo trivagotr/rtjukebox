@@ -10,17 +10,35 @@ function success<T>(data: T, status = 200) {
   }
 }
 
-function createAdapter(fetchImpl: ReturnType<typeof vi.fn>) {
+function createAdapter(fetchImpl: ReturnType<typeof vi.fn>, globalPoints = 120) {
   return new RadioTEDUStudyAdapter({
     apiBase: 'https://radiotedu.com/jukebox/api/v1/study',
     accessToken: 'access-token',
     account: { id: 'user-1', displayName: 'Ada', authenticated: true },
-    globalPoints: 120,
+    globalPoints,
     fetchImpl: fetchImpl as unknown as typeof fetch,
   })
 }
 
 describe('RadioTEDUStudyAdapter', () => {
+  it('replaces the displayed Gold balance with the authoritative avatar purchase response', async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(success({
+      ownedItemIds: ['varsity-jacket'],
+      points: {spendable_points: 65},
+      spendable_points: 65,
+    }, 201))
+    const adapter = createAdapter(fetchImpl, 100)
+
+    expect(adapter.session().points.global).toBe(100)
+    await adapter.purchaseWearable('varsity-jacket', 'avatar-request-1')
+
+    expect(adapter.session().points.global).toBe(65)
+    expect(JSON.parse(fetchImpl.mock.calls[0]![1].body)).toEqual({
+      itemId: 'varsity-jacket',
+      idempotencyKey: 'avatar-request-1',
+    })
+  })
+
   it('uses Bearer auth and rotates the server heartbeat nonce', async () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(success({ session: { id: 'session-1' }, nonce: 'nonce-1' }, 201))
@@ -42,7 +60,7 @@ describe('RadioTEDUStudyAdapter', () => {
   it('finishes idempotently and refreshes the authoritative summary', async () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(success({ session: { id: 'session-1' }, nonce: 'nonce-1' }, 201))
-      .mockResolvedValueOnce(success({ session: { id: 'session-1' }, awarded_points: 3 }))
+      .mockResolvedValueOnce(success({ session: { id: 'session-1' }, awarded_points: 3, spendable_points: 123 }))
       .mockResolvedValueOnce(success({ todaySeconds: 600, monthSeconds: 3600, totalSeconds: 7200 }))
     const adapter = createAdapter(fetchImpl)
 
@@ -52,6 +70,7 @@ describe('RadioTEDUStudyAdapter', () => {
 
     expect(summary).toEqual({ todaySeconds: 600, monthSeconds: 3600, totalSeconds: 7200 })
     expect(secondFinish).toEqual(summary)
+    expect(adapter.session().points.global).toBe(123)
     expect(fetchImpl.mock.calls.filter(call => String(call[0]).includes('/finish'))).toHaveLength(1)
     const finishCall = fetchImpl.mock.calls.find(call => String(call[0]).includes('/finish'))
     expect(finishCall?.[1]).toMatchObject({ keepalive: true })

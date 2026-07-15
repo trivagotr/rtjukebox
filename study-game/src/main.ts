@@ -80,7 +80,7 @@ function renderStudyShell(session: StudySession) {
         <span><b id="study-month">0m</b> Month</span>
       </section>
       <div class="account-chip" aria-label="Signed-in account"><span class="presence-dot"></span><strong id="account-name"></strong></div>
-      <div class="point-balance" aria-label="Spendable points"><span>PTS</span><strong id="point-balance"></strong></div>
+      <div class="point-balance" aria-label="Gold balance"><span>Gold</span><strong id="point-balance"></strong></div>
       <button id="people-toggle" data-testid="people-toggle" class="command-button" type="button" aria-label="People" title="People" aria-expanded="false" aria-controls="presence-panel"><i data-lucide="users-round" aria-hidden="true"></i><span class="button-label">People</span><strong id="people-count">0</strong></button>
       <button id="wardrobe-toggle" data-testid="wardrobe-toggle" class="command-button" type="button" aria-label="Wardrobe" title="Wardrobe" aria-expanded="false" aria-controls="wardrobe-panel"><i data-lucide="shirt" aria-hidden="true"></i><span class="button-label">Wardrobe</span></button>
     </header>
@@ -92,19 +92,19 @@ function renderStudyShell(session: StudySession) {
       <header><strong>Wardrobe</strong><button id="wardrobe-close" class="close-button" type="button" aria-label="Close wardrobe"><i data-lucide="x" aria-hidden="true"></i></button></header>
       <section><h2>Top</h2><div class="wearable-grid">
         <button data-testid="wearable-radio-hoodie" data-slot="top" data-wearable-id="radio-hoodie" type="button"><i class="swatch swatch-teal"></i><span>Radio Hoodie<small>Included</small></span></button>
-        <button data-testid="wearable-varsity-jacket" data-slot="top" data-wearable-id="varsity-jacket" type="button"><i class="swatch swatch-red"></i><span>Varsity<small>80 PTS</small></span></button>
+        <button data-testid="wearable-varsity-jacket" data-slot="top" data-wearable-id="varsity-jacket" type="button"><i class="swatch swatch-red"></i><span>Varsity<small>80 Gold</small></span></button>
       </div></section>
       <section><h2>Bottom</h2><div class="wearable-grid">
         <button data-testid="wearable-jeans" data-slot="bottom" data-wearable-id="jeans" type="button"><i class="swatch swatch-blue"></i><span>Jeans<small>Included</small></span></button>
-        <button data-testid="wearable-black-cargos" data-slot="bottom" data-wearable-id="black-cargos" type="button"><i class="swatch swatch-black"></i><span>Black Cargos<small>60 PTS</small></span></button>
+        <button data-testid="wearable-black-cargos" data-slot="bottom" data-wearable-id="black-cargos" type="button"><i class="swatch swatch-black"></i><span>Black Cargos<small>60 Gold</small></span></button>
       </div></section>
       <section><h2>Shoes</h2><div class="wearable-grid">
         <button data-testid="wearable-sneakers" data-slot="shoes" data-wearable-id="sneakers" type="button"><i class="swatch swatch-ivory"></i><span>Sneakers<small>Included</small></span></button>
-        <button data-testid="wearable-boots" data-slot="shoes" data-wearable-id="boots" type="button"><i class="swatch swatch-black"></i><span>Boots<small>50 PTS</small></span></button>
+        <button data-testid="wearable-boots" data-slot="shoes" data-wearable-id="boots" type="button"><i class="swatch swatch-black"></i><span>Boots<small>50 Gold</small></span></button>
       </div></section>
       <section><h2>Hat</h2><div class="wearable-grid">
         <button data-testid="wearable-bucket-hat" data-slot="hat" data-wearable-id="bucket-hat" type="button"><i class="swatch swatch-gold"></i><span>Bucket Hat<small>Included</small></span></button>
-        <button data-testid="wearable-beanie" data-slot="hat" data-wearable-id="beanie" type="button"><i class="swatch swatch-plum"></i><span>Beanie<small>35 PTS</small></span></button>
+        <button data-testid="wearable-beanie" data-slot="hat" data-wearable-id="beanie" type="button"><i class="swatch swatch-plum"></i><span>Beanie<small>35 Gold</small></span></button>
       </div></section>
     </aside>
     <aside id="player-card" class="player-card" data-testid="player-card" aria-label="Player" hidden>

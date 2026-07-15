@@ -128,11 +128,15 @@ export class RadioTEDUStudyAdapter implements StudyAdapter {
     const data = await this.#request<{
       ownedItemIds?: unknown
       points?: { spendable_points?: unknown }
+      spendable_points?: unknown
     }>('/avatar/purchase', { method: 'POST', body: { itemId: id, idempotencyKey } })
     for (const itemId of Array.isArray(data.ownedItemIds) ? data.ownedItemIds : []) {
       if (typeof itemId === 'string') this.#owned.add(itemId)
     }
-    this.#globalPoints = nonNegativeInteger(data.points?.spendable_points, this.#globalPoints)
+    this.#globalPoints = nonNegativeInteger(
+      data.points?.spendable_points ?? data.spendable_points,
+      this.#globalPoints,
+    )
     return this.session()
   }
 
@@ -175,9 +179,16 @@ export class RadioTEDUStudyAdapter implements StudyAdapter {
     const active = this.#activeSession
     this.#activeSession = null
     try {
-      await this.#request(`/sessions/${encodeURIComponent(active.id)}/finish`, {
+      const data = await this.#request<{
+        spendable_points?: unknown
+        points?: { spendable_points?: unknown }
+      }>(`/sessions/${encodeURIComponent(active.id)}/finish`, {
         method: 'POST', body: { nonce: active.nonce }, keepalive: true,
       })
+      this.#globalPoints = nonNegativeInteger(
+        data.points?.spendable_points ?? data.spendable_points,
+        this.#globalPoints,
+      )
     } catch (error) {
       this.#activeSession = active
       throw error

@@ -704,7 +704,7 @@ git commit -m "feat(mobile): expose account controls and Gold economy"
 - Consumes: `/study/summary` and avatar purchase responses containing `points.spendable_points`.
 - Displays: `Gold` while keeping the bridge field `globalPoints` and backend field `spendable_points` backward compatible.
 
-- [ ] **Step 1: Write failing Study Gold contract tests**
+- [x] **Step 1: Write failing Study Gold contract tests**
 
 Create `study-game/tests/gold-account-contract.test.ts`:
 
@@ -718,7 +718,7 @@ expect(adapterSource).toContain('data.points?.spendable_points');
 
 Extend `radiotedu-study-adapter.test.ts` so a purchase response changing `spendable_points` from 100 to 65 changes `adapter.session().points.global` to 65.
 
-- [ ] **Step 2: Run Study tests and verify RED**
+- [x] **Step 2: Run Study tests and verify RED**
 
 Run: `npm test -- --run tests/gold-account-contract.test.ts tests/radiotedu-study-adapter.test.ts`
 
@@ -726,7 +726,7 @@ Working directory: `study-game`
 
 Expected: FAIL because the UI says PTS and the mutation refresh contract is incomplete.
 
-- [ ] **Step 3: Implement Study Gold labeling and authoritative refresh**
+- [x] **Step 3: Implement Study Gold labeling and authoritative refresh**
 
 - Change only user-facing labels from PTS/points to Gold.
 - Keep account identity from `RadioTEDUStudyBridge.account`.
@@ -734,7 +734,7 @@ Expected: FAIL because the UI says PTS and the mutation refresh contract is inco
 - After session finish or avatar purchase, replace local presentation with the authoritative returned/refetched balance.
 - Never award, spend, or persist production Gold in `LocalStudyAdapter` or browser storage.
 
-- [ ] **Step 4: Run the complete Study unit suite and build**
+- [x] **Step 4: Run the complete Study unit suite and build**
 
 Run: `npm test`
 
@@ -744,7 +744,7 @@ Working directory: `study-game`
 
 Expected: both commands PASS; production files are generated in `study-game/dist`.
 
-- [ ] **Step 5: Commit Study Gold integration**
+- [x] **Step 5: Commit Study Gold integration**
 
 ```bash
 git add study-game/src/main.ts study-game/src/adapters/RadioTEDUStudyAdapter.ts study-game/tests/radiotedu-study-adapter.test.ts study-game/tests/gold-account-contract.test.ts
