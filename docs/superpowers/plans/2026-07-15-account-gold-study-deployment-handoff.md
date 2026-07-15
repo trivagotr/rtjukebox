@@ -852,11 +852,11 @@ git commit -m "docs: add production server adaptation checklist"
 **Interfaces:**
 - Produces: a verified and pushed `codex/study-game-oss` commit deployable by the server prompt.
 
-- [ ] **Step 1: Verify the working tree scope before tests**
+- [x] **Step 1: Verify the working tree scope before tests**
 
 Run a filtered status report and confirm only planned source/docs changes are staged or committed. Preserve all pre-existing generated QA files and lockfile changes.
 
-- [ ] **Step 2: Run complete backend verification**
+- [x] **Step 2: Run complete backend verification**
 
 Working directory: `backend`
 
@@ -866,7 +866,7 @@ Run: `npm run build`
 
 Expected: both commands exit 0 with zero failed tests and zero TypeScript errors.
 
-- [ ] **Step 3: Run complete Study verification**
+- [x] **Step 3: Run complete Study verification**
 
 Working directory: `study-game`
 
@@ -876,7 +876,7 @@ Run: `npm run build`
 
 Expected: both commands exit 0 and `dist/index.html` plus hashed assets exist.
 
-- [ ] **Step 4: Run complete mobile verification**
+- [x] **Step 4: Run complete mobile verification**
 
 Working directory: `mobile`
 
@@ -898,7 +898,7 @@ Run: `git diff --check origin/codex/study-game-oss...HEAD`
 
 Expected: both commands exit 0.
 
-- [ ] **Step 6: Run database-backed Account/Gold/Study smoke tests**
+- [x] **Step 6: Run database-backed Account/Gold/Study smoke tests**
 
 Use the repository’s existing disposable Docker PostgreSQL/Redis procedure from `docs/verification-2026-06-24.md`.
 
@@ -915,11 +915,15 @@ Verify with a disposable registered account:
 
 Redact passwords, bearer tokens, refresh tokens, database URLs, and token hashes from captured output.
 
-- [ ] **Step 7: Fix only observed scoped failures and rerun the proving command**
+Result: the isolated PostgreSQL/API smoke passed all 22 checks, including refresh-token rotation, idempotent Study finish, atomic/replay-safe avatar spending, balance equality, logout, and cascade deletion.
+
+- [x] **Step 7: Fix only observed scoped failures and rerun the proving command**
 
 For each failure, add or correct the focused regression test, implement the minimal fix, rerun the focused test, then rerun the full package command affected by the fix.
 
-- [ ] **Step 8: Confirm commit contents and branch history**
+Result: the smoke check exposed bcrypt's 72-byte refresh-token truncation; versioned SHA-256 pre-hashing and unique refresh-token IDs were added with regression coverage, followed by complete backend and database-smoke reruns.
+
+- [x] **Step 8: Confirm commit contents and branch history**
 
 Verify no generated artifacts, videos, screenshots, random-walk output, secrets, `.env` files, or the pre-existing `backend/package-lock.json` change are included in planned commits.
 
