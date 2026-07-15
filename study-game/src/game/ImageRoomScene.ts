@@ -12,6 +12,7 @@ import { IMAGE_ROOMS, roomPointToPixel, type ImageRoomDefinition, type ImageRoom
 import type { StudySessionTracker } from '../session/StudySessionTracker'
 import { StudyPresenceLoop } from '../session/StudyPresenceLoop'
 import { AvatarController } from './AvatarController'
+import { AvatarActivityMachine, type ActivityToken } from './AvatarActivityMachine'
 import { calculateOverviewZoom } from './CameraFraming'
 import { buildMotionPath, sampleMotionPath } from './PathMotion'
 
@@ -72,8 +73,7 @@ export class ImageRoomScene extends Phaser.Scene {
   #graph = new NavigationGraph(this.#room.nodes, this.#room.edges)
   #currentNodeId = this.#room.spawnNodeId
   #state: GameState = 'ready'
-  #navigationRequestToken = 0
-  #routeToken = 0
+  #activity = new AvatarActivityMachine()
   #routeTween: Phaser.Tweens.Tween | null = null
   #activeSegmentFromId: string | null = null
   #activeSegmentToId: string | null = null
@@ -201,7 +201,7 @@ export class ImageRoomScene extends Phaser.Scene {
   }
 
   #renderRoom(roomId: ImageRoomId): void {
-    this.#routeToken += 1
+    this.#activity.cancel()
     this.#routeTween?.stop()
     this.#routeTween = null
     this.tweens.killTweensOf([this.#avatar, this.#shadow])
@@ -390,15 +390,18 @@ export class ImageRoomScene extends Phaser.Scene {
     }
   }
 
-  async #walkToNode(targetId: string): Promise<void> {
-    const navigationToken = ++this.#navigationRequestToken
+  async #walkToNode(targetId: string, activityToken: ActivityToken = this.#activity.beginWalk()): Promise<void> {
+    const resumeState = this.#activity.snapshot().state
     this.#cancelActiveRoute()
     if (this.#seatTransitionPromise) await this.#seatTransitionPromise
-    if (navigationToken !== this.#navigationRequestToken) return
-    if (this.#seatedSeat || this.#standPromise) await this.stand()
-    if (navigationToken !== this.#navigationRequestToken) return
+    if (!this.#activity.isCurrent(activityToken)) return
+    if (this.#seatedSeat || this.#standPromise) {
+      this.#activity.transition(activityToken, 'standing')
+      await this.stand(activityToken)
+      if (!this.#activity.isCurrent(activityToken)) return
+      this.#activity.transition(activityToken, resumeState)
+    }
     const path = this.#graph.findPath(this.#currentNodeId, targetId)
-    const token = ++this.#routeToken
     const routePoints = path.map((id) => {
       const node = this.#graph.node(id)!
       const pixel = roomPointToPixel(this.#room, node)
@@ -407,9 +410,12 @@ export class ImageRoomScene extends Phaser.Scene {
     const currentZ = this.#graph.node(this.#currentNodeId)?.z ?? 0
     const firstPoint = routePoints[0]
     if (firstPoint && Math.hypot(firstPoint.x - this.#avatar.x, firstPoint.y - this.#avatar.y) > 1) {
-      routePoints.unshift({ id: `route-start-${token}`, x: this.#avatar.x, y: this.#avatar.y, z: currentZ })
+      routePoints.unshift({ id: `route-start-${activityToken}`, x: this.#avatar.x, y: this.#avatar.y, z: currentZ })
     }
-    if (routePoints.length < 2) return
+    if (routePoints.length < 2) {
+      if (resumeState === 'walking') this.#activity.transition(activityToken, 'idle')
+      return
+    }
     const motion = buildMotionPath(routePoints)
     if (motion.totalLength === 0) return
     const travel = { distance: 0 }
@@ -431,35 +437,40 @@ export class ImageRoomScene extends Phaser.Scene {
     }
     updateMotion()
     await new Promise<void>((resolve) => {
-      this.#routeTween = this.tweens.add({
+      let routeTween!: Phaser.Tweens.Tween
+      routeTween = this.tweens.add({
         targets: travel,
         distance: motion.totalLength,
         duration: Phaser.Math.Clamp(Math.round(motion.totalLength * 3.2), 320, 8_000),
         ease: 'Linear',
         onUpdate: () => {
-          if (token !== this.#routeToken) {
-            this.#routeTween?.stop()
+          if (!this.#activity.isCurrent(activityToken)) {
+            routeTween.stop()
             return
           }
           updateMotion()
         },
         onComplete: () => {
-          this.#routeTween = null
-          this.#activeSegmentFromId = null
-          this.#activeSegmentToId = null
+          if (this.#routeTween === routeTween) {
+            this.#routeTween = null
+            this.#activeSegmentFromId = null
+            this.#activeSegmentToId = null
+          }
           resolve()
         },
         onStop: () => {
-          this.#routeTween = null
+          if (this.#routeTween === routeTween) this.#routeTween = null
           resolve()
         },
       })
+      this.#routeTween = routeTween
     })
-    if (token !== this.#routeToken) return
+    if (!this.#activity.isCurrent(activityToken)) return
     this.#currentNodeId = targetId
     this.#avatarController.applyMovement({ x: 0, y: 0 })
     this.#updateAvatarFrame(0)
     this.#setState('ready')
+    if (resumeState === 'walking') this.#activity.transition(activityToken, 'idle')
     void this.#pushPresence()
   }
 
@@ -478,7 +489,6 @@ export class ImageRoomScene extends Phaser.Scene {
         ))[0]
       this.#currentNodeId = nearest!.node.id
     }
-    this.#routeToken += 1
     const tween = this.#routeTween
     this.#routeTween = null
     this.#activeSegmentFromId = null
@@ -489,21 +499,26 @@ export class ImageRoomScene extends Phaser.Scene {
   async walkToSeat(seatId: string): Promise<void> {
     const seat = this.#room.seats.find((candidate) => candidate.id === seatId)
     if (!seat) throw new Error(`Unknown seat ${this.#roomId}:${seatId}`)
-    const movement = this.#walkToNode(seat.approachNodeId)
-    const navigationToken = this.#navigationRequestToken
+    const activityToken = this.#activity.beginSeatApproach(seat.id)
+    const movement = this.#walkToNode(seat.approachNodeId, activityToken)
     await movement
-    if (navigationToken !== this.#navigationRequestToken || this.#currentNodeId !== seat.approachNodeId) return
+    if (!this.#activity.isCurrent(activityToken) || this.#currentNodeId !== seat.approachNodeId) return
     await this.#adapter.reserveSeat(this.#roomId, seat.id)
-    if (navigationToken !== this.#navigationRequestToken || this.#routeTween) {
+    if (!this.#activity.isCurrent(activityToken) || this.#routeTween) {
       await this.#adapter.releaseSeat()
       return
     }
-    await this.#sit(seat)
+    this.#activity.transition(activityToken, 'aligning-seat')
+    await this.#sit(seat, activityToken)
+    if (!this.#activity.isCurrent(activityToken)) {
+      await this.#adapter.releaseSeat()
+      return
+    }
     await this.#sessionTracker?.seated(this.#roomId, seat.id, { x: seat.sit.x, y: seat.sit.y })
     void this.#pushPresence()
   }
 
-  async #sit(seat: ImageRoomSeat): Promise<void> {
+  async #sit(seat: ImageRoomSeat, activityToken: ActivityToken): Promise<void> {
     this.#avatarController.applyMovement(FACING_DELTA[seat.facing])
     this.#avatarController.sit()
     const sitPixel = roomPointToPixel(this.#room, seat.sit)
@@ -524,17 +539,24 @@ export class ImageRoomScene extends Phaser.Scene {
     } finally {
       if (this.#seatTransitionPromise === transition) this.#seatTransitionPromise = null
     }
+    if (!this.#activity.isCurrent(activityToken)) return
     this.#seatedSeat = seat
+    this.#activity.transition(activityToken, 'seated')
     this.#setState('seated')
     this.#setAvatarDepth(seat.sit.y)
     this.#setSeatForeground(seat)
     this.#updateAvatarFrame(0)
   }
 
-  async stand(): Promise<void> {
+  async stand(activityToken: ActivityToken = this.#activity.beginStand()): Promise<void> {
     if (this.#standPromise) return this.#standPromise
-    if (!this.#seatedSeat) return
-    const transition = this.#performStand()
+    if (!this.#seatedSeat) {
+      if (this.#activity.isCurrent(activityToken) && this.#activity.snapshot().state === 'standing') {
+        this.#activity.transition(activityToken, 'idle')
+      }
+      return
+    }
+    const transition = this.#performStand(activityToken)
     this.#standPromise = transition
     try {
       await transition
@@ -543,7 +565,7 @@ export class ImageRoomScene extends Phaser.Scene {
     }
   }
 
-  async #performStand(): Promise<void> {
+  async #performStand(activityToken: ActivityToken): Promise<void> {
     const seat = this.#seatedSeat
     if (!seat) return
     this.#seatedSeat = null
@@ -571,13 +593,17 @@ export class ImageRoomScene extends Phaser.Scene {
     this.#setAvatarDepth(approach.y)
     this.#avatarController.applyMovement({ x: 0, y: 0 })
     this.#updateAvatarFrame(0)
-    this.#setState('ready')
     await finishSession
-    void this.#pushPresence()
+    if (this.#activity.isCurrent(activityToken)) {
+      if (this.#activity.snapshot().state === 'standing') this.#activity.transition(activityToken, 'idle')
+      this.#setState('ready')
+      void this.#pushPresence()
+    }
   }
 
   async switchRoom(roomId: ImageRoomId): Promise<void> {
     if (roomId === this.#roomId) return
+    if (!this.#seatedSeat) this.#activity.cancel()
     this.#cancelActiveRoute()
     if (this.#seatedSeat) await this.stand()
     this.#renderRoom(roomId)
@@ -642,7 +668,10 @@ export class ImageRoomScene extends Phaser.Scene {
     if (!output) return
     output.value = message
     output.textContent = message
-    this.time.delayedCall(1_800, () => this.#setState(this.#state))
+    const activityToken = this.#activity.snapshot().token
+    this.time.delayedCall(1_800, () => {
+      if (this.#activity.isCurrent(activityToken)) this.#setState(this.#state)
+    })
   }
 
   #syncHud(): void {
