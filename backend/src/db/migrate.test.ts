@@ -91,6 +91,13 @@ describe('db migration helper', () => {
         expect(schemaSql).toContain('user_points_spendable_nonnegative');
     });
 
+    it('includes replay protection for market redemptions', () => {
+        const schemaSql = loadSchemaSql();
+
+        expect(schemaSql).toContain('ALTER TABLE market_redemptions ADD COLUMN IF NOT EXISTS idempotency_key');
+        expect(schemaSql).toContain('idx_market_redemptions_user_idempotency');
+    });
+
     it('extends avatar hat constraints before seeding hat items on existing databases', () => {
         const schemaSql = loadSchemaSql();
         const constraintIndex = schemaSql.indexOf('ALTER TABLE avatar_items DROP CONSTRAINT IF EXISTS avatar_items_slot_check');

@@ -4,8 +4,8 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { sendSuccess, sendError } from '../utils/response';
 import {
     awardUserPoints,
-    buildSpendablePointUpdate,
     getGameAwardedPoints,
+    spendUserPoints,
 } from '../services/gamification';
 import { getIstanbulDayKey } from '../services/jukeboxScoring';
 
@@ -503,69 +503,129 @@ export async function handleMarketRedemptionRequest(req: AuthRequest, res: Respo
         return undefined;
     }
 
+    const idempotencyKey = typeof req.body?.idempotency_key === 'string'
+        ? req.body.idempotency_key.trim().slice(0, 180)
+        : '';
+    if (!idempotencyKey) {
+        return sendError(res, 'idempotency_key required', 400);
+    }
+
+    const client = await db.pool.connect();
+    let transactionOpen = false;
+
     try {
-        const itemResult = await db.query(
+        await client.query('BEGIN');
+        transactionOpen = true;
+
+        const replayResult = await client.query(
+            `SELECT *
+             FROM market_redemptions
+             WHERE user_id = $1 AND idempotency_key = $2
+             LIMIT 1`,
+            [req.user!.id, idempotencyKey],
+        );
+        const replay = replayResult.rows[0];
+        if (replay) {
+            if (String(replay.market_item_id) !== String(req.params.itemId)) {
+                await client.query('ROLLBACK');
+                transactionOpen = false;
+                return sendError(res, 'idempotency_key already used', 409);
+            }
+            const pointsResult = await client.query(
+                'SELECT spendable_points FROM user_points WHERE user_id = $1',
+                [req.user!.id],
+            );
+            await client.query('COMMIT');
+            transactionOpen = false;
+            return sendSuccess(
+                res,
+                {
+                    redemption: replay,
+                    spendable_points: toNumber(pointsResult.rows[0]?.spendable_points),
+                    replayed: true,
+                },
+                'Market item redeemed',
+                undefined,
+                200,
+            );
+        }
+
+        const itemResult = await client.query(
             `SELECT id, title, cost_points, stock_quantity, is_active
              FROM market_items
-             WHERE id = $1 AND is_active = true`,
+             WHERE id = $1 AND is_active = true
+             FOR UPDATE`,
             [req.params.itemId],
         );
         const item = itemResult.rows[0];
 
         if (!item) {
+            await client.query('ROLLBACK');
+            transactionOpen = false;
             return sendError(res, 'Market item not found', 404);
         }
 
         if (item.stock_quantity !== null && Number(item.stock_quantity) <= 0) {
+            await client.query('ROLLBACK');
+            transactionOpen = false;
             return sendError(res, 'Market item is out of stock', 409);
         }
 
-        const pointsResult = await db.query('SELECT spendable_points FROM user_points WHERE user_id = $1', [req.user?.id]);
-        const spendablePoints = toNumber(pointsResult.rows[0]?.spendable_points);
         const costPoints = toNumber(item.cost_points);
-        const update = buildSpendablePointUpdate(spendablePoints, costPoints);
+        const spendResult = await spendUserPoints({
+            userId: req.user!.id,
+            amount: costPoints,
+            category: 'market',
+            sourceType: 'market_redemption',
+            sourceId: item.id,
+            idempotencyKey: `market:${idempotencyKey}`,
+            metadata: {
+                market_item_id: item.id,
+                cost_points: costPoints,
+            },
+        }, client);
 
-        if (!update.canRedeem) {
+        if (item.stock_quantity !== null) {
+            await client.query(
+                `UPDATE market_items
+                 SET stock_quantity = stock_quantity - 1, updated_at = NOW()
+                 WHERE id = $1 AND stock_quantity > 0`,
+                [item.id],
+            );
+        }
+        const redemptionResult = await client.query(
+            `INSERT INTO market_redemptions (
+                user_id, market_item_id, cost_points, status, idempotency_key
+             )
+             VALUES ($1, $2, $3, 'pending', $4)
+             RETURNING *`,
+            [req.user!.id, item.id, costPoints, idempotencyKey],
+        );
+        await client.query('COMMIT');
+        transactionOpen = false;
+
+        return sendSuccess(
+            res,
+            {
+                redemption: redemptionResult.rows[0],
+                spendable_points: spendResult.spendablePoints,
+                replayed: !spendResult.applied,
+            },
+            'Market item redeemed',
+            undefined,
+            201,
+        );
+    } catch (error: any) {
+        if (transactionOpen) {
+            await client.query('ROLLBACK');
+        }
+        if (error?.message === 'INSUFFICIENT_GOLD') {
             return sendError(res, 'Not enough points', 400);
         }
-
-        await db.query('BEGIN');
-        try {
-            await db.query(
-                'UPDATE user_points SET spendable_points = $1, updated_at = NOW() WHERE user_id = $2',
-                [update.nextSpendablePoints, req.user?.id],
-            );
-            if (item.stock_quantity !== null) {
-                await db.query(
-                    'UPDATE market_items SET stock_quantity = stock_quantity - 1, updated_at = NOW() WHERE id = $1',
-                    [item.id],
-                );
-            }
-            const redemptionResult = await db.query(
-                `INSERT INTO market_redemptions (user_id, market_item_id, cost_points, status)
-                 VALUES ($1, $2, $3, 'pending')
-                 RETURNING *`,
-                [req.user?.id, item.id, costPoints],
-            );
-            await db.query('COMMIT');
-
-            return sendSuccess(
-                res,
-                {
-                    redemption: redemptionResult.rows[0],
-                    spendable_points: update.nextSpendablePoints,
-                },
-                'Market item redeemed',
-                undefined,
-                201,
-            );
-        } catch (error) {
-            await db.query('ROLLBACK');
-            throw error;
-        }
-    } catch (error) {
         console.error('Market redemption error:', error);
         return sendError(res, 'Failed to redeem market item', 500);
+    } finally {
+        client.release();
     }
 }
 

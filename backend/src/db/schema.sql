@@ -558,6 +558,10 @@ CREATE TABLE IF NOT EXISTS market_redemptions (
     created_at TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_market_redemptions_user ON market_redemptions(user_id, created_at DESC);
+ALTER TABLE market_redemptions ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(180);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_market_redemptions_user_idempotency
+ON market_redemptions(user_id, idempotency_key)
+WHERE idempotency_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS app_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

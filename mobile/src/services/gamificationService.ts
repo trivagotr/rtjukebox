@@ -112,9 +112,11 @@ export async function fetchMarketItems(): Promise<MarketItem[]> {
   return unwrapData<{items?: MarketItem[]}>(response).items ?? [];
 }
 
-export async function redeemMarketItem(itemId: string) {
-  const response = await api.post(`/gamification/market/${itemId}/redeem`);
-  return unwrapData(response);
+export async function redeemMarketItem(itemId: string, idempotencyKey: string) {
+  const response = await api.post(`/gamification/market/${itemId}/redeem`, {
+    idempotency_key: idempotencyKey,
+  });
+  return unwrapData<{spendable_points: number; replayed?: boolean}>(response);
 }
 
 export async function sendListeningHeartbeat(payload: ListeningHeartbeatPayload) {

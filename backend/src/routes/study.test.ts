@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   mockDbQuery,
+  mockClientQuery,
+  mockClientRelease,
+  mockPoolConnect,
   mockAwardUserPoints,
+  mockSpendUserPoints,
   mockSendSuccess,
   mockSendError,
   mockAuthMiddleware,
@@ -25,9 +29,16 @@ const {
     return router;
   });
 
+  const clientQuery = vi.fn();
+  const clientRelease = vi.fn();
+
   return {
     mockDbQuery: vi.fn(),
+    mockClientQuery: clientQuery,
+    mockClientRelease: clientRelease,
+    mockPoolConnect: vi.fn().mockResolvedValue({query: clientQuery, release: clientRelease}),
     mockAwardUserPoints: vi.fn(),
+    mockSpendUserPoints: vi.fn(),
     mockSendSuccess: vi.fn(),
     mockSendError: vi.fn(),
     mockAuthMiddleware: vi.fn(),
@@ -38,6 +49,7 @@ const {
 
 vi.mock('../db', () => ({
   db: {
+    pool: {connect: mockPoolConnect},
     query: mockDbQuery,
   },
 }));
@@ -53,6 +65,7 @@ vi.mock('../utils/response', () => ({
 
 vi.mock('../services/gamification', () => ({
   awardUserPoints: mockAwardUserPoints,
+  spendUserPoints: mockSpendUserPoints,
 }));
 
 vi.mock('express', () => ({
@@ -67,6 +80,9 @@ import { hashStudyNonce } from './study';
 describe('study router', () => {
   beforeEach(() => {
     mockDbQuery.mockReset();
+    mockClientQuery.mockReset();
+    mockClientRelease.mockReset();
+    mockPoolConnect.mockClear();
     mockAwardUserPoints.mockReset();
     mockAwardUserPoints.mockResolvedValue({
       applied: true,
@@ -74,6 +90,14 @@ describe('study router', () => {
       awarded: 1,
       spendablePoints: 1,
       ledgerId: 'ledger-study',
+    });
+    mockSpendUserPoints.mockReset();
+    mockSpendUserPoints.mockResolvedValue({
+      applied: true,
+      amount: -80,
+      awarded: 0,
+      spendablePoints: 40,
+      ledgerId: 'ledger-avatar',
     });
     mockSendSuccess.mockReset();
     mockSendError.mockReset();
@@ -387,44 +411,51 @@ describe('study router', () => {
   it('rejects avatar purchases that would make spendable points negative', async () => {
     const handler = mockRouteHandlers.post['/avatar/purchase'];
     expect(handler).toBeTypeOf('function');
-    mockDbQuery
-      .mockResolvedValueOnce({ rows: [] })
+    mockClientQuery
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce({ rows: [{ item_id: 'spark-hoodie', cost_points: 80, is_default: false }] })
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ spendable_points: 20 }] })
-      .mockResolvedValueOnce({ rows: [] });
+      .mockResolvedValueOnce(undefined);
+    mockSpendUserPoints.mockRejectedValueOnce(new Error('INSUFFICIENT_GOLD'));
 
     await handler(
-      { body: { itemId: 'spark-hoodie' }, user: { id: 'user-1', role: 'user' } },
+      { body: { itemId: 'spark-hoodie', idempotencyKey: 'avatar-purchase-1' }, user: { id: 'user-1', role: 'user' } },
       {},
     );
 
-    expect(mockDbQuery.mock.calls[0][0]).toBe('BEGIN');
+    expect(mockClientQuery.mock.calls[0][0]).toBe('BEGIN');
     expect(mockSendError).toHaveBeenCalledWith({}, 'Not enough points', 400);
-    expect(mockDbQuery.mock.calls.some(call => call[0] === 'ROLLBACK')).toBe(true);
-    expect(mockDbQuery.mock.calls.some(call => String(call[0]).includes('UPDATE user_points'))).toBe(false);
+    expect(mockClientQuery.mock.calls.some(call => call[0] === 'ROLLBACK')).toBe(true);
+    expect(mockClientQuery.mock.calls.some(call => String(call[0]).includes('INSERT INTO avatar_inventory'))).toBe(false);
   });
 
   it('purchases avatar clothes by spending global points in one transaction', async () => {
     const handler = mockRouteHandlers.post['/avatar/purchase'];
-    mockDbQuery
-      .mockResolvedValueOnce({ rows: [] })
+    mockClientQuery
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce({ rows: [{ item_id: 'spark-hoodie', cost_points: 80, is_default: false }] })
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ spendable_points: 120 }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] });
+      .mockResolvedValueOnce({ rows: [{ item_id: 'spark-hoodie' }] })
+      .mockResolvedValueOnce(undefined);
 
     await handler(
-      { body: { itemId: 'spark-hoodie' }, user: { id: 'user-1', role: 'user' } },
+      { body: { itemId: 'spark-hoodie', idempotencyKey: 'avatar-purchase-1' }, user: { id: 'user-1', role: 'user' } },
       {},
     );
 
-    expect(mockDbQuery.mock.calls[0][0]).toBe('BEGIN');
-    expect(mockDbQuery.mock.calls.some(call => String(call[0]).includes('INSERT INTO avatar_inventory'))).toBe(true);
-    expect(mockDbQuery.mock.calls.some(call => String(call[0]).includes('UPDATE user_points'))).toBe(true);
-    expect(mockDbQuery.mock.calls.some(call => call[0] === 'COMMIT')).toBe(true);
+    expect(mockClientQuery.mock.calls[0][0]).toBe('BEGIN');
+    expect(mockSpendUserPoints).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        amount: 80,
+        idempotencyKey: 'avatar-purchase-1',
+        sourceType: 'avatar_purchase',
+        sourceId: 'spark-hoodie',
+      }),
+      expect.objectContaining({query: mockClientQuery}),
+    );
+    expect(mockClientQuery.mock.calls.some(call => String(call[0]).includes('INSERT INTO avatar_inventory'))).toBe(true);
+    expect(mockClientQuery.mock.calls.some(call => call[0] === 'COMMIT')).toBe(true);
     expect(mockSendSuccess).toHaveBeenCalledWith(
       {},
       {
@@ -432,6 +463,8 @@ describe('study router', () => {
         points: expect.objectContaining({
           spendable_points: 40,
         }),
+        spendable_points: 40,
+        replayed: false,
       },
       'Avatar item purchased',
       undefined,
@@ -441,23 +474,24 @@ describe('study router', () => {
 
   it('does not spend points again when purchasing an already owned avatar item', async () => {
     const handler = mockRouteHandlers.post['/avatar/purchase'];
-    mockDbQuery
-      .mockResolvedValueOnce({ rows: [] })
+    mockClientQuery
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce({ rows: [{ item_id: 'spark-hoodie', cost_points: 80, is_default: false }] })
       .mockResolvedValueOnce({ rows: [{ item_id: 'spark-hoodie' }] })
-      .mockResolvedValueOnce({ rows: [] });
+      .mockResolvedValueOnce({ rows: [{ spendable_points: 40 }] })
+      .mockResolvedValueOnce(undefined);
 
     await handler(
-      { body: { itemId: 'spark-hoodie' }, user: { id: 'user-1', role: 'user' } },
+      { body: { itemId: 'spark-hoodie', idempotencyKey: 'avatar-purchase-1' }, user: { id: 'user-1', role: 'user' } },
       {},
     );
 
-    expect(mockDbQuery.mock.calls[0][0]).toBe('BEGIN');
-    expect(mockDbQuery.mock.calls.some(call => String(call[0]).includes('UPDATE user_points'))).toBe(false);
-    expect(mockDbQuery.mock.calls.some(call => call[0] === 'COMMIT')).toBe(true);
+    expect(mockClientQuery.mock.calls[0][0]).toBe('BEGIN');
+    expect(mockSpendUserPoints).not.toHaveBeenCalled();
+    expect(mockClientQuery.mock.calls.some(call => call[0] === 'COMMIT')).toBe(true);
     expect(mockSendSuccess).toHaveBeenCalledWith(
       {},
-      { ownedItemIds: ['spark-hoodie'] },
+      { ownedItemIds: ['spark-hoodie'], spendable_points: 40, replayed: true },
       'Avatar item already owned',
     );
   });

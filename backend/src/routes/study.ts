@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { db } from '../db';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { sendSuccess, sendError } from '../utils/response';
-import { awardUserPoints } from '../services/gamification';
+import { awardUserPoints, spendUserPoints } from '../services/gamification';
 
 const router = express.Router();
 
@@ -484,10 +484,19 @@ export async function handleAvatarPurchase(req: AuthRequest, res: Response) {
   if (!itemId) {
     return sendError(res, 'Invalid avatar item', 400);
   }
+  const idempotencyKey = typeof req.body?.idempotencyKey === 'string'
+    ? req.body.idempotencyKey.trim().slice(0, 180)
+    : '';
+  if (!idempotencyKey) {
+    return sendError(res, 'idempotencyKey required', 400);
+  }
 
+  const client = await db.pool.connect();
+  let transactionOpen = false;
   try {
-    await db.query('BEGIN');
-    const itemResult = await db.query(
+    await client.query('BEGIN');
+    transactionOpen = true;
+    const itemResult = await client.query(
       `SELECT item_id, cost_points, is_default
        FROM avatar_items
        WHERE item_id = $1 AND enabled = true
@@ -496,10 +505,11 @@ export async function handleAvatarPurchase(req: AuthRequest, res: Response) {
     );
     const item = itemResult.rows[0];
     if (!item) {
-      await db.query('ROLLBACK');
+      await client.query('ROLLBACK');
+      transactionOpen = false;
       return sendError(res, 'Avatar item not found', 404);
     }
-    const ownedResult = await db.query(
+    const ownedResult = await client.query(
       `SELECT item_id
        FROM avatar_inventory
        WHERE user_id = $1 AND item_id = $2
@@ -507,53 +517,76 @@ export async function handleAvatarPurchase(req: AuthRequest, res: Response) {
       [req.user!.id, itemId],
     );
     if (ownedResult.rows.length > 0) {
-      await db.query('COMMIT');
-      return sendSuccess(res, { ownedItemIds: [itemId] }, 'Avatar item already owned');
-    }
-    const pointsResult = await db.query(
-      `SELECT lifetime_points, spendable_points, monthly_points, listening_points,
-              events_points, games_points, social_points, jukebox_points
-       FROM user_points WHERE user_id = $1 FOR UPDATE`,
-      [req.user!.id],
-    );
-    const spendablePoints = toNumber(pointsResult.rows[0]?.spendable_points);
-    const costPoints = toNumber(item.cost_points);
-    if (!item.is_default && spendablePoints < costPoints) {
-      await db.query('ROLLBACK');
-      return sendError(res, 'Not enough points', 400);
-    }
-    await db.query(
-      `INSERT INTO avatar_inventory (user_id, item_id, created_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (user_id, item_id) DO NOTHING`,
-      [req.user!.id, itemId],
-    );
-    if (!item.is_default && costPoints > 0) {
-      await db.query(
-        `UPDATE user_points
-         SET spendable_points = spendable_points - $1, updated_at = NOW()
-         WHERE user_id = $2`,
-        [costPoints, req.user!.id],
+      const pointsResult = await client.query(
+        'SELECT spendable_points FROM user_points WHERE user_id = $1',
+        [req.user!.id],
+      );
+      const spendablePoints = toNumber(pointsResult.rows[0]?.spendable_points);
+      await client.query('COMMIT');
+      transactionOpen = false;
+      return sendSuccess(
+        res,
+        { ownedItemIds: [itemId], spendable_points: spendablePoints, replayed: true },
+        'Avatar item already owned',
       );
     }
-    await db.query('COMMIT');
+
+    const costPoints = toNumber(item.cost_points);
+    let spendablePoints: number;
+    if (!item.is_default && costPoints > 0) {
+      const spendResult = await spendUserPoints({
+        userId: req.user!.id,
+        amount: costPoints,
+        category: 'market',
+        sourceType: 'avatar_purchase',
+        sourceId: itemId,
+        idempotencyKey,
+        metadata: {
+          avatar_item_id: itemId,
+          cost_points: costPoints,
+        },
+      }, client);
+      spendablePoints = spendResult.spendablePoints;
+    } else {
+      const pointsResult = await client.query(
+        'SELECT spendable_points FROM user_points WHERE user_id = $1',
+        [req.user!.id],
+      );
+      spendablePoints = toNumber(pointsResult.rows[0]?.spendable_points);
+    }
+
+    await client.query(
+      `INSERT INTO avatar_inventory (user_id, item_id, created_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (user_id, item_id) DO NOTHING
+       RETURNING item_id`,
+      [req.user!.id, itemId],
+    );
+    await client.query('COMMIT');
+    transactionOpen = false;
     return sendSuccess(
       res,
       {
         ownedItemIds: [itemId],
-        points: mapPoints({
-          ...pointsResult.rows[0],
-          spendable_points: item.is_default ? spendablePoints : spendablePoints - costPoints,
-        }),
+        points: mapPoints({spendable_points: spendablePoints}),
+        spendable_points: spendablePoints,
+        replayed: false,
       },
       'Avatar item purchased',
       undefined,
       201,
     );
-  } catch (error) {
-    await db.query('ROLLBACK');
+  } catch (error: any) {
+    if (transactionOpen) {
+      await client.query('ROLLBACK');
+    }
+    if (error?.message === 'INSUFFICIENT_GOLD') {
+      return sendError(res, 'Not enough points', 400);
+    }
     console.error('Avatar purchase error:', error);
     return sendError(res, 'Failed to purchase avatar item', 500);
+  } finally {
+    client.release();
   }
 }
 

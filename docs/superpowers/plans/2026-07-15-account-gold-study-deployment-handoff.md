@@ -531,14 +531,14 @@ git commit -m "fix(gold): make reward awards idempotent"
 - Consumes: Study body `{itemId, idempotencyKey}`.
 - Produces authoritative `{spendable_points, replayed, ...}` responses.
 
-- [ ] **Step 1: Add failing schema assertions for market replay**
+- [x] **Step 1: Add failing schema assertions for market replay**
 
 ```ts
 expect(schemaSql).toContain('ALTER TABLE market_redemptions ADD COLUMN IF NOT EXISTS idempotency_key');
 expect(schemaSql).toContain('idx_market_redemptions_user_idempotency');
 ```
 
-- [ ] **Step 2: Add the additive market idempotency schema**
+- [x] **Step 2: Add the additive market idempotency schema**
 
 ```sql
 ALTER TABLE market_redemptions ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(180);
@@ -547,7 +547,7 @@ ON market_redemptions(user_id, idempotency_key)
 WHERE idempotency_key IS NOT NULL;
 ```
 
-- [ ] **Step 3: Write failing route tests**
+- [x] **Step 3: Write failing route tests**
 
 Add tests proving:
 
@@ -558,7 +558,7 @@ Add tests proving:
 - Insufficient Gold changes no inventory, redemption, stock, or ledger state.
 - Two concurrent avatar purchases cannot reduce the balance below zero.
 
-- [ ] **Step 4: Run spending route tests and verify RED**
+- [x] **Step 4: Run spending route tests and verify RED**
 
 Run: `npm test -- --run src/routes/gamification.test.ts src/routes/study.test.ts src/db/migrate.test.ts`
 
@@ -566,14 +566,14 @@ Working directory: `backend`
 
 Expected: FAIL on missing market idempotency and canonical spend integration.
 
-- [ ] **Step 5: Implement market and avatar transactions**
+- [x] **Step 5: Implement market and avatar transactions**
 
 - Market: validate the key, look up replay first, lock catalog/stock and balance, call `spendUserPoints` on the same transaction client, insert redemption with the key, decrement stock, and return authoritative balance.
 - Avatar: normalize `idempotencyKey`, lock item and inventory, return owned replay before spending, call `spendUserPoints`, insert inventory, and return authoritative balance plus owned item IDs.
 - Use one checked-out client per logical operation. Do not call pool-level `BEGIN`/`COMMIT`.
 - Record negative ledger metadata with item ID and server-owned price.
 
-- [ ] **Step 6: Write failing mobile redemption tests**
+- [x] **Step 6: Write failing mobile redemption tests**
 
 In `mobile/__tests__/gamificationService.test.ts`:
 
@@ -584,7 +584,7 @@ expect(api.post).toHaveBeenCalledWith('/gamification/market/reward-1/redeem', {
 });
 ```
 
-- [ ] **Step 7: Implement mobile idempotency payload**
+- [x] **Step 7: Implement mobile idempotency payload**
 
 Change the service signature:
 
@@ -599,7 +599,7 @@ export async function redeemMarketItem(itemId: string, idempotencyKey: string) {
 
 Generate one stable key when the user starts a redemption and reuse it for retries until the request succeeds or the user abandons it.
 
-- [ ] **Step 8: Run backend and mobile spending tests and verify GREEN**
+- [x] **Step 8: Run backend and mobile spending tests and verify GREEN**
 
 Run backend: `npm test -- --run src/routes/gamification.test.ts src/routes/study.test.ts src/services/goldTransactions.test.ts src/db/migrate.test.ts`
 
@@ -607,7 +607,7 @@ Run mobile: `npm test -- --runInBand __tests__/gamificationService.test.ts`
 
 Expected: both commands PASS.
 
-- [ ] **Step 9: Commit atomic spending**
+- [x] **Step 9: Commit atomic spending**
 
 ```bash
 git add backend/src/db/schema.sql backend/src/db/migrate.test.ts backend/src/routes/gamification.ts backend/src/routes/gamification.test.ts backend/src/routes/study.ts backend/src/routes/study.test.ts mobile/src/services/gamificationService.ts mobile/src/screens/MarketScreen.tsx mobile/__tests__/gamificationService.test.ts

@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -30,6 +30,7 @@ const MarketScreen = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [redeemingId, setRedeemingId] = useState<string | null>(null);
+  const redemptionKeys = useRef<Record<string, string>>({});
   const isAccountRequired = !user || user.is_guest;
 
   const load = useCallback(async () => {
@@ -60,9 +61,13 @@ const MarketScreen = () => {
       return;
     }
 
+    const idempotencyKey = redemptionKeys.current[item.id]
+      ?? `market:${item.id}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+    redemptionKeys.current[item.id] = idempotencyKey;
     setRedeemingId(item.id);
     try {
-      const result: any = await redeemMarketItem(item.id);
+      const result = await redeemMarketItem(item.id, idempotencyKey);
+      delete redemptionKeys.current[item.id];
       setPoints((current) => ({
         ...(current ?? {lifetime_points: 0, spendable_points: 0}),
         spendable_points: Number(result?.spendable_points ?? current?.spendable_points ?? 0),

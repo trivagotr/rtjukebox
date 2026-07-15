@@ -2,10 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   mockDbQuery,
+  mockClientQuery,
+  mockClientRelease,
+  mockPoolConnect,
   mockSendSuccess,
   mockSendError,
   mockAuthMiddleware,
   mockAwardUserPoints,
+  mockSpendUserPoints,
   mockRouteHandlers,
   mockRouter,
 } = vi.hoisted(() => {
@@ -25,12 +29,19 @@ const {
     return router;
   });
 
+  const clientQuery = vi.fn();
+  const clientRelease = vi.fn();
+
   return {
     mockDbQuery: vi.fn(),
+    mockClientQuery: clientQuery,
+    mockClientRelease: clientRelease,
+    mockPoolConnect: vi.fn().mockResolvedValue({query: clientQuery, release: clientRelease}),
     mockSendSuccess: vi.fn(),
     mockSendError: vi.fn(),
     mockAuthMiddleware: vi.fn(),
     mockAwardUserPoints: vi.fn(),
+    mockSpendUserPoints: vi.fn(),
     mockRouteHandlers: handlers,
     mockRouter: router,
   };
@@ -38,6 +49,7 @@ const {
 
 vi.mock('../db', () => ({
   db: {
+    pool: {connect: mockPoolConnect},
     query: mockDbQuery,
   },
 }));
@@ -51,6 +63,7 @@ vi.mock('../services/gamification', async () => {
   return {
     ...actual,
     awardUserPoints: mockAwardUserPoints,
+    spendUserPoints: mockSpendUserPoints,
   };
 });
 
@@ -68,6 +81,9 @@ import './gamification';
 describe('gamification router', () => {
   beforeEach(() => {
     mockDbQuery.mockReset();
+    mockClientQuery.mockReset();
+    mockClientRelease.mockReset();
+    mockPoolConnect.mockClear();
     mockSendSuccess.mockReset();
     mockSendError.mockReset();
     mockAwardUserPoints.mockReset();
@@ -77,6 +93,14 @@ describe('gamification router', () => {
       awarded: 10,
       spendablePoints: 10,
       ledgerId: 'ledger-test',
+    });
+    mockSpendUserPoints.mockReset();
+    mockSpendUserPoints.mockResolvedValue({
+      applied: true,
+      amount: -50,
+      awarded: 0,
+      spendablePoints: 20,
+      ledgerId: 'ledger-market',
     });
   });
 
@@ -118,7 +142,9 @@ describe('gamification router', () => {
   it('rejects market redemption when spendable points are insufficient', async () => {
     const handler = mockRouteHandlers.post['/market/:itemId/redeem'];
     expect(handler).toBeTypeOf('function');
-    mockDbQuery
+    mockClientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({rows: []})
       .mockResolvedValueOnce({
         rows: [
           {
@@ -130,18 +156,56 @@ describe('gamification router', () => {
           },
         ],
       })
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            spendable_points: 20,
-          },
-        ],
-      });
+      .mockResolvedValueOnce(undefined);
+    mockSpendUserPoints.mockRejectedValueOnce(new Error('INSUFFICIENT_GOLD'));
 
-    await handler({ params: { itemId: 'item-1' }, user: { id: 'user-1', role: 'user' } }, {});
+    await handler({
+      params: { itemId: 'item-1' },
+      body: {idempotency_key: 'market-request-1'},
+      user: { id: 'user-1', role: 'user' },
+    }, {});
 
     expect(mockSendError).toHaveBeenCalledWith({}, 'Not enough points', 400);
-    expect(mockDbQuery).toHaveBeenCalledTimes(2);
+    expect(mockClientQuery.mock.calls.some(call => call[0] === 'ROLLBACK')).toBe(true);
+    expect(mockClientQuery.mock.calls.some(call => String(call[0]).includes('market_redemptions') && String(call[0]).includes('INSERT'))).toBe(false);
+  });
+
+  it('requires a stable idempotency key for market redemption', async () => {
+    const handler = mockRouteHandlers.post['/market/:itemId/redeem'];
+
+    await handler({params: {itemId: 'item-1'}, body: {}, user: {id: 'user-1', role: 'user'}}, {});
+
+    expect(mockPoolConnect).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith({}, 'idempotency_key required', 400);
+  });
+
+  it('replays a completed market redemption without spending or decrementing stock', async () => {
+    const handler = mockRouteHandlers.post['/market/:itemId/redeem'];
+    mockClientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({rows: [{id: 'redemption-1', market_item_id: 'item-1', cost_points: 50}]})
+      .mockResolvedValueOnce({rows: [{spendable_points: 70}]})
+      .mockResolvedValueOnce(undefined);
+
+    await handler({
+      params: {itemId: 'item-1'},
+      body: {idempotency_key: 'market-request-1'},
+      user: {id: 'user-1', role: 'user'},
+    }, {});
+
+    expect(mockSpendUserPoints).not.toHaveBeenCalled();
+    expect(mockClientQuery.mock.calls.some(call => String(call[0]).includes('stock_quantity = stock_quantity - 1'))).toBe(false);
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        redemption: expect.objectContaining({id: 'redemption-1'}),
+        spendable_points: 70,
+        replayed: true,
+      }),
+      'Market item redeemed',
+      undefined,
+      200,
+    );
   });
 
   it('caps arcade game awards by the remaining daily limit', async () => {
