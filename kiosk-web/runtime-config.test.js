@@ -17,9 +17,9 @@ function loadRuntimeConfig() {
 describe('kiosk runtime configuration', () => {
   it('ships the public radiotedu production endpoints for server overlay deploys', () => {
     expect(loadRuntimeConfig()).toEqual({
-      API_BASE_URL: 'https://radiotedu.com/jukebox',
+      API_BASE_URL: 'https://radiotedu.com/juke-local',
       PUBLIC_SITE_BASE_URL: 'https://radiotedu.com',
-      QR_LINK_BASE_URL: 'https://radiotedu.com/jukebox',
+      QR_LINK_BASE_URL: 'https://radiotedu.com/juke-local/controller/',
     });
   });
 });

@@ -97,10 +97,19 @@ The mobile Jukebox section is a WebView. Its fixed page is
 Juke-local backend and owns the QR reading workflow. Voting is not part of this
 controller.
 
+The kiosk release uses `https://radiotedu.com/juke-local` as its exact API base,
+the Socket.IO path `/juke-local/socket.io`, and
+`https://radiotedu.com/juke-local/controller/` as the QR/controller link base.
+The reverse proxy may strip or map the public `/juke-local` prefix only as needed
+to reach the existing Juke-local upstream; it must preserve the controller,
+`/api/v1/jukebox/...`, query string, request body, response status, and socket
+upgrade behavior. Never route these requests through Voting.
+
 - [ ] Verify `GET https://radiotedu.com/juke-local/controller/` returns the controller document rather than an empty response, directory listing, login redirect, unrelated application shell, or server error.
 - [ ] Verify the controller document's relative JavaScript, CSS, images, manifest, and worker URLs resolve correctly beneath `/juke-local/`.
 - [ ] Verify trailing-slash behavior preserves `/juke-local/controller/` and does not redirect it to `/jukebox`, Voting, Study, or the site root.
-- [ ] Verify the controller's API and socket calls remain scoped to the existing `/juke-local` backend contract.
+- [ ] Verify the controller's API calls use `https://radiotedu.com/juke-local/api/v1/jukebox/...` and its socket connects through `/juke-local/socket.io`, with no duplicate or missing path prefix.
+- [ ] Verify the generated QR/controller URL remains beneath `https://radiotedu.com/juke-local/controller/` and preserves the device/code query value used by the existing QR workflow.
 - [ ] Verify camera/QR operation is permitted by HTTPS, response headers, iframe/WebView policy, and controller code without weakening unrelated site security headers globally.
 - [ ] Verify a valid Juke-local QR payload is accepted by the existing Jukebox workflow and an invalid payload produces a controlled error.
 - [ ] Verify Juke-local does not call `/jukebox/api/v1/next-song-voting/rounds/active` and does not connect to `/jukebox/socket.io` for Voting.
@@ -258,6 +267,7 @@ opened. A full preferred room falls back to the lowest non-full room. Empty or
 expired instance numbers are reusable; no destructive cleanup job is required.
 
 - [ ] Verify `GET https://radiotedu.com/study/` returns the new exact-commit Study `index.html` with correct HTML content type and no unrelated redirect.
+- [ ] Verify `/study/` NEVER redirects or falls through to `/studying-further/`, a WordPress article/page, the site home page, or any other unrelated handler.
 - [ ] Verify hashed JavaScript, CSS, maps if published, images, room data, and avatar assets resolve beneath `/study/` with correct MIME types.
 - [ ] Verify SPA fallback applies only to safe `/study/` navigation routes and never captures `/jukebox/api/v1/study` API requests or missing hashed assets.
 - [ ] Verify `/jukebox/api/v1/study` forwards Bearer authorization, JSON bodies, status codes, and response envelopes to the backend.

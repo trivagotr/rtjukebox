@@ -30,6 +30,10 @@ describe('Study navigation', () => {
     expect(source).toContain('STUDY_PACKAGED_ROOT');
     expect(source).toContain("originWhitelist={['https://radiotedu.com', 'file://*']}");
     expect(source).toContain('isAllowedStudyNavigation');
+    expect(source).toContain('shouldUsePackagedStudyFallback');
+    expect(source).toContain('handleStudyNavigationRequest');
+    expect(source).toContain('onShouldStartLoadWithRequest={handleStudyNavigationRequest}');
+    expect(source).toContain('onHttpError');
     expect(source).toContain('allowFileAccessFromFileURLs={false}');
     expect(source).toContain('allowUniversalAccessFromFileURLs={false}');
     expect(source).toContain('mixedContentMode="never"');

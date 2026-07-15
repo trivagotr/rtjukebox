@@ -103,6 +103,28 @@ describe('kiosk configuration', () => {
     expect(config.QR_LINK_FORMAT).toBe('https://trivagotr.github.io/rtjukebox/jukebox?device={DEVICE_CODE}');
   });
 
+  it('sends the production kiosk API, socket, and QR workflow through juke-local', () => {
+    const config = loadConfig({
+      hostname: 'radiotedu.com',
+      origin: 'https://radiotedu.com',
+      pathname: '/juke-local/kiosk/',
+      protocol: 'https:',
+      search: '',
+      runtimeConfig: {
+        API_BASE_URL: 'https://radiotedu.com/juke-local',
+        PUBLIC_SITE_BASE_URL: 'https://radiotedu.com',
+        QR_LINK_BASE_URL: 'https://radiotedu.com/juke-local/controller/',
+      },
+    });
+
+    expect(config.API_URL).toBe('https://radiotedu.com/juke-local');
+    expect(config.WS_URL).toBe('https://radiotedu.com');
+    expect(config.SOCKET_PATH).toBe('/juke-local/socket.io');
+    expect(config.QR_LINK_FORMAT).toBe(
+      'https://radiotedu.com/juke-local/controller?device={DEVICE_CODE}',
+    );
+  });
+
   it('keeps the GitHub Pages repository base when the kiosk URL has no trailing slash', () => {
     const config = loadConfig({
       hostname: 'trivagotr.github.io',

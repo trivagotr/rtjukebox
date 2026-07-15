@@ -56,6 +56,11 @@ export const isAllowedStudyNavigation = (url: string) => {
   }
 };
 
+export const shouldUsePackagedStudyFallback = (
+  url: string,
+  usingPackagedGame: boolean,
+) => !usingPackagedGame && !isAllowedStudyNavigation(url);
+
 export const createStudyPublicAccountBridge = (
   input: StudyPublicBridgeInput,
 ) => `

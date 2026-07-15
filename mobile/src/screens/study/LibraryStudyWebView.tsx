@@ -14,6 +14,7 @@ import {
   createStudyPublicAccountBridge,
   createStudyWebViewBridge,
   isAllowedStudyNavigation,
+  shouldUsePackagedStudyFallback,
 } from '../../services/studyWebViewService';
 import {COLORS, SPACING} from '../../theme/theme';
 
@@ -83,6 +84,13 @@ const LibraryStudyWebView = () => {
 
   const gameUrl = buildStudyEntryUrl(roomId, usePackagedFallback);
   const isPackagedGame = gameUrl.startsWith(STUDY_PACKAGED_ROOT);
+  const handleStudyNavigationRequest = ({url}: {url: string}) => {
+    const allowed = isAllowedStudyNavigation(url);
+    if (shouldUsePackagedStudyFallback(url, isPackagedGame)) {
+      setUsePackagedFallback(true);
+    }
+    return allowed;
+  };
 
   if (isLocked) {
     return (
@@ -152,9 +160,17 @@ const LibraryStudyWebView = () => {
         injectedJavaScriptBeforeContentLoaded={bridgeScript}
         injectedJavaScript={bridgeScript}
         onLoadEnd={() => webViewRef.current?.injectJavaScript(bridgeScript)}
-        onShouldStartLoadWithRequest={({url}: {url: string}) =>
-          isAllowedStudyNavigation(url)
-        }
+        onShouldStartLoadWithRequest={handleStudyNavigationRequest}
+        onHttpError={({nativeEvent}: {nativeEvent: {statusCode: number}}) => {
+          if (nativeEvent.statusCode < 400) {
+            return;
+          }
+          if (!usePackagedFallback) {
+            setUsePackagedFallback(true);
+            return;
+          }
+          setHasLoadError(true);
+        }}
         onError={() => {
           if (!usePackagedFallback) {
             setUsePackagedFallback(true);

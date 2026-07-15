@@ -3,6 +3,7 @@ import {
   buildStudyEntryUrl,
   createStudyWebViewBridge,
   isAllowedStudyNavigation,
+  shouldUsePackagedStudyFallback,
 } from '../src/services/studyWebViewService';
 
 describe('Study WebView service', () => {
@@ -29,6 +30,27 @@ describe('Study WebView service', () => {
     ).toBe(false);
     expect(
       isAllowedStudyNavigation('https://radiotedu.com.evil.example/study/'),
+    ).toBe(false);
+  });
+
+  it('falls back when production redirects /study/ to unrelated WordPress content', () => {
+    expect(
+      shouldUsePackagedStudyFallback(
+        'https://radiotedu.com/studying-further/',
+        false,
+      ),
+    ).toBe(true);
+    expect(
+      shouldUsePackagedStudyFallback(
+        'https://radiotedu.com/study/?embedded=mobile&room=library',
+        false,
+      ),
+    ).toBe(false);
+    expect(
+      shouldUsePackagedStudyFallback(
+        'https://radiotedu.com/studying-further/',
+        true,
+      ),
     ).toBe(false);
   });
 
