@@ -52,7 +52,7 @@ const linking: any = {
 };
 
 function App(): React.JSX.Element {
-  const [showSplash, setShowSplash] = React.useState(false);
+  const [showSplash, setShowSplash] = React.useState(true);
   const [i18nReady, setI18nReady] = React.useState(false);
   const handleSplashFinish = React.useCallback(() => setShowSplash(false), []);
 
@@ -164,10 +164,6 @@ function App(): React.JSX.Element {
     };
   }, []);
 
-  if (!i18nReady) {
-    return <SafeAreaProvider />;
-  }
-
   return (
     <SafeAreaProvider>
       <ConsentProvider>
@@ -180,6 +176,7 @@ function App(): React.JSX.Element {
                 translucent={true}
               />
               <ConsentGate
+                i18nReady={i18nReady}
                 showSplash={showSplash}
                 onSplashFinish={handleSplashFinish}
               />
@@ -196,9 +193,11 @@ function App(): React.JSX.Element {
  * consent choice into the analytics layer.
  */
 function ConsentGate({
+  i18nReady,
   showSplash,
   onSplashFinish,
 }: {
+  i18nReady: boolean;
   showSplash: boolean;
   onSplashFinish: () => void;
 }): React.JSX.Element | null {
@@ -220,27 +219,36 @@ function ConsentGate({
     consent.gender,
   ]);
 
+  let content: React.JSX.Element;
+
   if (!ready) {
-    return (
+    content = (
       <View style={{flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center'}}>
         <ActivityIndicator color="#E31E24" size="large" />
       </View>
     );
-  }
-
-  // First launch (or after a policy-version bump): ask for consent before
-  // anything else runs.
-  if (!consent.decided) {
-    return <ConsentScreen />;
-  }
-
-  return (
-    <>
+  } else if (!consent.decided) {
+    // First launch (or after a policy-version bump): ask for consent before
+    // anything else runs.
+    content = <ConsentScreen />;
+  } else {
+    content = (
       <NavigationContainer linking={linking}>
         <RootNavigator />
         <MiniPlayer />
       </NavigationContainer>
-      {showSplash && <SplashScreen onFinish={onSplashFinish} />}
+    );
+  }
+
+  return (
+    <>
+      {content}
+      {showSplash && (
+        <SplashScreen
+          ready={i18nReady && ready}
+          onFinish={onSplashFinish}
+        />
+      )}
     </>
   );
 }

@@ -1,175 +1,208 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
-    View,
-    Image,
-    StyleSheet,
-    Animated,
-    StatusBar,
-    Easing,
-    useWindowDimensions,
+  Animated,
+  Image,
+  StyleSheet,
+  useWindowDimensions,
+  View,
 } from 'react-native';
-import { COLORS } from '../theme/theme';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+
+export const SPLASH_MIN_VISIBLE_MS = 1500;
+export const SPLASH_SAFETY_TIMEOUT_MS = 5000;
 
 interface SplashScreenProps {
-    onFinish: () => void;
+  ready: boolean;
+  onFinish: () => void;
 }
 
-const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
-    const insets = useSafeAreaInsets();
-    const { width, height } = useWindowDimensions();
-    const [isReady, setIsReady] = useState(false);
+const SplashScreen: React.FC<SplashScreenProps> = ({ready, onFinish}) => {
+  const insets = useSafeAreaInsets();
+  const {width, height} = useWindowDimensions();
+  const [layoutReady, setLayoutReady] = useState(false);
+  const [minimumElapsed, setMinimumElapsed] = useState(false);
 
-    // Animation Values
-    const fadeAnim = useRef(new Animated.Value(0)).current;
-    const bgFadeAnim = useRef(new Animated.Value(1)).current;
+  const stackOpacity = useRef(new Animated.Value(0)).current;
+  const stackScale = useRef(new Animated.Value(0.96)).current;
+  const overlayOpacity = useRef(new Animated.Value(1)).current;
+  const exitStartedRef = useRef(false);
+  const finishedRef = useRef(false);
+  const onFinishRef = useRef(onFinish);
 
-    // Transform values
-    const scaleAnim = useRef(new Animated.Value(1)).current;
-    const translateYAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    onFinishRef.current = onFinish;
+  }, [onFinish]);
 
-    const hasStarted = useRef(false);
-    const onFinishRef = useRef(onFinish);
-
-    // Keep onFinish ref updated
-    useEffect(() => {
-        onFinishRef.current = onFinish;
-    }, [onFinish]);
-
-    // 1. Wait for insets
-    useEffect(() => {
-        if (isReady) return;
-        if (insets.top > 0 || (StatusBar.currentHeight && StatusBar.currentHeight > 0)) {
-            setIsReady(true);
-        } else {
-            const timer = setTimeout(() => setIsReady(true), 1500);
-            return () => clearTimeout(timer);
-        }
-    }, [insets.top, isReady]);
-
-    // 2. Safety Dismiss (If stuck)
-    useEffect(() => {
-        const safetyTimer = setTimeout(() => {
-            onFinishRef.current();
-        }, 5000); // Reduced from 12s to 5s
-        return () => clearTimeout(safetyTimer);
-    }, []);
-
-    // 3. Main Animation
-    useEffect(() => {
-        if (!isReady || hasStarted.current) return;
-        hasStarted.current = true;
-
-        // Logo initial fade in
-        Animated.timing(fadeAnim, {
-            toValue: 1,
-            duration: 600, // Reduced from 800
-            useNativeDriver: true,
-        }).start();
-
-        // Calculate Target
-        const initialSplashWidth = width * 0.6;
-        const targetScale = 150 / initialSplashWidth;
-
-        const topOffset = insets.top > 0 ? insets.top : (StatusBar.currentHeight || 0);
-        const headerCenterY = topOffset + 28;
-        const splashCenterY = height / 2;
-        const targetTranslateY = headerCenterY - splashCenterY;
-
-        const sequence = Animated.sequence([
-            Animated.delay(1000), // Significantly reduced from 6000
-            Animated.parallel([
-                Animated.timing(scaleAnim, {
-                    toValue: targetScale,
-                    duration: 800, // Reduced from 1500
-                    easing: Easing.bezier(0.33, 1, 0.68, 1),
-                    useNativeDriver: true,
-                }),
-                Animated.timing(translateYAnim, {
-                    toValue: targetTranslateY,
-                    duration: 800, // Reduced from 1500
-                    easing: Easing.bezier(0.33, 1, 0.68, 1),
-                    useNativeDriver: true,
-                }),
-                Animated.timing(bgFadeAnim, {
-                    toValue: 0,
-                    duration: 800, // Reduced from 1500
-                    useNativeDriver: true,
-                }),
-                Animated.sequence([
-                    Animated.delay(600), // Reduced from 1200
-                    Animated.timing(fadeAnim, {
-                        toValue: 0,
-                        duration: 200, // Reduced from 300
-                        useNativeDriver: true,
-                    })
-                ])
-            ])
-        ]);
-
-        sequence.start(({ finished }) => {
-            if (finished) {
-                onFinishRef.current();
-            }
-        });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isReady, width, height, insets.top]);
-
-    if (!isReady) {
-        return <View style={[styles.container, { backgroundColor: COLORS.background }]} />;
+  const finishOnce = useCallback(() => {
+    if (finishedRef.current) {
+      return;
     }
 
-    // Header Logo Aspect Ratio = 150 / 40 = 3.75
-    // Initial width is width * 0.6
-    const splashLogoWidth = width * 0.6;
-    const splashLogoHeight = splashLogoWidth / 3.75;
+    finishedRef.current = true;
+    onFinishRef.current();
+  }, []);
 
-    return (
-        <Animated.View
-            style={[
-                styles.container,
-                { opacity: bgFadeAnim, backgroundColor: COLORS.background }
-            ]}
-            pointerEvents="none"
-        >
-            <Animated.View
-                style={[
-                    styles.logoContainer,
-                    {
-                        width: splashLogoWidth,
-                        height: splashLogoHeight,
-                        opacity: fadeAnim,
-                        transform: [
-                            { translateY: translateYAnim },
-                            { scale: scaleAnim }
-                        ],
-                    },
-                ]}>
-                <Image
-                    source={require('../assets/images/logo-03byz.png')}
-                    style={styles.logo}
-                    resizeMode="contain"
-                />
-            </Animated.View>
-        </Animated.View>
+  useEffect(() => {
+    const minimumTimer = setTimeout(
+      () => setMinimumElapsed(true),
+      SPLASH_MIN_VISIBLE_MS,
     );
+    const safetyTimer = setTimeout(finishOnce, SPLASH_SAFETY_TIMEOUT_MS);
+
+    return () => {
+      clearTimeout(minimumTimer);
+      clearTimeout(safetyTimer);
+    };
+  }, [finishOnce]);
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(stackOpacity, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.spring(stackScale, {
+        toValue: 1,
+        damping: 16,
+        stiffness: 120,
+        mass: 0.8,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [stackOpacity, stackScale]);
+
+  useEffect(() => {
+    if (!layoutReady || !minimumElapsed || !ready || exitStartedRef.current) {
+      return;
+    }
+
+    exitStartedRef.current = true;
+    Animated.parallel([
+      Animated.timing(stackOpacity, {
+        toValue: 0,
+        duration: 320,
+        useNativeDriver: true,
+      }),
+      Animated.timing(stackScale, {
+        toValue: 0.97,
+        duration: 320,
+        useNativeDriver: true,
+      }),
+      Animated.timing(overlayOpacity, {
+        toValue: 0,
+        duration: 360,
+        useNativeDriver: true,
+      }),
+    ]).start(({finished}) => {
+      if (finished) {
+        finishOnce();
+      }
+    });
+  }, [
+    finishOnce,
+    layoutReady,
+    minimumElapsed,
+    overlayOpacity,
+    ready,
+    stackOpacity,
+    stackScale,
+  ]);
+
+  const brandStackWidth = Math.min(width * 0.78, 520);
+  const compactHeight = height < 640;
+
+  return (
+    <Animated.View
+      onLayout={() => setLayoutReady(true)}
+      style={[
+        styles.container,
+        {
+          opacity: overlayOpacity,
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom,
+        },
+      ]}>
+      <Animated.View
+        style={[
+          styles.brandStack,
+          compactHeight && styles.brandStackCompact,
+          {
+            opacity: stackOpacity,
+            transform: [{scale: stackScale}],
+            width: brandStackWidth,
+          },
+        ]}>
+        <Image
+          source={require('../assets/images/logo-radiotedu-splash.png')}
+          style={styles.radioTeduLogo}
+          resizeMode="contain"
+          accessibilityRole="image"
+          accessibilityLabel="RadioTEDU"
+        />
+        <View
+          style={[
+            styles.rtaiCard,
+            compactHeight && styles.rtaiCardCompact,
+          ]}>
+          <Image
+            source={require('../assets/images/logo-rtai-splash.png')}
+            style={styles.rtaiLogo}
+            resizeMode="contain"
+            accessibilityRole="image"
+            accessibilityLabel="RTAI"
+          />
+        </View>
+      </Animated.View>
+    </Animated.View>
+  );
 };
 
 const styles = StyleSheet.create({
-    container: {
-        ...StyleSheet.absoluteFillObject,
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 10000,
-    },
-    logoContainer: {
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    logo: {
-        width: '100%',
-        height: '100%',
-    },
+  container: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    backgroundColor: '#070707',
+    justifyContent: 'center',
+    zIndex: 10000,
+  },
+  brandStack: {
+    alignItems: 'center',
+    gap: 28,
+    justifyContent: 'center',
+  },
+  brandStackCompact: {
+    gap: 16,
+  },
+  radioTeduLogo: {
+    aspectRatio: 2560 / 463,
+    width: '100%',
+  },
+  rtaiCard: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: '#F7F3EA',
+    borderColor: 'rgba(255, 255, 255, 0.28)',
+    borderRadius: 18,
+    borderWidth: 1,
+    elevation: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 18,
+    shadowColor: '#FFFFFF',
+    shadowOffset: {width: 0, height: 8},
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    width: '68%',
+  },
+  rtaiCardCompact: {
+    borderRadius: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  rtaiLogo: {
+    aspectRatio: 858 / 291,
+    width: '100%',
+  },
 });
 
 export default SplashScreen;
