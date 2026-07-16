@@ -1,3 +1,5 @@
+import org.gradle.api.artifacts.repositories.MavenArtifactRepository
+
 buildscript {
     ext {
         buildToolsVersion = "34.0.0"
@@ -19,3 +21,14 @@ buildscript {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+allprojects {
+    repositories.configureEach { repository ->
+        if (repository instanceof MavenArtifactRepository &&
+                repository.url.toString().contains("oss.sonatype.org/content/repositories/snapshots")) {
+            repository.content { content ->
+                content.includeGroup("com.facebook.react")
+            }
+        }
+    }
+}

@@ -18,6 +18,17 @@ describe('Android publishing configuration', () => {
     expect(buildGradle).toContain('compileSdkVersion = 35');
     expect(buildGradle).toContain('targetSdkVersion = 35');
     expect(buildGradle).toContain('buildToolsVersion = "34.0.0"');
+
+    const snapshotsRestriction = buildGradle.match(
+      /repositories\.configureEach\s*\{ repository ->([\s\S]*?)\n    \}/,
+    )?.[0];
+    expect(snapshotsRestriction).toBeDefined();
+    expect(snapshotsRestriction).toContain(
+      'oss.sonatype.org/content/repositories/snapshots',
+    );
+    expect(snapshotsRestriction).toContain(
+      'includeGroup("com.facebook.react")',
+    );
   });
 
   it('allows MainActivity to adapt across orientation and large-screen changes', () => {
