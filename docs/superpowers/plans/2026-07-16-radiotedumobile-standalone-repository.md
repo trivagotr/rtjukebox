@@ -4,14 +4,17 @@
 
 **Goal:** Create, verify, and publish a fresh private `akgularda/radiotedumobile` repository containing the complete RadioTEDU mobile and Study sources, safe production endpoint configuration, CI, encrypted signing-secret integration, and an initial APK release.
 
-**Architecture:** Export only the tracked `mobile/` and `study-game/` trees from approved source commit `9939237b`, then add repository-level contracts, documentation, CI, and release automation. Runtime URLs remain ordinary versioned configuration while production signing material is reconstructed only from encrypted GitHub Actions Secrets. Jukebox, Voting, and Study remain separate mobile WebView destinations, and mobile never communicates directly with the voting Music PC.
+**Architecture:** Export only the tracked `mobile/` and `study-game/` trees from approved source commit `f2624e15cecbc206a1f7a0b9eb8c464c298bd7f2`, then add repository-level contracts, documentation, CI, and release automation. Runtime URLs remain ordinary versioned configuration while production signing material is reconstructed only from encrypted GitHub Actions Secrets. Jukebox, Voting, and Study remain separate mobile WebView destinations, and mobile never communicates directly with the voting Music PC.
 
 **Tech Stack:** React Native 0.76.9, TypeScript 5.0.4, Android Gradle/Java 17, Vite 8, Vitest 4, Node.js 20, GitHub Actions, GitHub CLI.
 
 ## Global Constraints
 
 - Destination is the new private repository `akgularda/radiotedumobile` with fresh Git history.
-- Export source commit `9939237b` from branch `codex/study-game-oss`.
+- Export source commit `f2624e15cecbc206a1f7a0b9eb8c464c298bd7f2` from branch `codex/study-game-oss`.
+- Preserve all four dual-logo assets byte-for-byte: runtime sources `mobile/src/assets/images/logo-radiotedu-splash.png` and `mobile/src/assets/images/logo-rtai-splash.png`, plus archival originals `mobile/logos/logo-radiotedu-splash.png` and `mobile/logos/logo-rtai-splash.png`.
+- Preserve `mobile/__tests__/dualLogoSplashSource.test.ts`, the Android dark handoff in `mobile/android/app/src/main/res/values/colors.xml` and `mobile/android/app/src/main/res/values/styles.xml`, the iOS dark handoff in `mobile/ios/RadioTEDUMobile/LaunchScreen.storyboard`, and the `## Startup branding` contract in `mobile/README.md`.
+- The only approved initial QA artifact is `RadioTEDU-Mobile-f2624e15-release.apk` with SHA-256 `7BE4574E70738899F8FBED3D4A8E836DF38356E6523B9C998961F730400F2C3E`; the prior `RadioTEDU-Mobile-bf6ea0b0-release.apk` is a pre-splash artifact and must not be published as the final release.
 - Commit public production URLs exactly: `https://radiotedu.com/jukebox/api/v1`, `https://radiotedu.com/study/`, `https://radiotedu.com/vote/`, and `https://radiotedu.com/juke-local/controller/`.
 - Preserve radio streams, podcasts, branding, authentication storage, Android Auto metadata, navigation, and all unrelated mobile behavior.
 - Jukebox, Voting, and Study remain independent; mobile must never connect directly to the voting Music PC.
@@ -35,7 +38,7 @@
 - `docs/SOURCE_PROVENANCE.md`: source repository, exact commit, export allowlist, and excluded subsystem list.
 - `scripts/verify-repository.mjs`: deterministic repository safety and endpoint contract verifier.
 - `tests/repository-contract.test.mjs`: Node test coverage for the standalone layout, endpoint contracts, forbidden directories, and ignored secret-bearing files.
-- `mobile/`: exact tracked mobile tree from source commit, including Android/iOS projects, tests, Android Auto metadata, Study fallback, and development-only template debug keystore.
+- `mobile/`: exact tracked mobile tree from source commit, including both runtime and archival dual-logo assets, `dualLogoSplashSource.test.ts`, Android/iOS dark native handoff files, the README startup-branding section, Android Auto metadata, Study fallback, and development-only template debug keystore.
 - `study-game/`: exact tracked Study game tree from source commit, including source, tests, room/avatar assets, and build tooling.
 
 ### Task 1: Export the Approved Mobile and Study Trees
@@ -47,7 +50,7 @@
 - Create: `C:/Users/akgul/Downloads/radiotedumobile/.gitattributes`
 
 **Interfaces:**
-- Consumes: tracked files at source commit `9939237b`.
+- Consumes: tracked files at source commit `f2624e15cecbc206a1f7a0b9eb8c464c298bd7f2`.
 - Produces: a clean local repository root containing only the two application trees and repository metadata.
 
 - [ ] **Step 1: Verify the destination does not already exist and the approved source commit is available**
@@ -56,7 +59,7 @@ Run:
 
 ```powershell
 Test-Path -LiteralPath 'C:\Users\akgul\Downloads\radiotedumobile'
-git cat-file -e 9939237b^{commit}
+git cat-file -e f2624e15cecbc206a1f7a0b9eb8c464c298bd7f2^{commit}
 ```
 
 Expected: `False`; `git cat-file` exits 0.
@@ -67,12 +70,12 @@ Run from the source worktree:
 
 ```powershell
 New-Item -ItemType Directory -Path 'C:\Users\akgul\Downloads\radiotedumobile' | Out-Null
-git archive --format=tar --output='C:\Users\akgul\Downloads\radiotedumobile-export.tar' 9939237b mobile study-game
+git archive --format=tar --output='C:\Users\akgul\Downloads\radiotedumobile-export.tar' f2624e15cecbc206a1f7a0b9eb8c464c298bd7f2 mobile study-game
 tar -xf 'C:\Users\akgul\Downloads\radiotedumobile-export.tar' -C 'C:\Users\akgul\Downloads\radiotedumobile'
 Remove-Item -LiteralPath 'C:\Users\akgul\Downloads\radiotedumobile-export.tar'
 ```
 
-Expected: `mobile/package.json` and `study-game/package.json` exist; no other source-repository top-level application directory exists.
+Expected: `mobile/package.json`, `study-game/package.json`, all four dual-logo asset paths, `mobile/__tests__/dualLogoSplashSource.test.ts`, both Android handoff resource files, `mobile/ios/RadioTEDUMobile/LaunchScreen.storyboard`, and `mobile/README.md` exist; no other source-repository top-level application directory exists.
 
 - [ ] **Step 3: Add repository ignore rules**
 
@@ -156,7 +159,7 @@ assert.match(configSource, /https:\/\/radiotedu\.com\/vote\//);
 assert.match(configSource, /https:\/\/radiotedu\.com\/juke-local\/controller\//);
 ```
 
-It must also assert that `mobile/`, `study-game/`, and `mobile/android/app/src/main/res/xml/automotive_app_desc.xml` exist; `backend/`, `tools/local-voting-agent/`, `kiosk/`, and `wordpress/` do not exist; and `.gitignore` contains `mobile/android/keystore.properties`, `*.jks`, `.env.*`, and `node_modules/`.
+It must also assert that `mobile/`, `study-game/`, `mobile/android/app/src/main/res/xml/automotive_app_desc.xml`, all four runtime/archival dual-logo asset paths, `mobile/__tests__/dualLogoSplashSource.test.ts`, `mobile/android/app/src/main/res/values/colors.xml`, `mobile/android/app/src/main/res/values/styles.xml`, `mobile/ios/RadioTEDUMobile/LaunchScreen.storyboard`, and `mobile/README.md` exist. The contract must verify that `mobile/README.md` contains `## Startup branding`, Android retains `android:windowDisablePreview` while applying `@color/startup_background` with exact value `#070707`, and iOS uses the calibrated static dark background without generated template labels or a system background color. It must also assert that `backend/`, `tools/local-voting-agent/`, `kiosk/`, and `wordpress/` do not exist; and `.gitignore` contains `mobile/android/keystore.properties`, `*.jks`, `.env.*`, and `node_modules/`.
 
 - [ ] **Step 2: Run the test and verify the missing-module failure**
 
@@ -175,7 +178,19 @@ Create `scripts/verify-repository.mjs` exporting `verifyRepository(root)`. The f
 ```javascript
 export function verifyRepository(root) {
   const failures = [];
-  const required = ['mobile/package.json', 'study-game/package.json'];
+  const required = [
+    'mobile/package.json',
+    'study-game/package.json',
+    'mobile/src/assets/images/logo-radiotedu-splash.png',
+    'mobile/src/assets/images/logo-rtai-splash.png',
+    'mobile/logos/logo-radiotedu-splash.png',
+    'mobile/logos/logo-rtai-splash.png',
+    'mobile/__tests__/dualLogoSplashSource.test.ts',
+    'mobile/android/app/src/main/res/values/colors.xml',
+    'mobile/android/app/src/main/res/values/styles.xml',
+    'mobile/ios/RadioTEDUMobile/LaunchScreen.storyboard',
+    'mobile/README.md',
+  ];
   const forbidden = ['backend', 'kiosk', 'tools/local-voting-agent', 'wordpress'];
   const urls = [
     'https://radiotedu.com/jukebox/api/v1',
@@ -228,7 +243,7 @@ git commit -m "test: enforce standalone repository contracts"
 
 - [ ] **Step 1: Document setup and verification in `README.md`**
 
-Include the repository purpose, Node 20/Java 17 prerequisites, commands `npm ci`, Study `npm test`/`npm run build`, mobile `npm test -- --runInBand`, `npx tsc --noEmit`, `npx eslint . --quiet`, `npm run package:study`, `npm run audit:android`, and `android/gradlew.bat assembleDebug`. State that the checked-in debug keystore is development-only and that production signing requires GitHub Secrets.
+Include the repository purpose, Node 20/Java 17 prerequisites, commands `npm ci`, Study `npm test`/`npm run build`, mobile `npm test -- --runInBand`, `npx tsc --noEmit`, `npx eslint . --quiet`, `npm run package:study`, `npm run audit:android`, and `android/gradlew.bat assembleDebug`. Require the imported `mobile/README.md` to retain its `## Startup branding` section and document the focused command `npm test -- --runInBand __tests__/dualLogoSplashSource.test.ts __tests__/androidThemeSource.test.ts __tests__/App.test.tsx`. State that the checked-in debug keystore is development-only and that production signing requires GitHub Secrets.
 
 - [ ] **Step 2: Document the exact runtime endpoints**
 
@@ -250,7 +265,7 @@ In `docs/GITHUB_SECRETS.md`, define the four exact secret names, a PowerShell ba
 
 - [ ] **Step 4: Document release and provenance**
 
-In `docs/RELEASE.md`, distinguish debug QA APKs from production-signed releases, list `apksigner verify --verbose --print-certs`, and explain the manual `workflow_dispatch` flow. In `docs/SOURCE_PROVENANCE.md`, record source repository `trivagotr/rtjukebox`, branch `codex/study-game-oss`, commit `9939237b`, the `mobile/` + `study-game/` allowlist, and all excluded subsystems/artifacts.
+In `docs/RELEASE.md`, distinguish debug QA APKs from production-signed releases, list `apksigner verify --verbose --print-certs`, and explain the manual `workflow_dispatch` flow. Record `RadioTEDU-Mobile-f2624e15-release.apk` and SHA-256 `7BE4574E70738899F8FBED3D4A8E836DF38356E6523B9C998961F730400F2C3E` as the only approved initial QA artifact, and state that the prior `RadioTEDU-Mobile-bf6ea0b0-release.apk` is a pre-splash artifact and must not be published as the final release. In `docs/SOURCE_PROVENANCE.md`, record source repository `trivagotr/rtjukebox`, branch `codex/study-game-oss`, commit `f2624e15cecbc206a1f7a0b9eb8c464c298bd7f2`, the `mobile/` + `study-game/` allowlist, the four required dual-logo paths, native handoff files, splash test, mobile README branding contract, and all excluded subsystems/artifacts.
 
 - [ ] **Step 5: Commit the documentation**
 
@@ -389,6 +404,7 @@ Run:
 ```powershell
 npm --prefix study-game test
 npm --prefix study-game run build
+npm --prefix mobile test -- --runInBand __tests__/dualLogoSplashSource.test.ts __tests__/androidThemeSource.test.ts __tests__/App.test.tsx
 npm --prefix mobile test -- --runInBand
 npx --prefix mobile tsc --noEmit -p mobile/tsconfig.json
 npx --prefix mobile eslint mobile --quiet
@@ -434,7 +450,7 @@ Expected: all checks pass and status is clean.
 - Create remotely: private `akgularda/radiotedumobile` repository and initial QA release.
 
 **Interfaces:**
-- Consumes: clean verified `main` history and `RadioTEDU-Mobile-bf6ea0b0-release.apk` QA artifact.
+- Consumes: clean verified `main` history exported from `f2624e15cecbc206a1f7a0b9eb8c464c298bd7f2` and `RadioTEDU-Mobile-f2624e15-release.apk` with SHA-256 `7BE4574E70738899F8FBED3D4A8E836DF38356E6523B9C998961F730400F2C3E`.
 - Produces: private GitHub repository, pushed `main`, verified privacy, and a clearly debug-signed initial APK release.
 
 - [ ] **Step 1: Reconfirm GitHub authentication and target absence**
@@ -469,9 +485,9 @@ git ls-remote --heads origin main
 
 Expected: `isPrivate: true`, `visibility: PRIVATE`, default branch `main`, and remote head equals local `HEAD`.
 
-- [ ] **Step 4: Publish the existing QA APK with explicit debug-signing metadata**
+- [ ] **Step 4: Publish the verified dual-logo QA APK with explicit debug-signing metadata**
 
-Copy `C:\Users\akgul\Downloads\rtjukebox\RadioTEDU-Mobile-bf6ea0b0-release.apk` to `RadioTEDU-Mobile-initial-qa-debug-signed.apk`, verify its SHA-256 equals `62B17CBBCC9DA1D501FBDF3259762C8E906D5E1313DD0AB33DABE6032D753CE5`, and create tag/release `v0.1.0-qa` with notes stating it is a debug-signed QA artifact and not a production-signed release.
+Copy `C:\Users\akgul\Downloads\rtjukebox\RadioTEDU-Mobile-f2624e15-release.apk` to `RadioTEDU-Mobile-initial-qa-debug-signed.apk`, verify its SHA-256 equals `7BE4574E70738899F8FBED3D4A8E836DF38356E6523B9C998961F730400F2C3E`, and create tag/release `v0.1.0-qa` with notes stating it is a debug-signed QA artifact built from verified dual-logo source commit `f2624e15cecbc206a1f7a0b9eb8c464c298bd7f2` and not a production-signed release. Explicitly reject `RadioTEDU-Mobile-bf6ea0b0-release.apk`; it is a pre-splash artifact and must not be uploaded or published as the final release.
 
 - [ ] **Step 5: Confirm Actions visibility and document unpopulated secret slots**
 

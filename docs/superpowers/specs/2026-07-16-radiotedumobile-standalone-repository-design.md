@@ -8,7 +8,7 @@ Create a fresh private GitHub repository at `akgularda/radiotedumobile` containi
 
 The repository will use a small monorepo layout:
 
-- `mobile/`: React Native application, Android project, Android Auto declarations, tests, assets, scripts, and the packaged Study fallback.
+- `mobile/`: React Native application, Android project, Android Auto declarations, tests, assets, scripts, and the packaged Study fallback. The export contract includes runtime assets `mobile/src/assets/images/logo-radiotedu-splash.png` and `mobile/src/assets/images/logo-rtai-splash.png`, archival originals `mobile/logos/logo-radiotedu-splash.png` and `mobile/logos/logo-rtai-splash.png`, `mobile/__tests__/dualLogoSplashSource.test.ts`, Android dark handoff resources `mobile/android/app/src/main/res/values/colors.xml` and `mobile/android/app/src/main/res/values/styles.xml`, `mobile/ios/RadioTEDUMobile/LaunchScreen.storyboard`, and the `## Startup branding` section in `mobile/README.md`.
 - `study-game/`: source, tests, assets, and build tooling required by `mobile/package:study`.
 - `.github/workflows/`: verification and Android release workflows.
 - `docs/`: API/configuration, release signing, secret provisioning, deployment, and verification documentation.
@@ -49,7 +49,7 @@ Mobile user access and refresh tokens continue to be obtained at runtime through
 Pull requests and pushes run:
 
 1. Study tests and production build.
-2. Mobile Jest tests.
+2. Mobile Jest tests, including the focused dual-logo/native-handoff command `npm --prefix mobile test -- --runInBand __tests__/dualLogoSplashSource.test.ts __tests__/androidThemeSource.test.ts __tests__/App.test.tsx`.
 3. Mobile TypeScript checking.
 4. Error-only ESLint verification.
 5. Study packaging consistency checks.
@@ -58,10 +58,10 @@ A manually triggered private Android release workflow reconstructs the release k
 
 ## Migration and Verification
 
-The export copies source from commit `bf6ea0b08219c8192c58494e2bc0b8eea87c3bb9`, removes unrelated/generated files, installs dependencies from lockfiles, packages Study, runs the full Study and mobile checks, builds Android, scans the new history for credential patterns, and confirms through the GitHub API that the repository is private.
+The export copies source from verified dual-logo commit `f2624e15cecbc206a1f7a0b9eb8c464c298bd7f2`, removes unrelated/generated files, confirms all runtime and archival logo assets plus the splash test, native dark handoff, and mobile README branding contract are present, installs dependencies from lockfiles, packages Study, runs the focused splash contracts and full Study/mobile checks, builds Android, scans the new history for credential patterns, and confirms through the GitHub API that the repository is private.
 
-The already-built APK may be attached to the initial private release with clear debug-signing metadata. A production-signed release requires the four Android signing secrets above.
+Only the verified `C:\Users\akgul\Downloads\rtjukebox\RadioTEDU-Mobile-f2624e15-release.apk` may be attached to the initial private QA release after its SHA-256 is confirmed as `7BE4574E70738899F8FBED3D4A8E836DF38356E6523B9C998961F730400F2C3E` and its debug-signing status is labeled clearly. The prior `RadioTEDU-Mobile-bf6ea0b0-release.apk` is a pre-splash artifact and must not be uploaded or published as the final release. A production-signed release requires the four Android signing secrets above.
 
 ## Safety
 
-Creating this repository does not modify or delete radiotedu.com files, WordPress pages, accounts, Music PC configuration, production databases, or existing repositories. The source `rtjukebox` working tree and its unrelated dirty files remain untouched except for this reviewed design document.
+Creating this repository does not modify or delete radiotedu.com files, WordPress pages, accounts, Music PC configuration, production databases, or existing repositories. The source `rtjukebox` working tree and its unrelated dirty files remain untouched except for these reviewed standalone export planning documents.
