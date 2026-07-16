@@ -7,7 +7,7 @@ describe('consent gate startup fallback', () => {
     const appSource = fs.readFileSync(path.join(__dirname, '../App.tsx'), 'utf8');
     const consentSource = fs.readFileSync(path.join(__dirname, '../src/privacy/ConsentContext.tsx'), 'utf8');
 
-    expect(appSource).toContain('const [showSplash, setShowSplash] = React.useState(false);');
+    expect(appSource).toContain('const [showSplash, setShowSplash] = React.useState(true);');
     for (const requiredImport of [
       'ActivityIndicator',
       'AppState',
