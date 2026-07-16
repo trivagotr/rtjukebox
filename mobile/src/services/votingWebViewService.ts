@@ -1,3 +1,5 @@
+import {parseHttpUrl} from './safeHttpUrlService';
+
 export const VOTING_WEBVIEW_URL = 'https://radiotedu.com/vote/?embed=1';
 
 export interface VotingWebViewAuthState {
@@ -26,16 +28,8 @@ function isTrustedExternalHost(hostname: string) {
   );
 }
 
-function parseUrl(url: string) {
-  try {
-    return new URL(url);
-  } catch {
-    return null;
-  }
-}
-
 export function isAllowedVotingNavigation(url: string) {
-  const candidate = parseUrl(url);
+  const candidate = parseHttpUrl(url);
   if (!candidate) {
     return false;
   }
@@ -44,8 +38,7 @@ export function isAllowedVotingNavigation(url: string) {
     candidate.protocol === 'https:' &&
     candidate.hostname === 'radiotedu.com' &&
     candidate.port === '' &&
-    candidate.username === '' &&
-    candidate.password === '' &&
+    !candidate.hasCredentials &&
     (candidate.pathname === '/vote' || candidate.pathname === '/vote/')
   );
 }
@@ -57,12 +50,11 @@ export function classifyVotingNavigation(
     return 'allowed';
   }
 
-  const candidate = parseUrl(url);
+  const candidate = parseHttpUrl(url);
   if (
     candidate?.protocol === 'https:' &&
     isTrustedExternalHost(candidate.hostname) &&
-    candidate.username === '' &&
-    candidate.password === ''
+    !candidate.hasCredentials
   ) {
     return 'external-https';
   }

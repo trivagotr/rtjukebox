@@ -14,6 +14,15 @@ import {
 import { getOrCreateStudyClientSessionId, normalizeStudyClientSessionId } from './StudyClientSession'
 
 const STARTER_WEARABLES = Object.freeze(['short-hair', 'radio-hoodie', 'jeans', 'sneakers', 'bucket-hat'])
+const LEGACY_TO_CLIENT_WEARABLE: Readonly<Record<string, string>> = Object.freeze({
+  'default-hair': 'short-hair',
+  'default-top': 'radio-hoodie',
+  'default-bottom': 'jeans',
+  'default-shoes': 'sneakers',
+})
+const CLIENT_TO_LEGACY_WEARABLE: Readonly<Record<string, string>> = Object.freeze(
+  Object.fromEntries(Object.entries(LEGACY_TO_CLIENT_WEARABLE).map(([legacy, client]) => [client, legacy])),
+)
 const EMPTY_SUMMARY: StudyTimeSummary = Object.freeze({ todaySeconds: 0, monthSeconds: 0, totalSeconds: 0 })
 
 interface ApiResponse<T> {
@@ -63,7 +72,7 @@ export class RadioTEDUStudyAdapter implements StudyAdapter {
     }
     this.#apiBase = config.apiBase.replace(/\/+$/, '')
     this.#accessToken = config.accessToken
-    this.#fetch = config.fetchImpl ?? fetch
+    this.#fetch = config.fetchImpl ?? globalThis.fetch.bind(globalThis)
     this.#now = config.now ?? Date.now
     this.#account = Object.freeze({ ...config.account })
     this.#clientSessionId = normalizeStudyClientSessionId(config.clientSessionId)
@@ -82,10 +91,14 @@ export class RadioTEDUStudyAdapter implements StudyAdapter {
     ])
     if (Array.isArray(profile.ownedItemIds)) {
       this.#owned.clear()
-      for (const id of profile.ownedItemIds) if (typeof id === 'string') this.#owned.add(id)
+      for (const id of profile.ownedItemIds) {
+        if (typeof id === 'string') this.#owned.add(clientWearableId(id))
+      }
     }
     this.#equipped.clear()
-    for (const id of Object.values(profile.equipped ?? {})) if (typeof id === 'string') this.#equipped.add(id)
+    for (const id of Object.values(profile.equipped ?? {})) {
+      if (typeof id === 'string') this.#equipped.add(clientWearableId(id))
+    }
     this.#globalPoints = nonNegativeInteger(profile.points?.spendable_points, this.#globalPoints)
     this.#summary = summary
   }
@@ -136,7 +149,9 @@ export class RadioTEDUStudyAdapter implements StudyAdapter {
   async equipWearable(id: string, slot?: string): Promise<StudySession> {
     if (!this.#owned.has(id)) throw new StudyAdapterError('WEARABLE_NOT_OWNED', id)
     if (!slot) throw new StudyAdapterError('WEARABLE_SLOT_REQUIRED', id)
-    await this.#request('/avatar/equip', { method: 'POST', body: { itemId: id, slot } })
+    await this.#request('/avatar/equip', {
+      method: 'POST', body: { itemId: serverWearableId(id), slot },
+    })
     this.#equipped.add(id)
     return this.session()
   }
@@ -146,9 +161,11 @@ export class RadioTEDUStudyAdapter implements StudyAdapter {
       ownedItemIds?: unknown
       points?: { spendable_points?: unknown }
       spendable_points?: unknown
-    }>('/avatar/purchase', { method: 'POST', body: { itemId: id, idempotencyKey } })
+    }>('/avatar/purchase', {
+      method: 'POST', body: { itemId: serverWearableId(id), idempotencyKey },
+    })
     for (const itemId of Array.isArray(data.ownedItemIds) ? data.ownedItemIds : []) {
-      if (typeof itemId === 'string') this.#owned.add(itemId)
+      if (typeof itemId === 'string') this.#owned.add(clientWearableId(itemId))
     }
     this.#globalPoints = nonNegativeInteger(
       data.points?.spendable_points ?? data.spendable_points,
@@ -244,7 +261,9 @@ export class RadioTEDUStudyAdapter implements StudyAdapter {
         nodeId: row.nodeId,
         seatId: typeof row.seatId === 'string' ? row.seatId : null,
         color: colorForUser(row.userId),
-        equippedWearableIds: equipped.filter((id): id is string => typeof id === 'string'),
+        equippedWearableIds: equipped
+          .filter((id): id is string => typeof id === 'string')
+          .map(clientWearableId),
       } satisfies StudyPresence]
     })
     this.#presence.set(roomId, mapped)
@@ -359,6 +378,14 @@ export class RadioTEDUStudyAdapter implements StudyAdapter {
 function nonNegativeInteger(value: unknown, fallback = 0) {
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : fallback
+}
+
+function clientWearableId(id: string) {
+  return LEGACY_TO_CLIENT_WEARABLE[id] ?? id
+}
+
+function serverWearableId(id: string) {
+  return CLIENT_TO_LEGACY_WEARABLE[id] ?? id
 }
 
 function mapRoomInstance(value: unknown, expectedRoomId: StudyRoomId): StudyRoomInstance {

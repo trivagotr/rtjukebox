@@ -119,7 +119,7 @@ describe('podcastService', () => {
         </channel>
       </rss>`;
     (global as any).fetch = jest
-      .fn()
+      .fn<() => Promise<{ok: boolean; text: () => Promise<string>}>>()
       .mockResolvedValueOnce({
         ok: true,
         text: () => Promise.resolve(rss),

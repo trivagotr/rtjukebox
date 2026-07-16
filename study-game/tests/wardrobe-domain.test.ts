@@ -8,6 +8,7 @@ import {
 } from '../src/inventory/WearableCatalog'
 import { InventoryStore, type KeyValueStorage } from '../src/inventory/InventoryStore'
 import { WardrobeController } from '../src/inventory/WardrobeController'
+import { resolveInitialAvatarAppearance } from '../src/avatar/InitialAvatarAppearance'
 
 const appearance: AvatarAppearance = Object.freeze({
   bodyType: 'masc', skinTone: 'tone-1', hairId: 'short-hair', hairColor: 'black',
@@ -96,5 +97,48 @@ describe('wardrobe domain', () => {
     expect(store.equippedId('hat')).toBe('cap')
     expect(store.equippedId('top')).toBe('jacket')
     expect(store.state('hoodie')).toBe('locked')
+  })
+
+  it('keeps authoritative inventory usable when Android WebView storage is unavailable', () => {
+    const unavailableStorage: KeyValueStorage = {
+      getItem: () => { throw new TypeError("Cannot read properties of null (reading 'getItem')") },
+      setItem: () => { throw new TypeError("Cannot read properties of null (reading 'setItem')") },
+    }
+    const catalog = new WearableCatalog([item('shirt'), item('cap', 'hat')])
+
+    const store = new InventoryStore(catalog, unavailableStorage, ['shirt'], {
+      authoritativeEquipped: ['shirt'],
+    })
+    store.addOwned('cap')
+    store.equip('cap')
+
+    expect(store.state('shirt')).toBe('equipped')
+    expect(store.state('cap')).toBe('equipped')
+  })
+
+  it('selects only server-owned starter clothes instead of equipping locked defaults', () => {
+    const catalog = new WearableCatalog([
+      item('short-hair', 'hair'), item('shirt'), item('jeans', 'bottom'),
+      item('black-cargos', 'bottom'), item('sneakers', 'shoes'), item('bucket-hat', 'hat'),
+    ])
+    const inventory = new InventoryStore(
+      catalog,
+      storage(),
+      ['short-hair', 'shirt', 'jeans', 'sneakers'],
+      { authoritativeEquipped: [] },
+    )
+
+    const resolved = resolveInitialAvatarAppearance(
+      { ...appearance, bottomId: 'black-cargos', hatId: 'bucket-hat' },
+      catalog,
+      inventory,
+    )
+
+    expect(resolved).toMatchObject({
+      hairId: 'short-hair', topId: 'shirt', bottomId: 'jeans', shoesId: 'sneakers', hatId: null,
+    })
+    expect(inventory.state('jeans')).toBe('equipped')
+    expect(inventory.state('black-cargos')).toBe('locked')
+    expect(inventory.state('bucket-hat')).toBe('locked')
   })
 })

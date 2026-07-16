@@ -30,6 +30,63 @@ function createAdapter(fetchImpl: ReturnType<typeof vi.fn>, globalPoints = 120) 
 }
 
 describe('RadioTEDUStudyAdapter', () => {
+  it('keeps the browser fetch receiver valid when no custom fetch implementation is supplied', async () => {
+    const originalFetch = globalThis.fetch
+    const requests: string[] = []
+    globalThis.fetch = (async function (this: unknown, input: RequestInfo | URL) {
+      if (this !== globalThis) throw new TypeError('Illegal invocation')
+      const url = String(input)
+      requests.push(url)
+      return url.endsWith('/avatar/me')
+        ? success({ ownedItemIds: ['radio-hoodie'], equipped: {}, points: { spendable_points: 75 } })
+        : success({ todaySeconds: 120, monthSeconds: 360, totalSeconds: 720 })
+    }) as typeof fetch
+
+    try {
+      const adapter = new RadioTEDUStudyAdapter({
+        apiBase: 'https://radiotedu.com/jukebox/api/v1/study',
+        accessToken: 'access-token',
+        account: { id: 'user-1', displayName: 'Ada', authenticated: true },
+        clientSessionId: 'webview-session-1',
+      })
+
+      await adapter.initialize()
+
+      expect(requests).toEqual([
+        'https://radiotedu.com/jukebox/api/v1/study/avatar/me',
+        'https://radiotedu.com/jukebox/api/v1/study/summary',
+      ])
+      expect(adapter.session().points).toMatchObject({ global: 75, studyToday: 2 })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('maps production legacy starter ids to playable assets and back to the API contract', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(success({
+        ownedItemIds: ['default-hair', 'default-top', 'default-bottom', 'default-shoes'],
+        equipped: { top: 'default-top' },
+        points: { spendable_points: 0 },
+      }))
+      .mockResolvedValueOnce(success({ todaySeconds: 0, monthSeconds: 0, totalSeconds: 0 }))
+      .mockResolvedValueOnce(success({}))
+    const adapter = createAdapter(fetchImpl)
+
+    await adapter.initialize()
+
+    expect(adapter.session().ownedWearableIds).toEqual([
+      'short-hair', 'radio-hoodie', 'jeans', 'sneakers',
+    ])
+    expect(adapter.session().equippedWearableIds).toEqual(['radio-hoodie'])
+
+    await adapter.equipWearable('radio-hoodie', 'top')
+    expect(JSON.parse(fetchImpl.mock.calls[2]![1].body)).toEqual({
+      itemId: 'default-top',
+      slot: 'top',
+    })
+  })
+
   it('replaces the displayed Gold balance with the authoritative avatar purchase response', async () => {
     const fetchImpl = vi.fn().mockResolvedValueOnce(success({
       ownedItemIds: ['varsity-jacket'],

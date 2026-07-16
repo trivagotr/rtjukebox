@@ -36,8 +36,8 @@ export class InventoryStore {
     initialOwned: readonly string[],
     options: InventoryStoreOptions = {},
   ) {
-    this.catalog = catalog; this.storage = storage
-    const saved = storage.getItem(KEY)
+    this.catalog = catalog; this.storage = resilientStorage(storage)
+    const saved = this.storage.getItem(KEY)
     const hasAuthoritativeInventory = options.authoritativeEquipped !== undefined
     const parsed = hasAuthoritativeInventory
       ? { owned: [...initialOwned], equipped: {} }
@@ -76,4 +76,27 @@ export class InventoryStore {
   }
   equippedId(slot: WardrobeSlot): string | undefined { return this.equipped[slot] }
   private persist(): void { this.storage.setItem(KEY, JSON.stringify({ owned: [...this.owned], equipped: this.equipped })) }
+}
+
+function resilientStorage(storage: KeyValueStorage): KeyValueStorage {
+  const fallback = new Map<string, string>()
+  return {
+    getItem(key) {
+      try {
+        const value = storage.getItem(key)
+        if (value !== null) fallback.set(key, value)
+        return value
+      } catch {
+        return fallback.get(key) ?? null
+      }
+    },
+    setItem(key, value) {
+      fallback.set(key, value)
+      try {
+        storage.setItem(key, value)
+      } catch {
+        // Android WebView can expose localStorage as null when DOM storage is disabled.
+      }
+    },
+  }
 }

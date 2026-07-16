@@ -1,5 +1,11 @@
 import React, { useEffect } from 'react';
-import { ActivityIndicator, StatusBar, View } from 'react-native';
+import {
+  ActivityIndicator,
+  AppState,
+  InteractionManager,
+  StatusBar,
+  View,
+} from 'react-native';
 import { NavigationContainer, getStateFromPath } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import TrackPlayer, { Capability } from 'react-native-track-player';
@@ -16,6 +22,7 @@ import {
 } from './src/services/playbackQueue';
 import { DEFAULT_STREAM_QUALITY } from './src/services/config';
 import { fetchPodcasts } from './src/services/podcastService';
+import {createRunOnceWhenActive} from './src/services/playerForegroundBootstrap';
 import { initI18n } from './src/i18n';
 import { ConsentProvider, useConsent } from './src/privacy/ConsentContext';
 import ConsentScreen from './src/screens/ConsentScreen';
@@ -56,9 +63,14 @@ function App(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
+    let playerReady = false;
     const setupPlayer = async () => {
-      try {
+      if (!playerReady) {
         await TrackPlayer.setupPlayer();
+        playerReady = true;
+      }
+
+      try {
         await TrackPlayer.updateOptions({
           // @ts-ignore - Property exists at runtime
           stopWithApp: true, // Stop playback when app is closed from background
@@ -115,16 +127,40 @@ function App(): React.JSX.Element {
         // Wire the native Android Auto / Automotive car browser (Android only).
         initCarBridge();
       } catch (e) {
-        console.log('Player already setup or error:', e);
+        console.log('Player post-setup initialization failed:', e);
+        throw e;
       }
     };
 
-    setupPlayer();
+    const runner = createRunOnceWhenActive(setupPlayer, error => {
+      console.log('Player setup deferred or failed:', error);
+    });
+    const scheduleSetup = (state: typeof AppState.currentState) => {
+      if (state !== 'active') {
+        runner.handleAppStateChange(state);
+        return;
+      }
+
+      InteractionManager.runAfterInteractions(() => {
+        runner.handleAppStateChange(AppState.currentState);
+      });
+    };
+    const appStateSubscription = AppState.addEventListener(
+      'change',
+      scheduleSetup,
+    );
+    const initialSetupTask = InteractionManager.runAfterInteractions(() => {
+      runner.handleAppStateChange(AppState.currentState);
+    });
 
     return () => {
-      // Clean up player when app unmounts (e.g. forced close)
-      // reset() clears the queue, which should remove the notification
-      TrackPlayer.reset();
+      runner.cancel();
+      appStateSubscription.remove();
+      initialSetupTask.cancel();
+      if (playerReady) {
+        // reset() clears the queue, which should remove the notification.
+        void TrackPlayer.reset();
+      }
     };
   }, []);
 

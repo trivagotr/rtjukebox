@@ -62,7 +62,7 @@ export function buildSocialBootstrap(account: SocialAccountSource): SocialAccoun
 
 export function isAllowedSocialNavigation(url: string, allowedRoots: string[]): boolean {
   const candidate = parseHttpUrl(url);
-  if (!candidate || candidate.username || candidate.password) {
+  if (!candidate || candidate.hasCredentials) {
     return false;
   }
 
@@ -101,16 +101,7 @@ function normalizePublicUrl(value: unknown): string | null {
   if (typeof value !== 'string' || value.trim().length === 0) {
     return null;
   }
-  return parseHttpUrl(value.trim())?.toString() ?? null;
-}
-
-function parseHttpUrl(value: string): URL | null {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url : null;
-  } catch {
-    return null;
-  }
+  return parseHttpUrl(value.trim())?.href ?? null;
 }
 
 function normalizeRootPath(pathname: string): string {
@@ -119,3 +110,4 @@ function normalizeRootPath(pathname: string): string {
   }
   return pathname.endsWith('/') ? pathname : `${pathname}/`;
 }
+import {parseHttpUrl} from './safeHttpUrlService';

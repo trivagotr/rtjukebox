@@ -1,3 +1,5 @@
+import {describe, expect, it} from '@jest/globals';
+
 import {getQrRewardCodeFromRouteParams} from '../src/services/qrLinking';
 
 describe('qr deep linking', () => {

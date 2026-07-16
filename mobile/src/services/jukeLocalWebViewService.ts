@@ -1,16 +1,19 @@
+import {
+  encodeFormQueryValue,
+  getSearchParameter,
+  parseHttpUrl,
+} from './safeHttpUrlService';
+
 export const JUKE_LOCAL_CONTROLLER_URL =
   'https://radiotedu.com/juke-local/controller/';
 
 export function buildJukeLocalControllerUrl(deviceCode?: unknown): string {
-  const url = new URL(JUKE_LOCAL_CONTROLLER_URL);
   const normalizedCode =
     typeof deviceCode === 'string' ? deviceCode.trim() : '';
 
-  if (normalizedCode) {
-    url.searchParams.set('code', normalizedCode);
-  }
-
-  return url.toString();
+  return normalizedCode
+    ? `${JUKE_LOCAL_CONTROLLER_URL}?code=${encodeFormQueryValue(normalizedCode)}`
+    : JUKE_LOCAL_CONTROLLER_URL;
 }
 
 export function isAllowedJukeLocalNavigation(url: string): boolean {
@@ -18,33 +21,28 @@ export function isAllowedJukeLocalNavigation(url: string): boolean {
     return true;
   }
 
-  try {
-    const candidate = new URL(url);
-    const controller = new URL(JUKE_LOCAL_CONTROLLER_URL);
-    const normalizedPath = candidate.pathname.replace(/\/+$/, '');
-    const controllerPath = controller.pathname.replace(/\/+$/, '');
-
-    return (
-      candidate.origin === controller.origin &&
-      normalizedPath === controllerPath
-    );
-  } catch {
+  const candidate = parseHttpUrl(url);
+  const controller = parseHttpUrl(JUKE_LOCAL_CONTROLLER_URL);
+  if (!candidate || !controller || candidate.hasCredentials) {
     return false;
   }
+
+  const normalizedPath = candidate.pathname.replace(/\/+$/, '');
+  const controllerPath = controller.pathname.replace(/\/+$/, '');
+  return candidate.origin === controller.origin && normalizedPath === controllerPath;
 }
 
 export function normalizeJukeLocalAppPath(path: string): string {
-  try {
-    const candidate = new URL(path, 'https://radiotedu.com/');
-    const normalizedPath = candidate.pathname.replace(/\/+$/, '');
-
-    if (normalizedPath !== '/juke-local/controller') {
-      return path;
-    }
-
-    const code = candidate.searchParams.get('code')?.trim();
-    return code ? `jukebox/${encodeURIComponent(code)}` : 'jukebox';
-  } catch {
+  const candidate = parseHttpUrl(path, 'https://radiotedu.com/');
+  if (!candidate || candidate.hasCredentials) {
     return path;
   }
+
+  const normalizedPath = candidate.pathname.replace(/\/+$/, '');
+  if (normalizedPath !== '/juke-local/controller') {
+    return path;
+  }
+
+  const code = getSearchParameter(candidate.search, 'code')?.trim();
+  return code ? `jukebox/${encodeURIComponent(code)}` : 'jukebox';
 }

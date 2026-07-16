@@ -4,6 +4,7 @@ import { LocalStudyAdapter } from '../adapters/LocalStudyAdapter'
 import type { StudyAdapter, StudyPresence } from '../adapters/StudyAdapter'
 import { DIRECTIONS, type AvatarAction, type AvatarAppearance, type AvatarLayerSlot, type Direction8 } from '../avatar/AvatarAppearance'
 import { DEFAULT_AVATAR_ASSET_MANIFEST } from '../avatar/AvatarAssetManifest'
+import { resolveInitialAvatarAppearance } from '../avatar/InitialAvatarAppearance'
 import { avatarUpperBodyCrop, canonicalAvatarTextureKey, shouldUseCanonicalAvatar } from '../avatar/AvatarPresentation'
 import { InventoryStore } from '../inventory/InventoryStore'
 import { WearableCatalog, type WardrobeItem, type WardrobeSlot } from '../inventory/WearableCatalog'
@@ -165,17 +166,7 @@ export class ImageRoomScene extends Phaser.Scene {
         ? session.equippedWearableIds
         : undefined,
     })
-    const appearance = { ...DEFAULT_APPEARANCE }
-    for (const slot of ['hair', 'top', 'bottom', 'shoes', 'hat'] as const) {
-      const persisted = inventory.equippedId(slot)
-      if (persisted) {
-        const key = ({ hair: 'hairId', top: 'topId', bottom: 'bottomId', shoes: 'shoesId', hat: 'hatId' } as const)[slot]
-        Object.assign(appearance, { [key]: persisted })
-      } else {
-        const id = appearance[({ hair: 'hairId', top: 'topId', bottom: 'bottomId', shoes: 'shoesId', hat: 'hatId' } as const)[slot]]
-        if (id) inventory.equip(id)
-      }
-    }
+    const appearance = resolveInitialAvatarAppearance(DEFAULT_APPEARANCE, catalog, inventory)
     this.#wardrobe = new WardrobeController(catalog, inventory, appearance)
     this.#avatarController = new AvatarController(DEFAULT_AVATAR_ASSET_MANIFEST, this.#wardrobe.appearance)
 

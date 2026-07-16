@@ -8,7 +8,15 @@ describe('consent gate startup fallback', () => {
     const consentSource = fs.readFileSync(path.join(__dirname, '../src/privacy/ConsentContext.tsx'), 'utf8');
 
     expect(appSource).toContain('const [showSplash, setShowSplash] = React.useState(false);');
-    expect(appSource).toContain("import { ActivityIndicator, StatusBar, View } from 'react-native';");
+    for (const requiredImport of [
+      'ActivityIndicator',
+      'AppState',
+      'InteractionManager',
+      'StatusBar',
+      'View',
+    ]) {
+      expect(appSource).toContain(requiredImport);
+    }
     expect(appSource).toContain('<ActivityIndicator color="#E31E24" size="large" />');
     expect(consentSource).toContain('const CONSENT_READY_TIMEOUT_MS = 2000;');
     expect(consentSource).toContain('setTimeout(() => setReady(true), CONSENT_READY_TIMEOUT_MS)');

@@ -1,3 +1,5 @@
+import {describe, expect, it} from '@jest/globals';
+
 import {
   STUDY_REMOTE_ROOT,
   buildStudyEntryUrl,
@@ -70,5 +72,39 @@ describe('Study WebView service', () => {
     expect(script).toContain('short-lived-access-token');
     expect(script).not.toContain('localStorage.setItem');
     expect(script).not.toContain('refresh_token');
+  });
+
+  it('binds fetch before the remote Study bundle captures it in Android WebView', () => {
+    const script = createStudyWebViewBridge({
+      account: {
+        id: 'user-1',
+        displayName: 'Ada',
+        authenticated: true,
+      },
+      globalPoints: 42,
+      apiBase: 'https://radiotedu.com/jukebox/api/v1',
+      accessToken: 'short-lived-access-token',
+    });
+
+    expect(script).toContain('window.fetch = window.fetch.bind(window)');
+  });
+
+  it('isolates Study storage and translates production legacy avatar ids', () => {
+    const script = createStudyWebViewBridge({
+      account: {
+        id: 'user-1',
+        displayName: 'Ada',
+        authenticated: true,
+      },
+      globalPoints: 42,
+      apiBase: 'https://radiotedu.com/jukebox/api/v1',
+      accessToken: 'short-lived-access-token',
+    });
+
+    expect(script).toContain("Object.defineProperty(window, 'localStorage'");
+    expect(script).toContain("'default-hair': 'short-hair'");
+    expect(script).toContain("'radio-hoodie': 'default-top'");
+    expect(script).toContain('/study/avatar/me');
+    expect(script).toContain('/study/avatar/equip');
   });
 });

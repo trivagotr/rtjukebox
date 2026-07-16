@@ -38,6 +38,7 @@ describe('Study navigation', () => {
     expect(source).toContain('allowUniversalAccessFromFileURLs={false}');
     expect(source).toContain('mixedContentMode="never"');
     expect(source).toContain('thirdPartyCookiesEnabled={false}');
+    expect(source).toContain('domStorageEnabled={false}');
     expect(source).toContain("AsyncStorage.getItem('access_token')");
     expect(source).not.toContain('refresh_token');
     expect(source).not.toContain('FOCUS_WEB_URL');
