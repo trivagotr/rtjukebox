@@ -58,6 +58,7 @@ interface ChatCacheEntry {
 }
 
 const presenceCache = new Map<string, PresenceCacheEntry>();
+const presenceLoads = new Map<string, Promise<PresenceCacheEntry['payload']>>();
 const chatCache = new Map<string, ChatCacheEntry>();
 const PRESENCE_CACHE_TTL_MS = 500;
 const CHAT_CACHE_TTL_MS = 1_000;
@@ -65,8 +66,10 @@ const CHAT_CACHE_TTL_MS = 1_000;
 export function invalidateStudyPresenceCache(roomId?: string | null, instanceId?: string | null): void {
   if (roomId && instanceId) {
     presenceCache.delete(`${roomId}:${instanceId}`);
+    presenceLoads.delete(`${roomId}:${instanceId}`);
   } else {
     presenceCache.clear();
+    presenceLoads.clear();
   }
 }
 
@@ -627,7 +630,9 @@ export async function handleStudyPresence(req: AuthRequest, res: Response) {
   }
 
   try {
-    const result = await db.query(
+    let pending = presenceLoads.get(cacheKey);
+    if (!pending) {
+      pending = db.query(
       `SELECT p.user_id, p.room_id, p.instance_id, p.node_id, p.position_x, p.position_y,
               p.seat_id, p.presence_mode, p.last_heartbeat_at, COALESCE(NULLIF(TRIM(u.username), ''), u.display_name) AS display_name,
               COALESCE((
@@ -644,9 +649,19 @@ export async function handleStudyPresence(req: AuthRequest, res: Response) {
        ORDER BY p.last_heartbeat_at DESC
        LIMIT 80`,
       [roomId, instanceId, PRESENCE_TTL_SECONDS],
-    );
-    const payload = { presence: result.rows.map(mapPresence) };
-    presenceCache.set(cacheKey, { payload, expiresAt: now + PRESENCE_CACHE_TTL_MS });
+      ).then(result => ({ presence: result.rows.map(mapPresence) }));
+      presenceLoads.set(cacheKey, pending);
+    }
+    let payload: PresenceCacheEntry['payload'];
+    try {
+      payload = await pending;
+      // An intervening heartbeat/join must not let this older read refill the cache.
+      if (presenceLoads.get(cacheKey) === pending) {
+        presenceCache.set(cacheKey, { payload, expiresAt: Date.now() + PRESENCE_CACHE_TTL_MS });
+      }
+    } finally {
+      if (presenceLoads.get(cacheKey) === pending) presenceLoads.delete(cacheKey);
+    }
     return sendSuccess(res, payload, 'Study presence fetched');
   } catch (error) {
     console.error('Study presence error:', error);
@@ -1156,7 +1171,8 @@ function normalizePosition(value: unknown) {
 }
 
 function clampTile(value: number) {
-  return Math.max(0, Math.min(99, Math.floor(value)));
+  // Image rooms send continuous percentage coordinates, not integer tile indices.
+  return Math.max(0, Math.min(99, value));
 }
 
 function secondsSince(value: unknown, cap: number) {

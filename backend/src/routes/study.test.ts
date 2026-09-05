@@ -976,6 +976,16 @@ describe('study router', () => {
     );
   });
 
+  it('preserves fractional image-room coordinates in presence heartbeats', async () => {
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ user_id: 'user-1', room_id: 'library', position_x: 43.7799, position_y: 51.999 }] });
+    await mockRouteHandlers.post['/presence/heartbeat']({
+      user: { id: 'user-1', role: 'user' },
+      body: { roomId: 'library', instanceId: 'library-1', clientSessionId: 'precision-qa', nodeId: 'spawn', seatId: null, position: { x: 43.7799, y: 51.999 } },
+    }, {});
+    expect(mockDbQuery.mock.calls[0][1].slice(5, 7)).toEqual([43.7799, 51.999]);
+    expect(mockSendSuccess).toHaveBeenCalledWith({}, expect.objectContaining({ presence: expect.objectContaining({ position: { x: 43.7799, y: 51.999 } }) }), 'Study presence updated');
+  });
+
   it('fetches presence only from the assigned logical room instance', async () => {
     const handler = mockRouteHandlers.get['/presence'];
     mockDbQuery.mockResolvedValueOnce({
@@ -1177,6 +1187,43 @@ describe('study router', () => {
       { equipped: { hat: 'bucket-hat' } },
       'Avatar item equipped',
     );
+  });
+
+  it('shares one database read across 60 concurrent room observers', async () => {
+    invalidateStudyPresenceCache();
+    let resolve!: (value: { rows: never[] }) => void;
+    mockDbQuery.mockReturnValueOnce(new Promise(r => { resolve = r; }));
+    const req = { user: { id: 'qa', role: 'user' }, query: { roomId: 'library', instanceId: 'library-1' } };
+    const requests = Array.from({ length: 60 }, () => mockRouteHandlers.get['/presence'](req, {}));
+    expect(mockDbQuery).toHaveBeenCalledTimes(1);
+    resolve({ rows: [] });
+    await Promise.all(requests);
+    expect(mockSendSuccess).toHaveBeenCalledTimes(60);
+  });
+
+  it('does not cache an in-flight read invalidated by a movement update', async () => {
+    invalidateStudyPresenceCache();
+    let resolve!: (value: { rows: never[] }) => void;
+    mockDbQuery.mockReturnValueOnce(new Promise(r => { resolve = r; }));
+    const req = { user: { id: 'qa', role: 'user' }, query: { roomId: 'library', instanceId: 'library-1' } };
+    const first = mockRouteHandlers.get['/presence'](req, {});
+    invalidateStudyPresenceCache('library', 'library-1');
+    resolve({ rows: [] });
+    await first;
+    mockDbQuery.mockResolvedValueOnce({ rows: [] });
+    await mockRouteHandlers.get['/presence'](req, {});
+    expect(mockDbQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries the database after a shared presence read fails', async () => {
+    invalidateStudyPresenceCache();
+    mockDbQuery.mockRejectedValueOnce(new Error('temporary database failure'));
+    const req = { user: { id: 'qa', role: 'user' }, query: { roomId: 'library', instanceId: 'library-1' } };
+    await mockRouteHandlers.get['/presence'](req, {});
+    mockDbQuery.mockResolvedValueOnce({ rows: [] });
+    await mockRouteHandlers.get['/presence'](req, {});
+    expect(mockDbQuery).toHaveBeenCalledTimes(2);
+    expect(mockSendSuccess).toHaveBeenCalledTimes(1);
   });
 
   it('serves repeated presence queries from cache and invalidates on presence update', async () => {
