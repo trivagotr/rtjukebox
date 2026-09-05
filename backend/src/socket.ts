@@ -3,6 +3,10 @@ import { CorsOrigin, resolveCorsOrigins } from './config/cors';
 
 let io: Server;
 
+export function authSessionSocketRoom(sessionFamilyId: string): string {
+    return `auth-session:${sessionFamilyId}`;
+}
+
 function normalizeSocketPath(publicBasePath?: string) {
     const trimmed = (publicBasePath || '').trim();
     if (!trimmed || trimmed === '/') {
@@ -37,3 +41,8 @@ export const getIO = () => {
     }
     return io;
 };
+
+export function disconnectSessionFamilySockets(sessionFamilyId: string): void {
+    if (!io) return;
+    io.in(authSessionSocketRoom(sessionFamilyId)).disconnectSockets(true);
+}

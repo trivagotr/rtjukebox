@@ -4,7 +4,8 @@ const {
   mockDbQuery,
   mockSendSuccess,
   mockSendError,
-  mockAuthMiddleware,
+  mockWebAuthMiddleware,
+  mockRequireWebCsrf,
   mockRouteHandlers,
   mockRouter,
 } = vi.hoisted(() => {
@@ -28,7 +29,8 @@ const {
     mockDbQuery: vi.fn(),
     mockSendSuccess: vi.fn(),
     mockSendError: vi.fn(),
-    mockAuthMiddleware: vi.fn(),
+    mockWebAuthMiddleware: vi.fn(),
+    mockRequireWebCsrf: vi.fn(),
     mockRouteHandlers: handlers,
     mockRouter: router,
   };
@@ -40,8 +42,9 @@ vi.mock('../db', () => ({
   },
 }));
 
-vi.mock('../middleware/auth', () => ({
-  authMiddleware: mockAuthMiddleware,
+vi.mock('../services/webSession', () => ({
+  webAuthMiddleware: mockWebAuthMiddleware,
+  requireWebCsrf: mockRequireWebCsrf,
 }));
 
 vi.mock('../utils/response', () => ({
@@ -84,11 +87,13 @@ describe('profile customization router', () => {
       profile_headline: 'Radio lover',
       featured_badge_id: null,
       theme_key: 'neon',
+      department: null,
     });
   });
 
   it('requires auth before profile mutation routes', () => {
-    expect(mockRouter.use).toHaveBeenCalledWith(mockAuthMiddleware);
+    expect(mockRouter.use).toHaveBeenCalledWith(mockWebAuthMiddleware);
+    expect(mockRouter.use).toHaveBeenCalledWith(mockRequireWebCsrf);
   });
 
   it('upserts the current user profile customization', async () => {

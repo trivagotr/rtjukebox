@@ -5,8 +5,7 @@ import jwt from 'jsonwebtoken';
 import { db } from '../db';
 import { getIO } from '../socket';
 import { MetadataService } from '../services/metadata';
-import { authMiddleware, optionalAuth, AuthRequest } from '../middleware/auth';
-import { JWT_SECRET } from '../middleware/auth';
+import { authMiddleware, optionalAuth, AuthRequest, JWT_ALGORITHM, JWT_SECRET } from '../middleware/auth';
 import { sendSuccess, sendError } from '../utils/response';
 import { ROLES } from '../middleware/rbac';
 import { AudioService } from '../services/audio';
@@ -798,6 +797,7 @@ function signKioskSessionToken(deviceId: string) {
         { device_id: deviceId, purpose: 'kiosk' },
         JWT_SECRET,
         {
+            algorithm: JWT_ALGORITHM,
             audience: KIOSK_SESSION_AUDIENCE,
             issuer: KIOSK_SESSION_ISSUER,
             expiresIn: '12h',
@@ -812,6 +812,7 @@ function isValidKioskSessionToken(deviceId: string, token: string) {
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET, {
+            algorithms: [JWT_ALGORITHM],
             audience: KIOSK_SESSION_AUDIENCE,
             issuer: KIOSK_SESSION_ISSUER,
         }) as { device_id?: unknown; purpose?: unknown };
@@ -2226,8 +2227,8 @@ router.post('/connect', optionalAuth, async (req: Request, res: Response) => {
         // Create session
         if (authReq.user?.id) {
             await db.query(
-                `INSERT INTO device_sessions (user_id, device_id) 
-                 VALUES ($1, $2) 
+                `INSERT INTO device_sessions (user_id, device_id)
+                 VALUES ($1, $2)
                  ON CONFLICT (user_id, device_id) DO NOTHING`,
                 [authReq.user.id, device.id]
             );
@@ -2440,8 +2441,8 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
         // Repeat Protection (Anti-Loop)
         // Check if song was played in the last 15 minutes
         const recentlyPlayed = await db.query(
-            `SELECT id FROM queue_items 
-             WHERE device_id = $1 AND song_id = $2 AND status = 'played' 
+            `SELECT id FROM queue_items
+             WHERE device_id = $1 AND song_id = $2 AND status = 'played'
              AND played_at > NOW() - INTERVAL '15 minutes'`,
             [device_id, queueSelection.songId]
         );
@@ -2620,7 +2621,7 @@ router.post('/vote', authMiddleware, checkDeviceSession, async (req: Request, re
         }
 
         const votesRes = await db.query(
-            `SELECT 
+            `SELECT
                 COALESCE(SUM(CASE WHEN vote_type > 0 THEN vote_type ELSE 0 END), 0) as upvotes,
                 COALESCE(SUM(CASE WHEN vote_type < 0 THEN ABS(vote_type) ELSE 0 END), 0) as downvotes
              FROM votes WHERE queue_item_id = $1`,
@@ -2963,7 +2964,7 @@ router.get('/admin/devices', authMiddleware, async (req: Request, res: Response)
 
     try {
         const devices = await db.query(`
-            SELECT d.*, 
+            SELECT d.*,
                    (SELECT COUNT(*) FROM queue_items WHERE device_id = d.id AND status = 'pending') as queue_count,
                    s.title as current_song_title, s.artist as current_song_artist
             FROM devices d
@@ -3030,7 +3031,7 @@ router.put('/admin/devices/:id', authMiddleware, async (req: Request, res: Respo
             return sendError(res, validationError.message || 'Invalid device name', 400);
         }
         const result = await db.query(
-            `UPDATE devices SET 
+            `UPDATE devices SET
                 name = COALESCE($1, name),
                 location = COALESCE($2, location),
                 is_active = COALESCE($3, is_active),
@@ -3465,4 +3466,3 @@ async function getQueueForDevice(deviceId: string, userId?: string, options?: { 
 }
 
 export default router;
-

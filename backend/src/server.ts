@@ -7,6 +7,9 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
 import authRoutes from './routes/auth';
+import erpIdentityRoutes from './routes/erpIdentity';
+import ecosystemRoutes from './routes/ecosystem';
+import webAuthRoutes from './routes/webAuth';
 import podcastRoutes from './routes/podcasts';
 import podcastFeedRoutes from './routes/podcastFeeds';
 import radioRoutes from './routes/radio';
@@ -15,8 +18,12 @@ import radioProfilesRoutes from './routes/radioProfiles';
 import usersRoutes from './routes/users';
 import spotifyRoutes from './routes/spotify';
 import gamificationRoutes from './routes/gamification';
-import studyRoutes from './routes/study';
+import economyRoutes from './routes/economy';
+import goldAdminRoutes from './routes/goldAdmin';
+import studyRoutes, { startStudyChatCleanupJob } from './routes/study';
+import { startStudyModerationExpiryJob, studyAdminRoutes, studyPageRoutes } from './routes/studyAdmin';
 import profileRoutes from './routes/profile';
+import libraryRoutes from './routes/library';
 import { authMiddleware } from './middleware/auth';
 import { setupSocketHandlers } from './sockets';
 import { registerUtilityRoutes } from './utilityRoutes';
@@ -26,13 +33,24 @@ import { ensureDefaultPodcastFeeds, getDefaultPodcastFeeds } from './services/de
 import { db } from './db';
 import { resolveCorsOrigins } from './config/cors';
 import { registerControllerWebRoutes } from './controllerWebRoutes';
+import { assertErpIdentityConfiguration } from './services/erpIdentity';
+import { isStudyPlayerApiPath } from './services/studyTrafficPolicy';
+import { rateLimitClientIpKey } from './utils/networkAddress';
+import { formatRequestLogLine } from './utils/requestLog';
 
 const IS_TEST_ENV = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
 
 // Fail fast on missing JWT secrets in non-test environments so the server never
 // boots with insecure defaults. Tests are allowed deterministic defaults.
 if (!IS_TEST_ENV) {
-    const missingSecrets = ['JWT_SECRET', 'JWT_REFRESH_SECRET'].filter(
+    const missingSecrets = [
+        'JWT_SECRET',
+        'JWT_REFRESH_SECRET',
+        'SOCIAL_ARCADE_NONCE_SECRET',
+        'GOLD_ADMIN_IDENTIFIER',
+        'GOLD_ADMIN_PASSWORD_HASH',
+        'GOLD_ADMIN_AUDIT_HMAC_KEY',
+    ].filter(
         (name) => !process.env[name] || !process.env[name]!.trim()
     );
     if (missingSecrets.length > 0) {
@@ -41,9 +59,16 @@ if (!IS_TEST_ENV) {
             'Set them before starting the server.'
         );
     }
+    if (process.env.SOCIAL_ARCADE_NONCE_SECRET!.trim().length < 32) {
+        throw new Error('SOCIAL_ARCADE_NONCE_SECRET must contain at least 32 characters.');
+    }
 }
+assertErpIdentityConfiguration();
 
 const app = express();
+// IIS is the only production proxy hop. This makes req.ip honor forwarded client
+// addresses only when the immediate peer is loopback, never from an untrusted hop.
+app.set('trust proxy', 'loopback');
 const corsOrigin = resolveCorsOrigins(process.env.CORS_ORIGINS, {
     isProduction: process.env.NODE_ENV === 'production' && !IS_TEST_ENV,
 });
@@ -81,22 +106,31 @@ function registerGetWithOptionalPublicBase(routePath: string, handler: express.R
 // Middleware
 app.use(helmet({
     contentSecurityPolicy: false,
-    crossOriginResourcePolicy: { policy: 'cross-origin' }
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    referrerPolicy: { policy: 'no-referrer' },
 }));
 
 app.use(cors({
     origin: corsOrigin,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key', 'X-RadioTEDU-CSRF', 'X-Study-Admin-Intent']
 }));
 app.use(express.json());
 
 // Request logger
 app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    console.log(formatRequestLogLine(req));
     next();
 });
-app.use(rateLimit({ windowMs: 60000, max: 500 }));
+app.use(rateLimit({
+    windowMs: 60000,
+    max: 500,
+    keyGenerator: (req) => rateLimitClientIpKey(req.ip),
+    // Study's normal presence/chat/session polling is authenticated and gets a
+    // per-account limiter inside the Study router. Keeping it on this IP-wide
+    // limiter would penalize unrelated students sharing a campus/NAT address.
+    skip: (req) => isStudyPlayerApiPath(req.path, publicBasePath),
+}));
 registerUtilityRoutes(app);
 
 // Static: Kiosk Web App
@@ -108,6 +142,16 @@ mountWithOptionalPublicBase('/kiosk', express.static(path.join(__dirname, '../..
     }
 }));
 mountWithOptionalPublicBase('/uploads', express.static(path.join(__dirname, '../uploads')));
+mountWithOptionalPublicBase('/gold-admin', express.static(path.join(__dirname, '../public/gold-admin'), {
+    index: 'index.html',
+    setHeaders: (res) => {
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Referrer-Policy', 'no-referrer');
+        res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+        res.setHeader('Content-Security-Policy', "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'");
+    },
+}));
 
 // Static: Jukebox Web Controller (built SPA). Assets stay under /controller.
 // The exact /jukebox page alias is for temporary QR links and does not capture
@@ -121,6 +165,9 @@ registerControllerWebRoutes(app, {
 
 // Routes
 mountWithOptionalPublicBase('/api/v1/auth', authRoutes);
+mountWithOptionalPublicBase('/api/v1/auth/erp-link', erpIdentityRoutes);
+mountWithOptionalPublicBase('/api/v1/ecosystem', ecosystemRoutes);
+mountWithOptionalPublicBase('/api/v1/auth/web', webAuthRoutes);
 mountWithOptionalPublicBase('/api/v1/podcasts', podcastRoutes);
 mountWithOptionalPublicBase('/api/v1/podcast-feeds', podcastFeedRoutes);
 mountWithOptionalPublicBase('/api/v1/radio', radioRoutes);
@@ -134,7 +181,12 @@ mountWithOptionalPublicBase('/api/v1/jukebox', jukeboxRoutes);
 mountWithOptionalPublicBase('/api/v1/users', usersRoutes);
 mountWithOptionalPublicBase('/api/v1/spotify', spotifyRoutes);
 mountWithOptionalPublicBase('/api/v1/gamification', gamificationRoutes);
+mountWithOptionalPublicBase('/api/v1/economy', economyRoutes);
+mountWithOptionalPublicBase('/api/v1/gold-admin', goldAdminRoutes);
+mountWithOptionalPublicBase('/api/v1/study/pages', studyPageRoutes);
+mountWithOptionalPublicBase('/api/v1/study/admin', studyAdminRoutes);
 mountWithOptionalPublicBase('/api/v1/study', studyRoutes);
+mountWithOptionalPublicBase('/api/v1/profile', libraryRoutes);
 mountWithOptionalPublicBase('/api/v1/profile', profileRoutes);
 
 // Health check
@@ -156,6 +208,8 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // Background tasks (never started under tests to keep the suite deterministic
 // and avoid open timers / live network or DB calls).
 function startBackgroundTasks() {
+    startStudyModerationExpiryJob();
+    startStudyChatCleanupJob();
     // Radio now-playing history watcher + periodic cleanup.
     startRadioHistoryWatcher();
 

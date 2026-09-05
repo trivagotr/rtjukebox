@@ -1,6 +1,10 @@
+import crypto from 'crypto';
 import { Router, Response } from 'express';
+import rateLimit from 'express-rate-limit';
+import type { PoolClient } from 'pg';
 import { db } from '../db';
-import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { AuthRequest } from '../middleware/auth';
+import { requireWebCsrf, webAuthMiddleware } from '../services/webSession';
 import { sendSuccess, sendError } from '../utils/response';
 import {
     awardUserPoints,
@@ -8,8 +12,38 @@ import {
     spendUserPoints,
 } from '../services/gamification';
 import { getIstanbulDayKey } from '../services/jukeboxScoring';
+import { handlePoolDiveAction, handlePoolDiveStart } from './socialArcade';
+import {
+    claimGameSessionProof,
+    completeGameSessionProof,
+    GameSessionProofError,
+    issueGameSessionProof,
+    releaseGameSessionProof,
+} from '../services/gameSessionProof';
 
 const router = Router();
+
+const gameScoreLimiter = rateLimit({
+    windowMs: 60_000,
+    max: process.env.NODE_ENV === 'test' ? 1000 : 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: AuthRequest) => req.user?.id ?? 'anonymous-game-user',
+});
+
+const socialArcadeLimiter = rateLimit({
+    windowMs: 60_000,
+    max: process.env.NODE_ENV === 'test' ? 1000 : 40,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req: AuthRequest) => req.user?.id ?? 'anonymous-social-arcade-user',
+    handler: (_req, res) => sendError(
+        res,
+        'Social arcade action limit reached. Please wait a moment.',
+        429,
+        'SOCIAL_ARCADE_RATE_LIMITED',
+    ),
+});
 
 function toNumber(value: unknown, fallback = 0) {
     const parsed = Number(value);
@@ -36,6 +70,21 @@ function ensureRegisteredAccount(req: AuthRequest, res: Response) {
     }
 
     return true;
+}
+
+const CLIENT_GAME_PRACTICE_ONLY_ERROR = 'Client-reported games are practice-only and do not award Gold';
+
+function isVerifiedMobileGame(metadata: unknown) {
+    const value = metadata as Record<string, unknown> | null;
+    return value?.surface === 'mobile' && value?.verification === 'client-timed-session';
+}
+
+function optionalIdempotencyKey(req: AuthRequest): string | null {
+    const headerValue = typeof req.get === 'function' ? req.get('Idempotency-Key') : undefined;
+    const value = headerValue ?? req.body?.idempotency_key ?? req.body?.idempotencyKey;
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim().slice(0, 160);
+    return normalized || null;
 }
 
 const DEFAULT_STUDY_ROOM_ID = 'sesli-kutuphane';
@@ -503,51 +552,40 @@ export async function handleMarketRedemptionRequest(req: AuthRequest, res: Respo
         return undefined;
     }
 
-    const idempotencyKey = typeof req.body?.idempotency_key === 'string'
-        ? req.body.idempotency_key.trim().slice(0, 180)
-        : '';
-    if (!idempotencyKey) {
-        return sendError(res, 'idempotency_key required', 400);
-    }
-
+    const clientIdempotencyKey = optionalIdempotencyKey(req);
+    const idempotencyKey = clientIdempotencyKey ?? `legacy:${crypto.randomUUID()}`;
     const client = await db.pool.connect();
     let transactionOpen = false;
-
     try {
         await client.query('BEGIN');
         transactionOpen = true;
+        await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [req.user!.id]);
 
-        const replayResult = await client.query(
-            `SELECT *
-             FROM market_redemptions
-             WHERE user_id = $1 AND idempotency_key = $2
-             LIMIT 1`,
-            [req.user!.id, idempotencyKey],
-        );
-        const replay = replayResult.rows[0];
-        if (replay) {
-            if (String(replay.market_item_id) !== String(req.params.itemId)) {
-                await client.query('ROLLBACK');
+        if (clientIdempotencyKey) {
+            const replayResult = await client.query(
+                `SELECT * FROM market_redemptions
+                 WHERE user_id = $1 AND idempotency_key = $2
+                 LIMIT 1`,
+                [req.user!.id, clientIdempotencyKey],
+            );
+            const replay = replayResult.rows[0];
+            if (replay) {
+                if (String(replay.market_item_id) !== String(req.params.itemId)) {
+                    await client.query('ROLLBACK');
+                    transactionOpen = false;
+                    return sendError(res, 'Idempotency-Key was already used for another item', 409);
+                }
+                const points = await client.query(
+                    'SELECT spendable_points FROM user_points WHERE user_id = $1',
+                    [req.user!.id],
+                );
+                await client.query('COMMIT');
                 transactionOpen = false;
-                return sendError(res, 'idempotency_key already used', 409);
-            }
-            const pointsResult = await client.query(
-                'SELECT spendable_points FROM user_points WHERE user_id = $1',
-                [req.user!.id],
-            );
-            await client.query('COMMIT');
-            transactionOpen = false;
-            return sendSuccess(
-                res,
-                {
+                return sendSuccess(res, {
                     redemption: replay,
-                    spendable_points: toNumber(pointsResult.rows[0]?.spendable_points),
-                    replayed: true,
-                },
-                'Market item redeemed',
-                undefined,
-                200,
-            );
+                    spendable_points: toNumber(points.rows[0]?.spendable_points),
+                }, 'Market item redeemed');
+            }
         }
 
         const itemResult = await client.query(
@@ -558,13 +596,11 @@ export async function handleMarketRedemptionRequest(req: AuthRequest, res: Respo
             [req.params.itemId],
         );
         const item = itemResult.rows[0];
-
         if (!item) {
             await client.query('ROLLBACK');
             transactionOpen = false;
             return sendError(res, 'Market item not found', 404);
         }
-
         if (item.stock_quantity !== null && Number(item.stock_quantity) <= 0) {
             await client.query('ROLLBACK');
             transactionOpen = false;
@@ -572,55 +608,54 @@ export async function handleMarketRedemptionRequest(req: AuthRequest, res: Respo
         }
 
         const costPoints = toNumber(item.cost_points);
-        const spendResult = await spendUserPoints({
-            userId: req.user!.id,
-            amount: costPoints,
-            category: 'market',
-            sourceType: 'market_redemption',
-            sourceId: item.id,
-            idempotencyKey: `market:${idempotencyKey}`,
-            metadata: {
-                market_item_id: item.id,
-                cost_points: costPoints,
-            },
-        }, client);
+        const spendablePoints = costPoints > 0
+            ? (await spendUserPoints({
+                userId: req.user!.id,
+                amount: costPoints,
+                category: 'market',
+                sourceType: 'market_redemption',
+                sourceId: String(item.id),
+                idempotencyKey: `market:${idempotencyKey}`,
+                metadata: { market_item_id: item.id, cost_points: costPoints },
+            }, client)).spendablePoints
+            : toNumber((await client.query(
+                'SELECT spendable_points FROM user_points WHERE user_id = $1',
+                [req.user!.id],
+            )).rows[0]?.spendable_points);
 
         if (item.stock_quantity !== null) {
-            await client.query(
+            const stockUpdate = await client.query(
                 `UPDATE market_items
                  SET stock_quantity = stock_quantity - 1, updated_at = NOW()
                  WHERE id = $1 AND stock_quantity > 0`,
                 [item.id],
             );
+            if (stockUpdate.rowCount !== 1) throw new Error('MARKET_OUT_OF_STOCK');
         }
         const redemptionResult = await client.query(
-            `INSERT INTO market_redemptions (
-                user_id, market_item_id, cost_points, status, idempotency_key
-             )
+            `INSERT INTO market_redemptions (user_id, market_item_id, cost_points, status, idempotency_key)
              VALUES ($1, $2, $3, 'pending', $4)
              RETURNING *`,
             [req.user!.id, item.id, costPoints, idempotencyKey],
         );
         await client.query('COMMIT');
         transactionOpen = false;
-
         return sendSuccess(
             res,
             {
                 redemption: redemptionResult.rows[0],
-                spendable_points: spendResult.spendablePoints,
-                replayed: !spendResult.applied,
+                spendable_points: spendablePoints,
             },
             'Market item redeemed',
             undefined,
             201,
         );
     } catch (error: any) {
-        if (transactionOpen) {
-            await client.query('ROLLBACK');
-        }
-        if (error?.message === 'INSUFFICIENT_GOLD') {
-            return sendError(res, 'Not enough points', 400);
+        if (transactionOpen) await client.query('ROLLBACK');
+        if (error?.message === 'INSUFFICIENT_GOLD') return sendError(res, 'Not enough points', 400);
+        if (error?.message === 'MARKET_OUT_OF_STOCK') return sendError(res, 'Market item is out of stock', 409);
+        if (error?.message === 'GOLD_IDEMPOTENCY_PAYLOAD_MISMATCH') {
+            return sendError(res, 'Idempotency-Key was already used for another item', 409);
         }
         console.error('Market redemption error:', error);
         return sendError(res, 'Failed to redeem market item', 500);
@@ -632,10 +667,16 @@ export async function handleMarketRedemptionRequest(req: AuthRequest, res: Respo
 export async function handleEventsRequest(req: AuthRequest, res: Response) {
     try {
         const result = await db.query(
-            `SELECT id, title, description, starts_at, ends_at, location, image_url, check_in_points, metadata
-             FROM app_events
-             WHERE is_active = true
-             ORDER BY starts_at ASC NULLS LAST`,
+            `SELECT ae.id, ae.title, ae.description, ae.starts_at, ae.ends_at, ae.location,
+                    ae.image_url, ae.check_in_points, ae.metadata,
+                    EXISTS (
+                        SELECT 1 FROM event_registrations er
+                        WHERE er.user_id = $1 AND er.event_id = ae.id AND er.status = 'registered'
+                    ) AS registered
+             FROM app_events ae
+             WHERE ae.is_active = true
+             ORDER BY ae.starts_at ASC NULLS LAST, ae.title ASC`,
+            [req.user?.id],
         );
 
         return sendSuccess(res, { events: result.rows }, 'Events fetched');
@@ -653,13 +694,21 @@ export async function handleEventRegistrationRequest(req: AuthRequest, res: Resp
     try {
         const result = await db.query(
             `INSERT INTO event_registrations (user_id, event_id, status)
-             VALUES ($1, $2, 'registered')
+             SELECT $1, ae.id, 'registered'
+             FROM app_events ae
+             WHERE ae.id = $2
+               AND ae.is_active = true
+               AND (ae.ends_at IS NULL OR ae.ends_at >= NOW())
              ON CONFLICT (user_id, event_id) DO UPDATE SET status = 'registered'
              RETURNING *`,
             [req.user?.id, req.params.eventId],
         );
 
-        return sendSuccess(res, { registration: result.rows[0] }, 'Event registration saved', undefined, 201);
+        if (!result.rows[0]) {
+            return sendError(res, 'Social event not found or no longer available.', 404, 'SOCIAL_EVENT_UNAVAILABLE');
+        }
+
+        return sendSuccess(res, { registration: result.rows[0] }, 'Social event registration saved', undefined, 201);
     } catch (error) {
         console.error('Event registration error:', error);
         return sendError(res, 'Failed to register event', 500);
@@ -690,58 +739,63 @@ export async function handleQrClaimRequest(req: AuthRequest, res: Response) {
         return undefined;
     }
 
-    try {
-        const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
-        if (!code) {
-            return sendError(res, 'QR code required', 400);
-        }
+    const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
+    if (!code || code.length > 240) {
+        return sendError(res, 'QR code required', 400);
+    }
 
-        const rewardResult = await db.query(
+    const client = await db.pool.connect();
+    let transactionOpen = false;
+    try {
+        await client.query('BEGIN');
+        transactionOpen = true;
+        await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [req.user!.id]);
+        const rewardResult = await client.query(
             `SELECT id, points
              FROM qr_rewards
              WHERE code = $1
                AND is_active = true
                AND (starts_at IS NULL OR starts_at <= NOW())
-               AND (ends_at IS NULL OR ends_at >= NOW())`,
+               AND (ends_at IS NULL OR ends_at >= NOW())
+             LIMIT 1`,
             [code],
         );
         const reward = rewardResult.rows[0];
 
         if (!reward) {
+            await client.query('ROLLBACK');
+            transactionOpen = false;
             return sendError(res, 'QR reward not found', 404);
         }
 
-        await db.query(
+        await client.query(
             `INSERT INTO qr_reward_claims (qr_reward_id, user_id, points_awarded)
              VALUES ($1, $2, $3)`,
-            [reward.id, req.user?.id, reward.points],
+            [reward.id, req.user!.id, reward.points],
         );
-        const awardResult = await awardUserPoints({
+        await awardUserPoints({
             userId: req.user!.id,
             amount: toNumber(reward.points),
             category: 'events',
             sourceType: 'qr_reward',
-            sourceId: reward.id,
-            idempotencyKey: `qr:${reward.id}:${req.user!.id}`,
-        });
+            sourceId: String(reward.id),
+            idempotencyKey: `qr-reward:${reward.id}`,
+            metadata: { qr_reward_id: reward.id },
+        }, client);
 
-        return sendSuccess(
-            res,
-            {
-                points_awarded: awardResult.awarded,
-                spendable_points: awardResult.spendablePoints,
-            },
-            'QR reward claimed',
-            undefined,
-            201,
-        );
+        await client.query('COMMIT');
+        transactionOpen = false;
+        return sendSuccess(res, { points_awarded: toNumber(reward.points) }, 'QR reward claimed', undefined, 201);
     } catch (error: any) {
+        if (transactionOpen) await client.query('ROLLBACK');
         if (error?.code === '23505') {
             return sendError(res, 'QR reward already claimed', 409);
         }
 
         console.error('QR claim error:', error);
         return sendError(res, 'Failed to claim QR reward', 500);
+    } finally {
+        client.release();
     }
 }
 
@@ -761,83 +815,141 @@ export async function handleGamesRequest(req: AuthRequest, res: Response) {
     }
 }
 
+export async function handleGameStartRequest(req: AuthRequest, res: Response) {
+    if (!ensureRegisteredAccount(req, res)) return undefined;
+    const clientRoundId = typeof req.body?.client_round_id === 'string'
+        ? req.body.client_round_id.trim()
+        : '';
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(clientRoundId)
+        || req.body?.submission_source !== 'mobile_game') {
+        return sendError(res, 'Invalid game session request', 400);
+    }
+    try {
+        const gameResult = await db.query(
+            `SELECT id, metadata FROM arcade_games WHERE id = $1 AND is_active = true`,
+            [req.params.gameId],
+        );
+        const game = gameResult.rows[0];
+        if (!game) return sendError(res, 'Game not found', 404);
+        if (!isVerifiedMobileGame(game.metadata)) {
+            return sendError(res, CLIENT_GAME_PRACTICE_ONLY_ERROR, 403);
+        }
+
+        const proof = issueGameSessionProof({
+            userId: req.user!.id,
+            gameId: game.id,
+            clientRoundId,
+        });
+        return sendSuccess(res, proof, 'Verified game session started', undefined, 201);
+    } catch (error) {
+        console.error('Game session start error:', error);
+        return sendError(res, 'Failed to start game session', 500);
+    }
+}
+
 export async function handleGameScoreRequest(req: AuthRequest, res: Response) {
     if (!ensureRegisteredAccount(req, res)) {
         return undefined;
     }
 
+    let claimedSessionId: string | null = null;
+    let client: PoolClient | null = null;
+    let transactionOpen = false;
     try {
-        const score = Math.max(0, Math.floor(toNumber(req.body?.score)));
-        const clientRoundId = typeof req.body?.client_round_id === 'string'
-            ? req.body.client_round_id.trim()
-            : '';
-        if (!clientRoundId || clientRoundId.length > 120) {
-            return sendError(res, 'Valid client_round_id required', 400);
-        }
         const gameResult = await db.query(
-            `SELECT id, point_rate, daily_point_limit, is_active
+            `SELECT id, point_rate, daily_point_limit, metadata
              FROM arcade_games
              WHERE id = $1 AND is_active = true`,
             [req.params.gameId],
         );
         const game = gameResult.rows[0];
-
-        if (!game) {
-            return sendError(res, 'Game not found', 404);
+        if (!game) return sendError(res, 'Game not found', 404);
+        if (!isVerifiedMobileGame(game.metadata)
+            || req.body?.submission_source !== 'mobile_game') {
+            return sendError(res, CLIENT_GAME_PRACTICE_ONLY_ERROR, 403);
         }
 
-        const dailyResult = await db.query(
+        const score = Math.max(0, Math.floor(toNumber(req.body?.score)));
+        const claim = claimGameSessionProof({
+            sessionId: req.body?.session_id,
+            nonce: req.body?.nonce,
+            userId: req.user!.id,
+            gameId: game.id,
+            clientRoundId: req.body?.client_round_id,
+            playDurationMs: req.body?.play_duration_ms,
+            score,
+        });
+        claimedSessionId = claim.sessionId;
+
+        client = await db.pool.connect();
+        await client.query('BEGIN');
+        transactionOpen = true;
+        const dailyResult = await client.query(
             `SELECT COALESCE(SUM(points_awarded), 0) AS awarded_today
              FROM game_score_submissions
              WHERE user_id = $1 AND game_id = $2 AND submitted_at::date = $3::date`,
-            [req.user?.id, game.id, getIstanbulDayKey()],
+            [req.user!.id, game.id, getIstanbulDayKey()],
         );
-        const awardedToday = toNumber(dailyResult.rows[0]?.awarded_today);
-        const dailyLimit = toNumber(game.daily_point_limit);
-        const remainingDailyLimit = Math.max(0, dailyLimit - awardedToday);
-        const calculatedAward = getGameAwardedPoints({
+        const dailyLimit = Math.max(0, Math.floor(toNumber(game.daily_point_limit)));
+        const remainingDailyLimit = Math.max(0, dailyLimit - toNumber(dailyResult.rows[0]?.awarded_today));
+        const scoreAward = getGameAwardedPoints({
             score,
             pointRate: toNumber(game.point_rate),
             dailyLimit,
         });
-        const pointsAwarded = Math.min(calculatedAward, remainingDailyLimit);
+        const pointsAwarded = Math.min(
+            remainingDailyLimit,
+            score > 0 && dailyLimit > 0 ? Math.max(1, scoreAward) : 0,
+        );
+        const elapsedSeconds = Math.max(0, Math.floor((Date.now() - claim.startedAtMs) / 1_000));
 
-        let spendablePoints = 0;
+        await client.query(
+            `INSERT INTO game_score_submissions (
+                game_id, user_id, score, points_awarded, client_round_id,
+                reported_score, server_elapsed_seconds, verification_status
+             ) VALUES ($1, $2, $3, $4, $5, $3, $6, 'client-timed-session')`,
+            [game.id, req.user!.id, score, pointsAwarded, claim.clientRoundId, elapsedSeconds],
+        );
+
+        let spendablePoints: number | null = null;
         if (pointsAwarded > 0) {
-            const awardResult = await awardUserPoints({
+            const gold = await awardUserPoints({
                 userId: req.user!.id,
                 amount: pointsAwarded,
                 category: 'games',
                 sourceType: 'arcade_game',
                 sourceId: game.id,
-                idempotencyKey: `game:${clientRoundId}`,
-                metadata: { score, client_round_id: clientRoundId },
-            });
-            spendablePoints = awardResult.spendablePoints;
-        } else {
-            const pointsResult = await db.query(
-                'SELECT spendable_points FROM user_points WHERE user_id = $1',
-                [req.user!.id],
-            );
-            spendablePoints = toNumber(pointsResult.rows[0]?.spendable_points);
+                idempotencyKey: `mobile-game:${req.user!.id}:${claim.clientRoundId}`,
+                metadata: {
+                    score,
+                    client_round_id: claim.clientRoundId,
+                    verification: 'client-timed-session',
+                },
+            }, client);
+            spendablePoints = gold.spendablePoints;
         }
 
-        await db.query(
-            `INSERT INTO game_score_submissions (game_id, user_id, score, points_awarded)
-             VALUES ($1, $2, $3, $4)`,
-            [game.id, req.user?.id, score, pointsAwarded],
-        );
-
-        return sendSuccess(
-            res,
-            { score, points_awarded: pointsAwarded, spendable_points: spendablePoints },
-            'Game score submitted',
-            undefined,
-            201,
-        );
-    } catch (error) {
+        await client.query('COMMIT');
+        transactionOpen = false;
+        completeGameSessionProof(claim.sessionId);
+        return sendSuccess(res, {
+            score,
+            points_awarded: pointsAwarded,
+            ...(spendablePoints === null ? {} : { spendable_points: spendablePoints }),
+        }, 'Game score submitted', undefined, 201);
+    } catch (error: any) {
+        if (transactionOpen && client) await client.query('ROLLBACK');
+        if (claimedSessionId) releaseGameSessionProof(claimedSessionId);
+        if (error instanceof GameSessionProofError) {
+            return sendError(res, error.code, error.status);
+        }
+        if (error?.code === '23505') {
+            return sendError(res, 'Game round already submitted', 409);
+        }
         console.error('Game score error:', error);
         return sendError(res, 'Failed to submit game score', 500);
+    } finally {
+        client?.release();
     }
 }
 
@@ -846,107 +958,13 @@ export async function handleListeningHeartbeatRequest(req: AuthRequest, res: Res
         return undefined;
     }
 
-    try {
-        const listenedSeconds = Math.max(0, Math.floor(toNumber(req.body?.listened_seconds)));
-        const contentType = req.body?.content_type ?? 'radio';
-        const contentId = req.body?.content_id ?? null;
-        const existingResult = await db.query(
-            `SELECT *
-             FROM listening_sessions
-             WHERE user_id = $1
-               AND content_type = $2
-               AND content_id IS NOT DISTINCT FROM $3
-               AND last_heartbeat_at >= NOW() - INTERVAL '2 hours'
-             ORDER BY last_heartbeat_at DESC
-             LIMIT 1`,
-            [req.user!.id, contentType, contentId],
-        );
-
-        let session = existingResult.rows[0];
-        if (!session) {
-            const insertResult = await db.query(
-                `INSERT INTO listening_sessions (
-                    user_id, content_type, content_id, content_title, listened_seconds, points_awarded, last_heartbeat_at
-                 )
-                 VALUES ($1, $2, $3, $4, $5, 0, NOW())
-                 RETURNING *`,
-                [
-                    req.user!.id,
-                    contentType,
-                    contentId,
-                    req.body?.content_title ?? null,
-                    listenedSeconds,
-                ],
-            );
-            session = insertResult.rows[0];
-        }
-
-        const cumulativeSeconds = Math.max(
-            listenedSeconds,
-            toNumber(session.listened_seconds),
-        );
-        const cumulativeAward = Math.min(10, Math.floor(cumulativeSeconds / 300));
-        const storedAward = Math.max(0, toNumber(session.points_awarded));
-        const pointsToAward = Math.max(0, cumulativeAward - storedAward);
-        let spendablePoints = 0;
-
-        if (pointsToAward > 0) {
-            const awardResult = await awardUserPoints({
-                userId: req.user!.id,
-                amount: pointsToAward,
-                category: 'listening',
-                sourceType: 'listening_session',
-                sourceId: session.id,
-                idempotencyKey: `listening:${session.id}:${cumulativeAward}`,
-                metadata: {
-                    content_type: contentType,
-                    listened_seconds: cumulativeSeconds,
-                    cumulative_points_awarded: cumulativeAward,
-                },
-            });
-            spendablePoints = awardResult.spendablePoints;
-        } else {
-            const pointsResult = await db.query(
-                'SELECT spendable_points FROM user_points WHERE user_id = $1',
-                [req.user!.id],
-            );
-            spendablePoints = toNumber(pointsResult.rows[0]?.spendable_points);
-        }
-
-        const updateResult = await db.query(
-            `UPDATE listening_sessions
-             SET content_title = COALESCE($1, content_title),
-                 listened_seconds = $2,
-                 points_awarded = GREATEST(points_awarded, $3),
-                 last_heartbeat_at = NOW()
-             WHERE id = $4 AND user_id = $5
-             RETURNING *`,
-            [
-                req.body?.content_title ?? null,
-                cumulativeSeconds,
-                cumulativeAward,
-                session.id,
-                req.user!.id,
-            ],
-        );
-
-        return sendSuccess(
-            res,
-            {
-                session: updateResult.rows[0] ?? session,
-                points_awarded: pointsToAward,
-                cumulative_points_awarded: cumulativeAward,
-                spendable_points: spendablePoints,
-            },
-            'Listening heartbeat saved',
-        );
-    } catch (error) {
-        console.error('Listening heartbeat error:', error);
-        return sendError(res, 'Failed to save listening heartbeat', 500);
-    }
+    // The former endpoint trusted a client-provided duration and was replayable.
+    // Current clients use /economy/listening/start and its rotating nonce.
+    return sendError(res, 'Verified listening session required; update the RadioTEDU client', 426);
 }
 
-router.use(authMiddleware);
+router.use(webAuthMiddleware);
+router.use(requireWebCsrf);
 router.get('/me', handleCurrentGamificationRequest);
 router.get('/home', handleGamificationHomeRequest);
 router.get('/market', handleMarketRequest);
@@ -958,7 +976,13 @@ router.post('/events/qr/claim', handleQrClaimRequest);
 router.get('/study-room', handleStudyRoomRequest);
 router.post('/study-room/heartbeat', handleStudyHeartbeatRequest);
 router.get('/games', handleGamesRequest);
+router.use('/games/:gameId/start', gameScoreLimiter);
+router.post('/games/:gameId/start', handleGameStartRequest);
+router.use('/games/:gameId/score', gameScoreLimiter);
 router.post('/games/:gameId/score', handleGameScoreRequest);
+router.use('/social-arcade', socialArcadeLimiter);
+router.post('/social-arcade/pool-dive/start', handlePoolDiveStart);
+router.post('/social-arcade/pool-dive/sessions/:sessionId/action', handlePoolDiveAction);
 router.post('/listening/heartbeat', handleListeningHeartbeatRequest);
 
 export default router;

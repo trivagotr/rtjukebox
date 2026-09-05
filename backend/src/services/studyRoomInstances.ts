@@ -1,8 +1,13 @@
-export type StudyPhysicalRoomId = 'library' | 'chim-alan';
+export type StudyPhysicalRoomId = 'library' | 'chim-alan' | 'grass-amphitheatre' | 'sports-center' | 'auditorium' | 'learning-lab' | 'sca-office';
 
 export const STUDY_ROOM_CAPACITIES: Readonly<Record<StudyPhysicalRoomId, number>> = Object.freeze({
-  library: 51,
-  'chim-alan': 9,
+  library: 60,
+  'chim-alan': 60,
+  'grass-amphitheatre': 60,
+  'sports-center': 60,
+  auditorium: 60,
+  'learning-lab': 60,
+  'sca-office': 60,
 });
 
 export interface StudyInstanceOccupancy {
@@ -21,7 +26,7 @@ export interface StudyRoomInstance {
 
 export function parseStudyRoomInstanceId(value: unknown, roomId: StudyPhysicalRoomId) {
   if (typeof value !== 'string') return null;
-  const match = /^(library|chim-alan)-([1-9][0-9]{0,3})$/.exec(value);
+  const match = /^(library|chim-alan|grass-amphitheatre|sports-center|auditorium|learning-lab|sca-office)-([1-9][0-9]{0,3})$/.exec(value);
   if (!match || match[1] !== roomId) return null;
   return { roomId, number: Number(match[2]) } as const;
 }

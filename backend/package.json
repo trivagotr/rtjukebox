@@ -5,9 +5,13 @@
         "dev": "tsx watch src/server.ts",
         "build": "tsc",
         "start": "node dist/server.js",
-        "test": "vitest run",
-        "db:migrate": "node src/db/migrate.js",
-        "repair:text": "tsx src/scripts/repairTextEncoding.ts"
+    "test": "vitest run",
+    "db:migrate": "node src/db/migrate.js",
+    "db:migrate:voting-agent": "node src/db/migrateVotingAgent.js",
+    "repair:text": "tsx src/scripts/repairTextEncoding.ts",
+    "study:configure-moderators": "node scripts/configure-study-moderators.mjs",
+    "study:migrate-moderation": "node scripts/apply-study-moderation-migration.mjs",
+    "social:migrate-arcade": "node scripts/apply-social-arcade-migration.mjs"
     },
     "dependencies": {
         "@types/fluent-ffmpeg": "^2.1.28",
@@ -28,7 +32,9 @@
         "pg": "^8.11.3",
         "qrcode": "^1.5.3",
         "redis": "^4.6.10",
+        "sharp": "^0.35.3",
         "socket.io": "^4.7.2",
+        "ws": "^8.21.0",
         "zod": "^3.22.4"
     },
     "overrides": {
@@ -41,6 +47,7 @@
         "@types/jsonwebtoken": "^9.0.5",
         "@types/node": "^20.10.4",
         "@types/pg": "^8.10.9",
+        "@types/ws": "^8.18.1",
         "tsx": "^4.6.2",
         "typescript": "^5.3.2",
         "vitest": "^4.1.9"

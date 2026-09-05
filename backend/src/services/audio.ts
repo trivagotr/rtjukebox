@@ -13,7 +13,7 @@ export class AudioService {
             const outputPath = inputPath.replace(/(\.[\w\d]+)$/, '_trimmed$1');
 
             // 1. Detect Silence
-            // We'll use a 2-pass approach or a complex filter. 
+            // We'll use a 2-pass approach or a complex filter.
             // For simplicity and robustness, specific silence removal filters:
             // silenceremove=start_periods=1:start_duration=1:start_threshold=-50dB:detection=peak, \
             // areverse,silenceremove=start_periods=1:start_duration=1:start_threshold=-50dB:detection=peak,areverse

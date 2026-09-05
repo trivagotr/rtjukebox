@@ -134,6 +134,7 @@ VALUES
     ('rock-pin', 'accessory', 'Rock Pin', 45, 'common', false, true),
     ('short-hair', 'hair', 'Short Hair', 0, 'default', true, true),
     ('radio-hoodie', 'top', 'Radio Hoodie', 0, 'default', true, true),
+    ('radiotedu-tee', 'top', 'RadioTEDU Tee', 45, 'common', false, true),
     ('varsity-jacket', 'top', 'Varsity Jacket', 80, 'rare', false, true),
     ('jeans', 'bottom', 'Jeans', 0, 'default', true, true),
     ('black-cargos', 'bottom', 'Black Cargos', 60, 'common', false, true),
@@ -378,10 +379,100 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token_hash VARCHAR(255) NOT NULL,
     device_fingerprint VARCHAR(255),
+    session_family_id UUID,
     expires_at TIMESTAMP NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT refresh_tokens_user_session_family_key
+        UNIQUE (user_id, session_family_id)
 );
+ALTER TABLE refresh_tokens
+    ADD COLUMN IF NOT EXISTS session_family_id UUID;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'refresh_tokens_user_session_family_key'
+          AND conrelid = 'refresh_tokens'::regclass
+    ) THEN
+        ALTER TABLE refresh_tokens
+            ADD CONSTRAINT refresh_tokens_user_session_family_key
+            UNIQUE (user_id, session_family_id);
+    END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_refresh_user ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_family_expires
+    ON refresh_tokens (user_id, session_family_id, expires_at)
+    WHERE session_family_id IS NOT NULL;
+
+-- ERP is the internal identity provider. An ERP login creates or links a user
+-- in this public account pool; local app registration never writes to ERP.
+CREATE TABLE IF NOT EXISTS external_identities (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider VARCHAR(30) NOT NULL,
+    provider_subject VARCHAR(255) NOT NULL,
+    provider_email VARCHAR(255),
+    display_name VARCHAR(255),
+    roles JSONB NOT NULL DEFAULT '[]',
+    permissions JSONB NOT NULL DEFAULT '[]',
+    authorization_version BIGINT NOT NULL DEFAULT 1,
+    access_token_ciphertext TEXT NOT NULL,
+    refresh_token_ciphertext TEXT,
+    token_expires_at TIMESTAMPTZ NOT NULL,
+    last_verified_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(user_id, provider),
+    UNIQUE(provider, provider_subject)
+);
+CREATE INDEX IF NOT EXISTS idx_external_identities_user
+    ON external_identities(user_id, provider);
+
+CREATE TABLE IF NOT EXISTS external_identity_link_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    provider VARCHAR(30) NOT NULL,
+    purpose VARCHAR(20) NOT NULL DEFAULT 'link'
+        CHECK (purpose IN ('link', 'login')),
+    state_hash CHAR(64) NOT NULL UNIQUE,
+    code_verifier TEXT NOT NULL,
+    return_uri TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,
+    login_code_hash CHAR(64) UNIQUE,
+    login_code_expires_at TIMESTAMPTZ,
+    exchanged_at TIMESTAMPTZ,
+    client_code_challenge VARCHAR(128),
+    client_code_challenge_method VARCHAR(8),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE external_identity_link_requests
+    ADD COLUMN IF NOT EXISTS client_code_challenge VARCHAR(128),
+    ADD COLUMN IF NOT EXISTS client_code_challenge_method VARCHAR(8);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'external_identity_link_requests_client_pkce_check'
+          AND conrelid = 'external_identity_link_requests'::regclass
+    ) THEN
+        ALTER TABLE external_identity_link_requests
+        ADD CONSTRAINT external_identity_link_requests_client_pkce_check
+        CHECK (
+            (client_code_challenge IS NULL AND client_code_challenge_method IS NULL)
+            OR (
+                client_code_challenge ~ '^[A-Za-z0-9_-]{43}$'
+                AND client_code_challenge_method = 'S256'
+            )
+        );
+    END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_external_identity_link_expiry
+    ON external_identity_link_requests(expires_at) WHERE used_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_external_identity_login_code
+    ON external_identity_link_requests(login_code_hash)
+    WHERE exchanged_at IS NULL;
 
 -- Audit Logs Table
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -810,3 +901,422 @@ CREATE TABLE IF NOT EXISTS song_history (
 );
 CREATE INDEX IF NOT EXISTS idx_song_history_channel_played_at
     ON song_history(channel_id, played_at DESC);
+
+-- RadioTEDU website library. Content IDs are WordPress stable IDs rather than
+-- database foreign keys so accounts stay portable across editorial migrations.
+CREATE TABLE IF NOT EXISTS user_favorites (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind VARCHAR(30) NOT NULL
+        CHECK (kind IN ('station', 'podcast_show', 'podcast_episode')),
+    content_id VARCHAR(255) NOT NULL,
+    title VARCHAR(500),
+    subtitle VARCHAR(500),
+    artwork_url TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(user_id, kind, content_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_favorites_user_created
+    ON user_favorites(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS listening_progress (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    episode_id VARCHAR(255) NOT NULL,
+    position_seconds INTEGER NOT NULL DEFAULT 0 CHECK (position_seconds >= 0),
+    duration_seconds INTEGER NOT NULL DEFAULT 0 CHECK (duration_seconds >= 0),
+    completed BOOLEAN NOT NULL DEFAULT FALSE,
+    title VARCHAR(500),
+    subtitle VARCHAR(500),
+    artwork_url TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY(user_id, episode_id)
+);
+CREATE INDEX IF NOT EXISTS idx_listening_progress_user_updated
+    ON listening_progress(user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS listening_history (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind VARCHAR(30) NOT NULL
+        CHECK (kind IN ('station', 'podcast_show', 'podcast_episode')),
+    content_id VARCHAR(255) NOT NULL,
+    title VARCHAR(500),
+    subtitle VARCHAR(500),
+    artwork_url TEXT,
+    event_type VARCHAR(20) NOT NULL DEFAULT 'play'
+        CHECK (event_type IN ('play', 'resume', 'complete')),
+    position_seconds INTEGER CHECK (position_seconds IS NULL OR position_seconds >= 0),
+    duration_seconds INTEGER CHECK (duration_seconds IS NULL OR duration_seconds >= 0),
+    listened_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_listening_history_user_listened
+    ON listening_history(user_id, listened_at DESC);
+-- RadioTEDU Study-only moderation model. This migration does not alter shared
+-- account, ERP, mail, WordPress, or unrelated application records.
+CREATE TABLE IF NOT EXISTS study_moderation_profiles (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE RESTRICT,
+    is_protected_service BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS study_moderation_capabilities (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    capability VARCHAR(48) NOT NULL CHECK (capability IN (
+        'study.moderation.read',
+        'study.moderation.ban',
+        'study.moderation.unban',
+        'study.moderation.reports',
+        'study.moderation.audit'
+    )),
+    source_ref VARCHAR(160) NOT NULL,
+    granted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    revoked_at TIMESTAMP,
+    UNIQUE (user_id, capability)
+);
+CREATE INDEX IF NOT EXISTS idx_study_moderation_capabilities_active
+    ON study_moderation_capabilities(user_id, capability)
+    WHERE revoked_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS study_bans (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    target_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    reason VARCHAR(40) NOT NULL CHECK (reason IN ('harassment', 'spam', 'unsafe-profile', 'other')),
+    note VARCHAR(500) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'revoked', 'expired')),
+    created_by UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMP,
+    revoked_by UUID REFERENCES users(id) ON DELETE RESTRICT,
+    revoked_at TIMESTAMP,
+    revoke_note VARCHAR(500),
+    CHECK (target_user_id <> created_by),
+    CHECK (expires_at IS NULL OR expires_at > created_at),
+    CHECK (
+        (status = 'active' AND revoked_at IS NULL AND revoked_by IS NULL)
+        OR (status = 'revoked' AND revoked_at IS NOT NULL AND revoked_by IS NOT NULL)
+        OR (status = 'expired' AND revoked_at IS NULL AND revoked_by IS NULL)
+    )
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_study_bans_one_active_per_user
+    ON study_bans(target_user_id) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_study_bans_target_history
+    ON study_bans(target_user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS study_moderation_idempotency (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    operator_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    action VARCHAR(48) NOT NULL,
+    idempotency_key UUID NOT NULL,
+    request_hash CHAR(64) NOT NULL,
+    response_json JSONB,
+    status_code INTEGER,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMP,
+    UNIQUE (operator_user_id, action, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_study_moderation_idempotency_created
+    ON study_moderation_idempotency(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS study_moderation_audit_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    action VARCHAR(48) NOT NULL CHECK (action IN (
+        'ban-created',
+        'ban-revoked',
+        'ban-expired',
+        'report-resolved',
+        'report-dismissed'
+    )),
+    operator_user_id UUID REFERENCES users(id) ON DELETE RESTRICT,
+    target_user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    ban_id UUID REFERENCES study_bans(id) ON DELETE RESTRICT,
+    report_id UUID REFERENCES study_player_reports(id) ON DELETE RESTRICT,
+    reason VARCHAR(40),
+    note VARCHAR(500) NOT NULL,
+    request_id UUID NOT NULL,
+    idempotency_key UUID,
+    expires_at TIMESTAMP,
+    previous_event_hash CHAR(64),
+    event_hash CHAR(64) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_study_moderation_audit_request
+    ON study_moderation_audit_events(request_id);
+CREATE INDEX IF NOT EXISTS idx_study_moderation_audit_created
+    ON study_moderation_audit_events(created_at DESC, id DESC);
+
+ALTER TABLE study_player_reports
+    ADD COLUMN IF NOT EXISTS summary VARCHAR(500),
+    ADD COLUMN IF NOT EXISTS reviewed_by UUID REFERENCES users(id) ON DELETE RESTRICT,
+    ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS review_note VARCHAR(500);
+
+ALTER TABLE study_player_reports
+    DROP CONSTRAINT IF EXISTS study_player_reports_status_check;
+ALTER TABLE study_player_reports
+    ADD CONSTRAINT study_player_reports_status_check
+    CHECK (status IN ('open', 'resolved', 'dismissed'));
+
+-- Shared account and Gold economy v2. All changes are additive. ERP and
+-- WordPress identities remain external clients of this application database.
+ALTER TABLE user_profile_customization
+    ADD COLUMN IF NOT EXISTS department VARCHAR(160),
+    ADD COLUMN IF NOT EXISTS profile_completed_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS legal_acceptance_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    event_type VARCHAR(40) NOT NULL CHECK (event_type IN ('registration', 'erp-first-login')),
+    terms_version VARCHAR(32) NOT NULL,
+    privacy_version VARCHAR(32) NOT NULL,
+    age_18_confirmed BOOLEAN,
+    channel VARCHAR(30) NOT NULL CHECK (channel IN ('web', 'mobile', 'erp')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, event_type)
+);
+
+CREATE TABLE IF NOT EXISTS gold_economy_rules (
+    rule_key VARCHAR(64) PRIMARY KEY,
+    direction VARCHAR(8) NOT NULL CHECK (direction IN ('earn', 'spend')),
+    amount INTEGER NOT NULL CHECK (amount BETWEEN 1 AND 10000),
+    daily_cap INTEGER CHECK (daily_cap IS NULL OR daily_cap BETWEEN 1 AND 100000),
+    category VARCHAR(30) NOT NULL CHECK (category IN ('listening', 'events', 'games', 'social', 'jukebox')),
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    description VARCHAR(240) NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+    updated_by VARCHAR(160),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO gold_economy_rules (rule_key, direction, amount, daily_cap, category, description)
+VALUES
+    ('first_login', 'earn', 25, NULL, 'social', 'First successful RadioTEDU or TEDU ERP sign-in'),
+    ('profile_complete', 'earn', 40, NULL, 'social', 'Complete the account profile including department'),
+    ('radio_hour', 'earn', 20, 40, 'listening', 'Every verified 60 minutes of RadioTEDU listening'),
+    ('focus_25', 'earn', 15, 45, 'social', 'Complete a verified 25 minute Focus session'),
+    ('study_minute', 'earn', 1, 25, 'social', 'Every verified minute in Study'),
+    ('ai_message', 'spend', 5, NULL, 'social', 'Send one listener message to RTAI')
+ON CONFLICT (rule_key) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS verified_listening_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    channel_id VARCHAR(40) NOT NULL,
+    client_session_id VARCHAR(128) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'finished', 'expired')),
+    current_nonce_hash CHAR(64) NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at TIMESTAMPTZ,
+    eligible_seconds INTEGER NOT NULL DEFAULT 0 CHECK (eligible_seconds >= 0),
+    valid_heartbeat_count INTEGER NOT NULL DEFAULT 0 CHECK (valid_heartbeat_count >= 0),
+    last_ip INET,
+    user_agent VARCHAR(500),
+    UNIQUE (user_id, client_session_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_verified_listening_one_active
+    ON verified_listening_sessions(user_id) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_verified_listening_user_created
+    ON verified_listening_sessions(user_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS gold_activity_progress (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    activity_key VARCHAR(64) NOT NULL,
+    eligible_seconds BIGINT NOT NULL DEFAULT 0 CHECK (eligible_seconds >= 0),
+    completed_units BIGINT NOT NULL DEFAULT 0 CHECK (completed_units >= 0),
+    rewarded_units BIGINT NOT NULL DEFAULT 0 CHECK (rewarded_units >= 0),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, activity_key)
+);
+
+CREATE TABLE IF NOT EXISTS focus_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    client_session_id VARCHAR(128) NOT NULL,
+    target_seconds INTEGER NOT NULL DEFAULT 1500 CHECK (target_seconds BETWEEN 300 AND 7200),
+    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed', 'expired')),
+    current_nonce_hash CHAR(64) NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    eligible_seconds INTEGER NOT NULL DEFAULT 0 CHECK (eligible_seconds >= 0),
+    valid_heartbeat_count INTEGER NOT NULL DEFAULT 0 CHECK (valid_heartbeat_count >= 0),
+    awarded_points INTEGER NOT NULL DEFAULT 0 CHECK (awarded_points >= 0),
+    last_ip INET,
+    user_agent VARCHAR(500),
+    UNIQUE (user_id, client_session_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_sessions_one_active
+    ON focus_sessions(user_id) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_focus_sessions_user_created
+    ON focus_sessions(user_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS ai_listener_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    message TEXT NOT NULL CHECK (char_length(message) BETWEEN 1 AND 800),
+    status VARCHAR(20) NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'received', 'reviewed', 'rejected')),
+    cost_points INTEGER NOT NULL CHECK (cost_points > 0),
+    ledger_id UUID REFERENCES points_ledger(id) ON DELETE RESTRICT,
+    idempotency_key VARCHAR(180) NOT NULL,
+    moderation_reason VARCHAR(160),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_ai_listener_messages_user_created
+    ON ai_listener_messages(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_listener_messages_status_created
+    ON ai_listener_messages(status, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS study_shop_items (
+    item_id VARCHAR(80) PRIMARY KEY,
+    title VARCHAR(120) NOT NULL,
+    description VARCHAR(280) NOT NULL,
+    kind VARCHAR(30) NOT NULL CHECK (kind IN ('computer')),
+    cost_points INTEGER NOT NULL CHECK (cost_points >= 0),
+    rarity VARCHAR(20) NOT NULL DEFAULT 'common',
+    asset_key VARCHAR(100) NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+INSERT INTO study_shop_items (item_id, title, description, kind, cost_points, rarity, asset_key)
+VALUES
+    ('computer-slate', 'SlateBook 14', 'A compact study laptop for your desk.', 'computer', 250, 'common', 'computer-slate'),
+    ('computer-coral', 'Coral Desktop', 'A quiet desktop setup with a warm RadioTEDU accent.', 'computer', 450, 'rare', 'computer-coral'),
+    ('computer-gold', 'Gold Studio', 'A premium dual-screen workstation for long sessions.', 'computer', 750, 'epic', 'computer-gold')
+ON CONFLICT (item_id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS study_user_items (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    item_id VARCHAR(80) NOT NULL REFERENCES study_shop_items(item_id) ON DELETE RESTRICT,
+    purchased_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, item_id)
+);
+CREATE TABLE IF NOT EXISTS study_user_equipment (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    kind VARCHAR(30) NOT NULL CHECK (kind IN ('computer')),
+    item_id VARCHAR(80) NOT NULL REFERENCES study_shop_items(item_id) ON DELETE RESTRICT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, kind)
+);
+
+CREATE TABLE IF NOT EXISTS gold_admin_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    admin_identifier VARCHAR(160) NOT NULL,
+    token_hash CHAR(64) NOT NULL UNIQUE,
+    csrf_hash CHAR(64) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ,
+    last_ip INET,
+    user_agent VARCHAR(500)
+);
+CREATE INDEX IF NOT EXISTS idx_gold_admin_sessions_expiry
+    ON gold_admin_sessions(expires_at) WHERE revoked_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS gold_admin_audit_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    admin_identifier VARCHAR(160) NOT NULL,
+    action VARCHAR(64) NOT NULL,
+    target_user_id UUID REFERENCES users(id) ON DELETE RESTRICT,
+    request_id UUID NOT NULL,
+    reason VARCHAR(500),
+    metadata JSONB NOT NULL DEFAULT '{}',
+    previous_event_hash CHAR(64),
+    event_hash CHAR(64) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (request_id)
+);
+CREATE INDEX IF NOT EXISTS idx_gold_admin_audit_created
+    ON gold_admin_audit_events(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS arcade_game_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    game_id UUID NOT NULL REFERENCES arcade_games(id) ON DELETE RESTRICT,
+    client_round_id VARCHAR(120) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed', 'expired')),
+    current_nonce_hash CHAR(64) NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at TIMESTAMPTZ,
+    last_ip INET,
+    user_agent VARCHAR(500) NOT NULL DEFAULT '',
+    UNIQUE (user_id, client_round_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_arcade_game_sessions_one_active
+    ON arcade_game_sessions(user_id) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_arcade_game_sessions_user_started
+    ON arcade_game_sessions(user_id, started_at DESC);
+ALTER TABLE arcade_game_sessions ADD COLUMN IF NOT EXISTS game_state JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE arcade_game_sessions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+ALTER TABLE arcade_game_sessions ADD COLUMN IF NOT EXISTS server_score INTEGER NOT NULL DEFAULT 0 CHECK (server_score >= 0);
+CREATE INDEX IF NOT EXISTS idx_arcade_game_sessions_expiry
+    ON arcade_game_sessions(expires_at) WHERE status = 'active';
+
+ALTER TABLE game_score_submissions ADD COLUMN IF NOT EXISTS client_round_id VARCHAR(120);
+ALTER TABLE game_score_submissions ADD COLUMN IF NOT EXISTS session_id UUID REFERENCES arcade_game_sessions(id) ON DELETE RESTRICT;
+ALTER TABLE game_score_submissions ADD COLUMN IF NOT EXISTS reported_score INTEGER;
+ALTER TABLE game_score_submissions ADD COLUMN IF NOT EXISTS server_elapsed_seconds INTEGER;
+ALTER TABLE game_score_submissions ADD COLUMN IF NOT EXISTS verification_status VARCHAR(30) NOT NULL DEFAULT 'legacy';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_game_score_submissions_user_round
+    ON game_score_submissions(user_id, client_round_id) WHERE client_round_id IS NOT NULL;
+
+INSERT INTO arcade_games (id, slug, title, description, point_rate, daily_point_limit, is_active, metadata)
+VALUES (
+    '9a6b61e3-9a4e-4f7d-8a15-8b5b1ad7e100',
+    'pool-dive',
+    'Pool Dive',
+    'Follow the server signal and choose the correct diving lane across eight verified rounds.',
+    0.02,
+    10,
+    TRUE,
+    '{"surface":"social","verification":"server-authoritative","rounds":8}'::jsonb
+)
+ON CONFLICT (slug) DO UPDATE SET
+    title = EXCLUDED.title,
+    description = EXCLUDED.description,
+    point_rate = EXCLUDED.point_rate,
+    daily_point_limit = EXCLUDED.daily_point_limit,
+    is_active = TRUE,
+    metadata = EXCLUDED.metadata;
+
+INSERT INTO arcade_games (id, slug, title, description, point_rate, daily_point_limit, is_active, metadata)
+VALUES
+    ('9a6b61e3-9a4e-4f7d-8a15-8b5b1ad7e201', 'snake', 'Neon Snake', 'Collect notes and protect three lives.', 0.05, 10, TRUE, '{"surface":"mobile","verification":"client-timed-session"}'::jsonb),
+    ('9a6b61e3-9a4e-4f7d-8a15-8b5b1ad7e202', 'memory', 'Memory', 'Match the RadioTEDU cards.', 0.01, 10, TRUE, '{"surface":"mobile","verification":"client-timed-session"}'::jsonb),
+    ('9a6b61e3-9a4e-4f7d-8a15-8b5b1ad7e203', 'tetris', 'Blocks', 'Clear lines in the RadioTEDU block game.', 0.01, 10, TRUE, '{"surface":"mobile","verification":"client-timed-session"}'::jsonb),
+    ('9a6b61e3-9a4e-4f7d-8a15-8b5b1ad7e204', 'rhythm-tap', 'Song Guess', 'Guess the song from visual clues.', 0.005, 10, TRUE, '{"surface":"mobile","verification":"client-timed-session"}'::jsonb),
+    ('9a6b61e3-9a4e-4f7d-8a15-8b5b1ad7e205', 'word-guess', 'Music IQ', 'Answer music questions from the RadioTEDU catalog.', 0.005, 10, TRUE, '{"surface":"mobile","verification":"client-timed-session"}'::jsonb)
+ON CONFLICT (slug) DO UPDATE SET
+    title = EXCLUDED.title,
+    description = EXCLUDED.description,
+    point_rate = EXCLUDED.point_rate,
+    daily_point_limit = EXCLUDED.daily_point_limit,
+    is_active = TRUE,
+    metadata = EXCLUDED.metadata;
+
+INSERT INTO app_events (id, title, description, location, check_in_points, is_active, metadata)
+VALUES
+    (
+        'd54f7be3-8ce1-4ca5-bcd4-93e1c07b0101',
+        'Daily Focus Sprint',
+        'Find a verified seat, focus with the campus community and advance your Social study path.',
+        'Library',
+        0,
+        TRUE,
+        '{"surface":"social","always_open":true,"activity":"verified-focus"}'::jsonb
+    ),
+    (
+        'd54f7be3-8ce1-4ca5-bcd4-93e1c07b0102',
+        'Pool Dive Challenge',
+        'Play eight server-scored rounds. Fast, correct choices can earn up to 10 Gold per day.',
+        'Sports Center',
+        0,
+        TRUE,
+        '{"surface":"social","always_open":true,"activity":"pool-dive"}'::jsonb
+    )
+ON CONFLICT (id) DO NOTHING;

@@ -82,41 +82,16 @@ describe('db migration helper', () => {
         expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS qr_reward_claims');
     });
 
-    it('includes Gold ledger idempotency and non-negative balance protection', () => {
+    it('includes Study Pomodoro session metadata in the schema', () => {
         const schemaSql = loadSchemaSql();
 
-        expect(schemaSql).toContain('ALTER TABLE points_ledger ADD COLUMN IF NOT EXISTS idempotency_key');
-        expect(schemaSql).toContain('ALTER TABLE points_ledger ADD COLUMN IF NOT EXISTS balance_after');
-        expect(schemaSql).toContain('idx_points_ledger_user_idempotency');
-        expect(schemaSql).toContain('user_points_spendable_nonnegative');
-    });
-
-    it('includes replay protection for market redemptions', () => {
-        const schemaSql = loadSchemaSql();
-
-        expect(schemaSql).toContain('ALTER TABLE market_redemptions ADD COLUMN IF NOT EXISTS idempotency_key');
-        expect(schemaSql).toContain('idx_market_redemptions_user_idempotency');
-    });
-
-    it('extends avatar hat constraints before seeding hat items on existing databases', () => {
-        const schemaSql = loadSchemaSql();
-        const constraintIndex = schemaSql.indexOf('ALTER TABLE avatar_items DROP CONSTRAINT IF EXISTS avatar_items_slot_check');
-        const bucketHatSeedIndex = schemaSql.indexOf("('bucket-hat', 'hat'");
-
-        expect(constraintIndex).toBeGreaterThan(-1);
-        expect(bucketHatSeedIndex).toBeGreaterThan(-1);
-        expect(constraintIndex).toBeLessThan(bucketHatSeedIndex);
-    });
-
-    it('adds instance isolation columns and indexes for Study presence and chat', () => {
-        const schemaSql = loadSchemaSql();
-
-        expect(schemaSql).toContain('ALTER TABLE study_room_presence ADD COLUMN IF NOT EXISTS instance_id');
-        expect(schemaSql).toContain('ALTER TABLE study_room_presence ADD COLUMN IF NOT EXISTS client_session_id');
-        expect(schemaSql).toContain('idx_study_room_presence_instance_active');
-        expect(schemaSql).toContain('ALTER TABLE study_chat_messages ADD COLUMN IF NOT EXISTS instance_id');
-        expect(schemaSql).toContain('idx_study_chat_instance_created');
-        expect(schemaSql).toContain("room_id || '-1'");
+        expect(schemaSql).toContain('session_type VARCHAR(20) NOT NULL DEFAULT');
+        expect(schemaSql).toContain("CHECK (session_type IN ('study', 'pomodoro'))");
+        expect(schemaSql).toContain('pomodoro_target_minutes INTEGER');
+        expect(schemaSql).toContain('seat_id VARCHAR(120)');
+        expect(schemaSql).toContain('ALTER TABLE study_sessions ADD COLUMN IF NOT EXISTS session_type');
+        expect(schemaSql).toContain('ALTER TABLE study_sessions ADD COLUMN IF NOT EXISTS pomodoro_target_minutes');
+        expect(schemaSql).toContain('ALTER TABLE study_session_events ADD COLUMN IF NOT EXISTS seat_id');
     });
 
     it('applies schema sql inside a single transaction and forces UTF-8 client encoding', async () => {

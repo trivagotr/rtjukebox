@@ -1,7 +1,9 @@
 import { Router, Response } from 'express';
 import { db } from '../db';
-import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { AuthRequest } from '../middleware/auth';
+import { requireWebCsrf, webAuthMiddleware } from '../services/webSession';
 import { sendSuccess, sendError } from '../utils/response';
+import { awardEconomyReward } from '../services/economy';
 
 const router = Router();
 
@@ -16,6 +18,7 @@ type ProfilePayload = {
     profile_headline: string | null;
     featured_badge_id: string | null;
     theme_key: string | null;
+    department: string | null;
 };
 
 function normalizeOptionalString(value: unknown, maxLength: number) {
@@ -39,6 +42,7 @@ export function normalizeProfileCustomizationPayload(input: Record<string, unkno
         profile_headline: normalizeOptionalString(input.profile_headline, 180),
         featured_badge_id: normalizeOptionalString(input.featured_badge_id, 80),
         theme_key: normalizeOptionalString(input.theme_key, 80),
+        department: normalizeOptionalString(input.department, 160),
     };
 }
 
@@ -57,6 +61,8 @@ function mapProfileRow(row: Record<string, unknown>) {
         profile_headline: row.profile_headline ?? null,
         featured_badge_id: row.featured_badge_id ?? null,
         theme_key: row.theme_key ?? null,
+        department: row.department ?? null,
+        profile_completed_at: row.profile_completed_at ?? null,
         updated_at: row.updated_at ?? null,
     };
 }
@@ -90,6 +96,8 @@ export async function handleGetMyProfileRequest(req: AuthRequest, res: Response)
                     upc.profile_headline,
                     upc.featured_badge_id,
                     upc.theme_key,
+                    upc.department,
+                    upc.profile_completed_at,
                     upc.updated_at
              FROM users u
              LEFT JOIN user_profile_customization upc ON upc.user_id = u.id
@@ -129,9 +137,12 @@ export async function handleUpdateMyProfileRequest(req: AuthRequest, res: Respon
                 profile_headline,
                 featured_badge_id,
                 theme_key,
+                department,
+                profile_completed_at,
                 updated_at
              )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                     CASE WHEN $12 IS NOT NULL THEN NOW() ELSE NULL END, NOW())
              ON CONFLICT (user_id) DO UPDATE SET
                 favorite_song_title = EXCLUDED.favorite_song_title,
                 favorite_song_artist = EXCLUDED.favorite_song_artist,
@@ -143,6 +154,11 @@ export async function handleUpdateMyProfileRequest(req: AuthRequest, res: Respon
                 profile_headline = EXCLUDED.profile_headline,
                 featured_badge_id = EXCLUDED.featured_badge_id,
                 theme_key = EXCLUDED.theme_key,
+                department = EXCLUDED.department,
+                profile_completed_at = CASE
+                    WHEN EXCLUDED.department IS NOT NULL THEN COALESCE(user_profile_customization.profile_completed_at, NOW())
+                    ELSE user_profile_customization.profile_completed_at
+                END,
                 updated_at = NOW()
              RETURNING *`,
             [
@@ -157,17 +173,31 @@ export async function handleUpdateMyProfileRequest(req: AuthRequest, res: Respon
                 payload.profile_headline,
                 payload.featured_badge_id,
                 payload.theme_key,
+                payload.department,
             ],
         );
 
-        return sendSuccess(res, { profile: mapProfileRow(result.rows[0]) }, 'Profile updated');
+        const profileReward = payload.department
+            ? await awardEconomyReward({
+                userId: req.user!.id,
+                ruleKey: 'profile_complete',
+                sourceId: req.user!.id,
+                idempotencyKey: `economy:profile-complete:${req.user!.id}`,
+                metadata: { fields: ['display_name', 'department'] },
+            })
+            : null;
+        return sendSuccess(res, {
+            profile: mapProfileRow(result.rows[0]),
+            profile_completion_reward: profileReward,
+        }, 'Profile updated');
     } catch (error) {
         console.error('Profile update error:', error);
         return sendError(res, 'Failed to update profile', 500);
     }
 }
 
-router.use(authMiddleware);
+router.use(webAuthMiddleware);
+router.use(requireWebCsrf);
 router.get('/me', handleGetMyProfileRequest);
 router.put('/me', handleUpdateMyProfileRequest);
 router.put('/favorites', handleUpdateMyProfileRequest);

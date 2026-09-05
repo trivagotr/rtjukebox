@@ -89,9 +89,26 @@ interface LedgerClaim {
     balanceAfter: number | null;
 }
 
+export type LedgerPayloadIdentity = {
+    amount: number;
+    category: GoldLedgerCategory;
+    sourceType: string;
+    sourceId: string | null;
+};
+
 function toInteger(value: unknown, fallback = 0) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? Math.floor(parsed) : fallback;
+}
+
+export function goldLedgerPayloadMatches(
+    existing: Record<string, unknown>,
+    expected: LedgerPayloadIdentity,
+): boolean {
+    return toInteger(existing.amount) === expected.amount
+        && String(existing.category ?? '') === expected.category
+        && String(existing.source_type ?? '') === expected.sourceType
+        && (existing.source_id == null ? null : String(existing.source_id)) === expected.sourceId;
 }
 
 async function runGoldTransaction<T>(
@@ -167,13 +184,21 @@ async function claimLedgerEntry(
     }
 
     const existing = await client.query(
-        `SELECT id, amount, balance_after FROM points_ledger
+        `SELECT id, amount, category, source_type, source_id, balance_after FROM points_ledger
          WHERE user_id = $1 AND idempotency_key = $2`,
         [params.userId, params.idempotencyKey],
     );
     const row = existing.rows[0];
     if (!row?.id) {
         throw new Error('GOLD_IDEMPOTENCY_REPLAY_MISSING');
+    }
+    if (!goldLedgerPayloadMatches(row, {
+        amount: params.amount,
+        category: params.category,
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+    })) {
+        throw new Error('GOLD_IDEMPOTENCY_PAYLOAD_MISMATCH');
     }
 
     return {

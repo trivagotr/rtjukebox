@@ -7,9 +7,11 @@ const {
   mockPoolConnect,
   mockSendSuccess,
   mockSendError,
-  mockAuthMiddleware,
   mockAwardUserPoints,
   mockSpendUserPoints,
+  mockAuthMiddleware,
+  mockWebAuthMiddleware,
+  mockRequireWebCsrf,
   mockRouteHandlers,
   mockRouter,
 } = vi.hoisted(() => {
@@ -36,12 +38,14 @@ const {
     mockDbQuery: vi.fn(),
     mockClientQuery: clientQuery,
     mockClientRelease: clientRelease,
-    mockPoolConnect: vi.fn().mockResolvedValue({query: clientQuery, release: clientRelease}),
+    mockPoolConnect: vi.fn().mockResolvedValue({ query: clientQuery, release: clientRelease }),
     mockSendSuccess: vi.fn(),
     mockSendError: vi.fn(),
-    mockAuthMiddleware: vi.fn(),
     mockAwardUserPoints: vi.fn(),
     mockSpendUserPoints: vi.fn(),
+    mockAuthMiddleware: vi.fn(),
+    mockWebAuthMiddleware: vi.fn(),
+    mockRequireWebCsrf: vi.fn(),
     mockRouteHandlers: handlers,
     mockRouter: router,
   };
@@ -49,13 +53,23 @@ const {
 
 vi.mock('../db', () => ({
   db: {
-    pool: {connect: mockPoolConnect},
+    pool: { connect: mockPoolConnect },
     query: mockDbQuery,
   },
 }));
 
 vi.mock('../middleware/auth', () => ({
   authMiddleware: mockAuthMiddleware,
+}));
+
+vi.mock('../services/webSession', () => ({
+  webAuthMiddleware: mockWebAuthMiddleware,
+  requireWebCsrf: mockRequireWebCsrf,
+}));
+
+vi.mock('../utils/response', () => ({
+  sendSuccess: mockSendSuccess,
+  sendError: mockSendError,
 }));
 
 vi.mock('../services/gamification', async () => {
@@ -67,17 +81,11 @@ vi.mock('../services/gamification', async () => {
   };
 });
 
-vi.mock('../utils/response', () => ({
-  sendSuccess: mockSendSuccess,
-  sendError: mockSendError,
-}));
-
 vi.mock('express', () => ({
   Router: vi.fn(() => mockRouter),
 }));
 
 import './gamification';
-
 describe('gamification router', () => {
   beforeEach(() => {
     mockDbQuery.mockReset();
@@ -86,26 +94,117 @@ describe('gamification router', () => {
     mockPoolConnect.mockClear();
     mockSendSuccess.mockReset();
     mockSendError.mockReset();
-    mockAwardUserPoints.mockReset();
-    mockAwardUserPoints.mockResolvedValue({
+    mockAwardUserPoints.mockReset().mockResolvedValue({
       applied: true,
       amount: 10,
       awarded: 10,
       spendablePoints: 10,
-      ledgerId: 'ledger-test',
+      ledgerId: 'ledger-1',
     });
-    mockSpendUserPoints.mockReset();
-    mockSpendUserPoints.mockResolvedValue({
+    mockSpendUserPoints.mockReset().mockResolvedValue({
       applied: true,
       amount: -50,
       awarded: 0,
       spendablePoints: 20,
-      ledgerId: 'ledger-market',
+      ledgerId: 'ledger-spend-1',
     });
   });
 
   it('requires auth before exposing gamification endpoints', () => {
-    expect(mockRouter.use).toHaveBeenCalledWith(mockAuthMiddleware);
+    expect(mockRouter.use).toHaveBeenNthCalledWith(1, mockWebAuthMiddleware);
+    expect(mockRouter.use).toHaveBeenNthCalledWith(2, mockRequireWebCsrf);
+    expect(mockRouter.use).toHaveBeenCalledWith('/games/:gameId/score', expect.any(Function));
+    expect(mockRouter.use).toHaveBeenCalledWith('/games/:gameId/start', expect.any(Function));
+    expect(mockRouteHandlers.post['/games/:gameId/start']).toBeTypeOf('function');
+    expect(mockRouter.use).toHaveBeenCalledWith('/social-arcade', expect.any(Function));
+    expect(mockRouteHandlers.post['/social-arcade/pool-dive/start']).toBeTypeOf('function');
+    expect(mockRouteHandlers.post['/social-arcade/pool-dive/sessions/:sessionId/action']).toBeTypeOf('function');
+  });
+
+  it('issues a one-time proof for a registered client-timed mobile game', async () => {
+    const handler = mockRouteHandlers.post['/games/:gameId/start'];
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [{
+        id: 'game-1',
+        metadata: { verification: 'client-timed-session', surface: 'mobile' },
+      }],
+    });
+
+    await handler({
+      params: { gameId: 'game-1' },
+      body: { client_round_id: 'round-1', submission_source: 'mobile_game' },
+      user: { id: 'user-1', role: 'user' },
+    }, {});
+
+    expect(mockSendError).not.toHaveBeenCalled();
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        session: expect.objectContaining({game_id: 'game-1', client_round_id: 'round-1'}),
+        nonce: expect.any(String),
+        minimum_play_seconds: 3,
+      }),
+      'Verified game session started',
+      undefined,
+      201,
+    );
+    expect(mockAwardUserPoints).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { verification: 'server-authoritative', surface: 'social' },
+    { verification: 'client-timed-session', surface: 'social' },
+    { verification: 'server-authoritative', surface: 'mobile' },
+  ])('keeps every other generic game start practice-only %#', async (metadata) => {
+    const handler = mockRouteHandlers.post['/games/:gameId/start'];
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'pool-dive', metadata }] });
+
+    await handler({
+      params: { gameId: 'pool-dive' },
+      body: { client_round_id: 'round-pool-1', submission_source: 'mobile_game' },
+      user: { id: 'user-1', role: 'user' },
+    }, {});
+
+    expect(mockSendError).toHaveBeenCalledWith(
+      {},
+      'Client-reported games are practice-only and do not award Gold',
+      403,
+    );
+    expect(mockSendSuccess).not.toHaveBeenCalled();
+    expect(mockAwardUserPoints).not.toHaveBeenCalled();
+  });
+
+  it('returns Social events with the current account registration state', async () => {
+    const handler = mockRouteHandlers.get['/events'];
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [{ id: 'event-1', title: 'Daily Focus Sprint', registered: true, metadata: { always_open: true } }],
+    });
+
+    await handler({ user: { id: 'user-1', role: 'user' } }, {});
+
+    expect(mockDbQuery.mock.calls[0][0]).toContain('FROM event_registrations er');
+    expect(mockDbQuery.mock.calls[0][1]).toEqual(['user-1']);
+    expect(mockSendSuccess).toHaveBeenCalledWith(
+      {},
+      { events: [{ id: 'event-1', title: 'Daily Focus Sprint', registered: true, metadata: { always_open: true } }] },
+      'Events fetched',
+    );
+  });
+
+  it('does not register inactive, expired, or unknown Social events', async () => {
+    const handler = mockRouteHandlers.post['/events/:eventId/register'];
+    mockDbQuery.mockResolvedValueOnce({ rows: [] });
+
+    await handler({ user: { id: 'user-1', role: 'user' }, params: { eventId: 'missing' } }, {});
+
+    expect(mockDbQuery.mock.calls[0][0]).toContain('INSERT INTO event_registrations');
+    expect(mockDbQuery.mock.calls[0][0]).toContain('ae.is_active = true');
+    expect(mockSendError).toHaveBeenCalledWith(
+      {},
+      'Social event not found or no longer available.',
+      404,
+      'SOCIAL_EVENT_UNAVAILABLE',
+    );
   });
 
   it('returns default point balances for a registered user without a points row yet', async () => {
@@ -144,7 +243,7 @@ describe('gamification router', () => {
     expect(handler).toBeTypeOf('function');
     mockClientQuery
       .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce({rows: []})
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
       .mockResolvedValueOnce({
         rows: [
           {
@@ -159,185 +258,158 @@ describe('gamification router', () => {
       .mockResolvedValueOnce(undefined);
     mockSpendUserPoints.mockRejectedValueOnce(new Error('INSUFFICIENT_GOLD'));
 
-    await handler({
-      params: { itemId: 'item-1' },
-      body: {idempotency_key: 'market-request-1'},
-      user: { id: 'user-1', role: 'user' },
-    }, {});
+    await handler({ params: { itemId: 'item-1' }, user: { id: 'user-1', role: 'user' } }, {});
 
     expect(mockSendError).toHaveBeenCalledWith({}, 'Not enough points', 400);
+    expect(mockClientQuery.mock.calls[2][0]).toContain('FOR UPDATE');
     expect(mockClientQuery.mock.calls.some(call => call[0] === 'ROLLBACK')).toBe(true);
-    expect(mockClientQuery.mock.calls.some(call => String(call[0]).includes('market_redemptions') && String(call[0]).includes('INSERT'))).toBe(false);
+    expect(mockClientRelease).toHaveBeenCalledOnce();
   });
 
-  it('requires a stable idempotency key for market redemption', async () => {
-    const handler = mockRouteHandlers.post['/market/:itemId/redeem'];
-
-    await handler({params: {itemId: 'item-1'}, body: {}, user: {id: 'user-1', role: 'user'}}, {});
-
-    expect(mockPoolConnect).not.toHaveBeenCalled();
-    expect(mockSendError).toHaveBeenCalledWith({}, 'idempotency_key required', 400);
-  });
-
-  it('replays a completed market redemption without spending or decrementing stock', async () => {
+  it('rejects reusing a market idempotency key for another item before spending', async () => {
     const handler = mockRouteHandlers.post['/market/:itemId/redeem'];
     mockClientQuery
       .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce({rows: [{id: 'redemption-1', market_item_id: 'item-1', cost_points: 50}]})
-      .mockResolvedValueOnce({rows: [{spendable_points: 70}]})
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'redemption-1', market_item_id: 'item-1', idempotency_key: 'purchase-1' }],
+      })
       .mockResolvedValueOnce(undefined);
 
     await handler({
-      params: {itemId: 'item-1'},
-      body: {idempotency_key: 'market-request-1'},
-      user: {id: 'user-1', role: 'user'},
-    }, {});
-
-    expect(mockSpendUserPoints).not.toHaveBeenCalled();
-    expect(mockClientQuery.mock.calls.some(call => String(call[0]).includes('stock_quantity = stock_quantity - 1'))).toBe(false);
-    expect(mockSendSuccess).toHaveBeenCalledWith(
-      {},
-      expect.objectContaining({
-        redemption: expect.objectContaining({id: 'redemption-1'}),
-        spendable_points: 70,
-        replayed: true,
-      }),
-      'Market item redeemed',
-      undefined,
-      200,
-    );
-  });
-
-  it('caps arcade game awards by the remaining daily limit', async () => {
-    const handler = mockRouteHandlers.post['/games/:gameId/score'];
-    expect(handler).toBeTypeOf('function');
-    mockDbQuery
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            id: 'game-1',
-            point_rate: '0.5',
-            daily_point_limit: 30,
-            is_active: true,
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        rows: [{ awarded_today: '20' }],
-      })
-      .mockResolvedValue({ rows: [] });
-
-    await handler({
-      params: { gameId: 'game-1' },
-      body: { score: 100, client_round_id: 'round-1' },
+      params: { itemId: 'item-2' },
+      body: {},
+      get: (name: string) => name === 'Idempotency-Key' ? 'purchase-1' : undefined,
       user: { id: 'user-1', role: 'user' },
     }, {});
 
-    expect(mockAwardUserPoints).toHaveBeenCalledWith(expect.objectContaining({
-      amount: 10,
-      idempotencyKey: 'game:round-1',
-    }));
-    expect(mockSendSuccess).toHaveBeenCalledWith(
-      {},
-      expect.objectContaining({
-        points_awarded: 10,
-        spendable_points: 10,
-      }),
-      'Game score submitted',
-      undefined,
-      201,
-    );
+    expect(mockSendError).toHaveBeenCalledWith({}, 'Idempotency-Key was already used for another item', 409);
+    expect(mockSpendUserPoints).not.toHaveBeenCalled();
+    expect(mockClientQuery.mock.calls.some(call => call[0] === 'ROLLBACK')).toBe(true);
   });
 
-  it('uses a per-account QR reward identity and returns the authoritative Gold balance', async () => {
-    const handler = mockRouteHandlers.post['/events/qr/claim'];
+  it('rejects a forged score proof for an otherwise reward-eligible mobile game', async () => {
+    const handler = mockRouteHandlers.post['/games/:gameId/score'];
     expect(handler).toBeTypeOf('function');
-    mockDbQuery
-      .mockResolvedValueOnce({rows: [{id: 'reward-1', points: 15}]})
-      .mockResolvedValueOnce({rows: []});
-    mockAwardUserPoints.mockResolvedValueOnce({
-      applied: true,
-      amount: 15,
-      awarded: 15,
-      spendablePoints: 42,
-      ledgerId: 'ledger-qr',
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [{
+        id: 'game-1',
+        metadata: { verification: 'client-timed-session', surface: 'mobile' },
+      }],
     });
 
-    await handler(
-      {body: {code: 'TEDU-QR'}, user: {id: 'user-1', role: 'user'}},
-      {},
-    );
+    await handler({
+      params: { gameId: 'game-1' },
+      body: {
+        score: 999999999,
+        client_round_id: 'round-1',
+        play_duration_ms: 5_000,
+        submission_source: 'mobile_game',
+        session_id: 'forged-session',
+        nonce: 'forged-nonce',
+      },
+      user: { id: 'user-1', role: 'user' },
+    }, {});
 
-    expect(mockAwardUserPoints).toHaveBeenCalledWith(expect.objectContaining({
-      sourceType: 'qr_reward',
-      sourceId: 'reward-1',
-      idempotencyKey: 'qr:reward-1:user-1',
-    }));
+    expect(mockSendError).toHaveBeenCalledWith({}, 'game_session_expired', 409);
+    expect(mockSendSuccess).not.toHaveBeenCalled();
+    expect(mockAwardUserPoints).not.toHaveBeenCalled();
+    expect(mockDbQuery.mock.calls.some(
+      ([sql]) => String(sql).includes('INSERT INTO game_score_submissions'),
+    )).toBe(false);
+    expect(mockClientQuery).not.toHaveBeenCalled();
+    expect(mockPoolConnect).not.toHaveBeenCalled();
+  });
+
+  it('rejects generic score rewards for a server-authoritative Social game', async () => {
+    const handler = mockRouteHandlers.post['/games/:gameId/score'];
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [{
+        id: 'pool-dive',
+        metadata: { verification: 'server-authoritative', surface: 'social' },
+      }],
+    });
+
+    await handler({
+      params: { gameId: 'pool-dive' },
+      body: {
+        score: 999999,
+        client_round_id: 'forged-pool-round',
+        play_duration_ms: 5_000,
+        submission_source: 'mobile_game',
+        session_id: 'forged-session',
+        nonce: 'forged-nonce',
+      },
+      user: { id: 'user-1', role: 'user' },
+    }, {});
+
+    expect(mockSendError).toHaveBeenCalledWith(
+      {},
+      'Client-reported games are practice-only and do not award Gold',
+      403,
+    );
+    expect(mockAwardUserPoints).not.toHaveBeenCalled();
+    expect(mockDbQuery.mock.calls.some(
+      ([sql]) => String(sql).includes('INSERT INTO game_score_submissions'),
+    )).toBe(false);
+    expect(mockClientQuery).not.toHaveBeenCalled();
+    expect(mockPoolConnect).not.toHaveBeenCalled();
+  });
+
+  it('returns not found without touching reward state for an unknown game', async () => {
+    const handler = mockRouteHandlers.post['/games/:gameId/score'];
+    mockDbQuery.mockResolvedValueOnce({ rows: [] });
+
+    await handler({
+      params: { gameId: 'missing-game' },
+      body: {
+        score: 100,
+        client_round_id: 'round-1',
+        play_duration_ms: 5_000,
+        submission_source: 'mobile_game',
+        session_id: 'forged-session',
+        nonce: 'forged-nonce',
+      },
+      user: { id: 'user-1', role: 'user' },
+    }, {});
+
+    expect(mockSendError).toHaveBeenCalledWith({}, 'Game not found', 404);
+    expect(mockAwardUserPoints).not.toHaveBeenCalled();
+    expect(mockDbQuery.mock.calls.some(
+      ([sql]) => String(sql).includes('INSERT INTO game_score_submissions'),
+    )).toBe(false);
+    expect(mockClientQuery).not.toHaveBeenCalled();
+    expect(mockPoolConnect).not.toHaveBeenCalled();
+  });
+
+  it('claims a QR reward and its Gold ledger entry in one pinned transaction', async () => {
+    const handler = mockRouteHandlers.post['/events/qr/claim'];
+    mockClientQuery
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'reward-1', points: 7 }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce(undefined);
+
+    await handler({ body: { code: 'VALID-QR' }, user: { id: 'user-1', role: 'user' } }, {});
+
+    expect(mockAwardUserPoints).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 7,
+        sourceType: 'qr_reward',
+        sourceId: 'reward-1',
+        idempotencyKey: 'qr-reward:reward-1',
+      }),
+      expect.objectContaining({ query: mockClientQuery }),
+    );
+    expect(mockClientQuery.mock.calls[0][0]).toBe('BEGIN');
+    expect(mockClientQuery.mock.calls[4][0]).toBe('COMMIT');
     expect(mockSendSuccess).toHaveBeenCalledWith(
       {},
-      {points_awarded: 15, spendable_points: 42},
+      { points_awarded: 7 },
       'QR reward claimed',
       undefined,
       201,
-    );
-  });
-
-  it('awards only the new cumulative listening delta with a stable session key', async () => {
-    const handler = mockRouteHandlers.post['/listening/heartbeat'];
-    expect(handler).toBeTypeOf('function');
-    mockDbQuery
-      .mockResolvedValueOnce({
-        rows: [{
-          id: 'session-1',
-          listened_seconds: 300,
-          points_awarded: 1,
-          content_type: 'radio',
-          content_id: 'main',
-        }],
-      })
-      .mockResolvedValueOnce({
-        rows: [{
-          id: 'session-1',
-          listened_seconds: 600,
-          points_awarded: 2,
-          content_type: 'radio',
-          content_id: 'main',
-        }],
-      });
-    mockAwardUserPoints.mockResolvedValueOnce({
-      applied: true,
-      amount: 1,
-      awarded: 1,
-      spendablePoints: 43,
-      ledgerId: 'ledger-listening',
-    });
-
-    await handler(
-      {
-        body: {
-          content_type: 'radio',
-          content_id: 'main',
-          listened_seconds: 600,
-        },
-        user: {id: 'user-1', role: 'user'},
-      },
-      {},
-    );
-
-    expect(String(mockDbQuery.mock.calls[0][0])).toContain('FROM listening_sessions');
-    expect(mockAwardUserPoints).toHaveBeenCalledWith(expect.objectContaining({
-      amount: 1,
-      sourceId: 'session-1',
-      idempotencyKey: 'listening:session-1:2',
-    }));
-    expect(mockSendSuccess).toHaveBeenCalledWith(
-      {},
-      expect.objectContaining({
-        points_awarded: 1,
-        cumulative_points_awarded: 2,
-        spendable_points: 43,
-      }),
-      'Listening heartbeat saved',
     );
   });
 

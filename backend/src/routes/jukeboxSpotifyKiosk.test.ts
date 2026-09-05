@@ -1,6 +1,8 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import type { AddressInfo } from 'net';
+import jwt from 'jsonwebtoken';
+import { JWT_SECRET } from '../middleware/auth';
 
 const { mockDbQuery } = vi.hoisted(() => ({
   mockDbQuery: vi.fn(),
@@ -130,6 +132,35 @@ describe('jukebox spotify kiosk routes', () => {
 
       expect(statusResponse.status).toBe(200);
       expect(spotifyServiceModule.spotifyService.getDeviceAuthStatus).toHaveBeenCalledWith('device-1');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects a kiosk session token signed with a non-contract HMAC algorithm', async () => {
+    const server = await createJukeboxRouterServer();
+    const getDeviceAuthStatus = vi.spyOn(spotifyServiceModule.spotifyService, 'getDeviceAuthStatus');
+    const kioskToken = jwt.sign(
+      {device_id: 'device-1', purpose: 'kiosk'},
+      JWT_SECRET,
+      {
+        algorithm: 'HS384',
+        audience: 'radiotedu:kiosk',
+        issuer: 'radiotedu-backend',
+        expiresIn: '1h',
+      },
+    );
+    mockDbQuery.mockResolvedValueOnce({rows: [{id: 'device-1', password: 'secret'}]});
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/spotify-device-auth/status`, {
+        method: 'POST',
+        headers: {'content-type': 'application/json'},
+        body: JSON.stringify({device_id: 'device-1', kiosk_token: kioskToken}),
+      });
+
+      expect(response.status).toBe(403);
+      expect(getDeviceAuthStatus).not.toHaveBeenCalled();
     } finally {
       await server.close();
     }

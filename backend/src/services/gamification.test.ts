@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSpendablePointUpdate,
   getGameAwardedPoints,
+  goldLedgerPayloadMatches,
   normalizeGamificationCategory,
   normalizeGoldIdempotencyKey,
   normalizeMarketItemKind,
@@ -47,5 +48,32 @@ describe('gamification service helpers', () => {
     expect(normalizeGoldIdempotencyKey('  study:finish:session-1  ')).toBe('study:finish:session-1');
     expect(normalizeGoldIdempotencyKey('')).toBeNull();
     expect(normalizeGoldIdempotencyKey('x'.repeat(200))).toHaveLength(180);
+  });
+
+  it('binds an idempotency replay to its original amount and source payload', () => {
+    const expected = {
+      amount: -80,
+      category: 'study' as const,
+      sourceType: 'study_shop_purchase',
+      sourceId: 'computer-red',
+    };
+    expect(goldLedgerPayloadMatches({
+      amount: -80,
+      category: 'study',
+      source_type: 'study_shop_purchase',
+      source_id: 'computer-red',
+    }, expected)).toBe(true);
+    expect(goldLedgerPayloadMatches({
+      amount: -80,
+      category: 'study',
+      source_type: 'study_shop_purchase',
+      source_id: 'computer-gold',
+    }, expected)).toBe(false);
+    expect(goldLedgerPayloadMatches({
+      amount: -40,
+      category: 'study',
+      source_type: 'study_shop_purchase',
+      source_id: 'computer-red',
+    }, expected)).toBe(false);
   });
 });
