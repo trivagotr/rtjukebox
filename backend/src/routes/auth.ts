@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
+import type { PoolClient } from 'pg';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -764,12 +765,43 @@ router.post('/logout', logoutLimiter, async (req: Request, res: Response) => {
             if (revocation.sessionFamilyId) {
                 disconnectSessionFamilySockets(revocation.sessionFamilyId);
             }
-        } catch {
-            // Stale, malformed and already-rotated sessions are already logged out.
+        } catch (error) {
+            if (!(error instanceof jwt.JsonWebTokenError)) {
+                console.error('Session logout failed:', error);
+                return sendError(res, 'Failed to log out session', 500);
+            }
+            // Invalid/expired JWTs cannot authorize a session. Database failures
+            // must remain retryable errors rather than falsely claiming revocation.
         }
     }
 
     return sendSuccess(res, { revoked: true }, 'Session logged out');
+});
+
+router.post('/logout-all', authMiddleware, async (req: AuthRequest, res: Response) => {
+    let client: PoolClient | null = null;
+    let discard = false;
+    try {
+        client = await db.pool.connect();
+        await client.query('BEGIN');
+        await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [req.user!.id]);
+        const deleted = await client.query(
+            'DELETE FROM refresh_tokens WHERE user_id = $1 RETURNING session_family_id', [req.user!.id],
+        );
+        await client.query('COMMIT');
+        for (const row of deleted.rows) {
+            if (row.session_family_id) disconnectSessionFamilySockets(row.session_family_id);
+        }
+        return sendSuccess(res, { revoked_sessions: deleted.rowCount ?? 0 }, 'All sessions logged out');
+    } catch (error) {
+        discard = true;
+        try { if (client) await client.query('ROLLBACK'); }
+        catch (rollbackError) { console.error('Logout-all rollback failed:', rollbackError); }
+        console.error('Logout-all failed:', error);
+        return sendError(res, 'Failed to log out sessions', 500);
+    } finally {
+        client?.release(discard);
+    }
 });
 
 export async function handleCurrentUserProfileRequest(req: AuthRequest, res: Response) {

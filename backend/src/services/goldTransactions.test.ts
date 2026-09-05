@@ -73,8 +73,8 @@ describe('Gold transactions', () => {
       if (text.startsWith('INSERT INTO points_ledger')) {
         return {rows: []};
       }
-      if (text.startsWith('SELECT id, amount, balance_after FROM points_ledger')) {
-        return {rows: [{id: 'ledger-1', amount: 10, balance_after: 110}]};
+      if (text.startsWith('SELECT id, amount, category, source_type, source_id, balance_after FROM points_ledger')) {
+        return {rows: [{id: 'ledger-1', amount: 10, category: 'games', source_type: 'arcade_game', source_id: 'round-1', balance_after: 110}]};
       }
       return {rows: []};
     });

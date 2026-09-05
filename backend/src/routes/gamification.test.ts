@@ -311,7 +311,7 @@ describe('gamification router', () => {
       user: { id: 'user-1', role: 'user' },
     }, {});
 
-    expect(mockSendError).toHaveBeenCalledWith({}, 'game_session_expired', 409);
+    expect(mockSendError).toHaveBeenCalledWith({}, 'game_score_invalid', 400);
     expect(mockSendSuccess).not.toHaveBeenCalled();
     expect(mockAwardUserPoints).not.toHaveBeenCalled();
     expect(mockDbQuery.mock.calls.some(

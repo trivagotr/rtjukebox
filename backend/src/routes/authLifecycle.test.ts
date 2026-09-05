@@ -19,6 +19,7 @@ const {
   };
 
   const router: any = {};
+  router.use = vi.fn(() => router);
   for (const method of ['delete', 'get', 'post'] as const) {
     router[method] = vi.fn(
       (path: string, ...routeHandlers: Array<(...args: any[]) => any>) => {
@@ -61,6 +62,7 @@ vi.mock('../db', () => ({
 
 vi.mock('../middleware/auth', () => ({
   JWT_SECRET: 'test-secret-key',
+  JWT_ALGORITHM: 'HS256',
   authMiddleware: vi.fn(),
 }));
 
@@ -75,7 +77,7 @@ vi.mock('../utils/response', () => ({
   sendSuccess: mockSendSuccess,
 }));
 
-import { createRefreshToken, getRefreshTokenHashInput } from './auth';
+import { createRefreshToken, getRefreshTokenHashInput, JWT_REFRESH_SECRET } from './auth';
 
 function createReq(
   body: Record<string, unknown> = {},
@@ -148,13 +150,16 @@ describe('auth account lifecycle routes', () => {
     const handler = mockRouteHandlers.post['/logout'];
     const refreshToken = jwt.sign(
       { id: 'user-1', email: 'student@gmail.com', role: 'user' },
-      'test-refresh-secret-key',
+      JWT_REFRESH_SECRET,
       { expiresIn: '7d' },
     );
     const otherHash = await bcrypt.hash('another-token', 4);
     const matchingHash = await bcrypt.hash(refreshToken, 4);
 
-    mockDbQuery
+    mockClientQuery.mockResolvedValue({ rows: [] });
+    mockClientQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
       .mockResolvedValueOnce({
         rows: [
           { id: 'session-1', token_hash: otherHash },
@@ -165,8 +170,8 @@ describe('auth account lifecycle routes', () => {
 
     await handler(createReq({ refresh_token: refreshToken }), {});
 
-    expect(mockDbQuery.mock.calls[1][0]).toContain('DELETE FROM refresh_tokens');
-    expect(mockDbQuery.mock.calls[1][1]).toEqual(['session-2', 'user-1']);
+    expect(mockClientQuery.mock.calls[3][0]).toContain('DELETE FROM refresh_tokens');
+    expect(mockClientQuery.mock.calls[3][1]).toEqual(['session-2', 'user-1']);
     expect(mockSendSuccess).toHaveBeenCalledWith(
       {},
       { revoked: true },
@@ -187,16 +192,34 @@ describe('auth account lifecycle routes', () => {
     );
   });
 
+  it('reports a database outage during logout instead of claiming revocation', async () => {
+    const token = createRefreshToken('user-1', 'student@gmail.com', 'user');
+    mockPoolConnect.mockRejectedValueOnce(new Error('synthetic database unavailable'));
+    await mockRouteHandlers.post['/logout'](createReq({ refresh_token: token }), {});
+    expect(mockSendSuccess).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith({}, 'Failed to log out session', 500);
+  });
+
+  it('reports a database outage during logout-all', async () => {
+    mockPoolConnect.mockRejectedValueOnce(new Error('synthetic database unavailable'));
+    await mockRouteHandlers.post['/logout-all'](createReq({}, { id: 'user-1', email: 'student@gmail.com', role: 'user' }), {});
+    expect(mockSendSuccess).not.toHaveBeenCalled();
+    expect(mockSendError).toHaveBeenCalledWith({}, 'Failed to log out sessions', 500);
+  });
+
   it('revokes every refresh-token session for the authenticated account', async () => {
     const handler = mockRouteHandlers.post['/logout-all'];
-    mockDbQuery.mockResolvedValueOnce({ rowCount: 3, rows: [] });
+    mockClientQuery.mockResolvedValue({ rows: [] });
+    mockClientQuery.mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'user-1' }] })
+      .mockResolvedValueOnce({ rowCount: 3, rows: [] });
 
     await handler(
       createReq({}, { id: 'user-1', email: 'student@gmail.com', role: 'user' }),
       {},
     );
 
-    expect(mockDbQuery).toHaveBeenCalledWith(
+    expect(mockClientQuery).toHaveBeenCalledWith(
       expect.stringContaining('DELETE FROM refresh_tokens'),
       ['user-1'],
     );

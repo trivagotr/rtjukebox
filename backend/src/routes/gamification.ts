@@ -11,7 +11,8 @@ import {
     getGameAwardedPoints,
     spendUserPoints,
 } from '../services/gamification';
-import { getIstanbulDayKey } from '../services/jukeboxScoring';
+import { getIstanbulDayKey, getIstanbulYearMonth } from '../services/jukeboxScoring';
+import { gameScoreFingerprint } from '../services/gameScoreRecovery';
 import { handlePoolDiveAction, handlePoolDiveStart } from './socialArcade';
 import {
     claimGameSessionProof,
@@ -282,7 +283,7 @@ export async function handleCurrentGamificationRequest(req: AuthRequest, res: Re
                     u.is_guest,
                     up.lifetime_points,
                     up.spendable_points,
-                    up.monthly_points,
+                    COALESCE(ums.score, 0) AS monthly_points,
                     up.listening_points,
                     up.events_points,
                     up.games_points,
@@ -290,8 +291,9 @@ export async function handleCurrentGamificationRequest(req: AuthRequest, res: Re
                     up.jukebox_points
              FROM users u
              LEFT JOIN user_points up ON up.user_id = u.id
+             LEFT JOIN user_monthly_rank_scores ums ON ums.user_id = u.id AND ums.year_month = $2
              WHERE u.id = $1`,
-            [req.user?.id],
+            [req.user?.id, getIstanbulYearMonth(new Date())],
         );
 
         if (!result.rows[0]) {
@@ -321,9 +323,12 @@ export async function handleGamificationHomeRequest(req: AuthRequest, res: Respo
     try {
         const [points, events, games, market] = await Promise.all([
             db.query(
-                `SELECT lifetime_points, spendable_points, monthly_points, listening_points, events_points, games_points, social_points, jukebox_points
-                 FROM user_points WHERE user_id = $1`,
-                [req.user?.id],
+                `SELECT up.lifetime_points, up.spendable_points, COALESCE(ums.score, 0) AS monthly_points,
+                        up.listening_points, up.events_points, up.games_points, up.social_points, up.jukebox_points
+                 FROM user_points up
+                 LEFT JOIN user_monthly_rank_scores ums ON ums.user_id = up.user_id AND ums.year_month = $2
+                 WHERE up.user_id = $1`,
+                [req.user?.id, getIstanbulYearMonth(new Date())],
             ),
             db.query(
                 `SELECT id, title, description, starts_at, ends_at, location, image_url, check_in_points
@@ -855,6 +860,7 @@ export async function handleGameScoreRequest(req: AuthRequest, res: Response) {
     let claimedSessionId: string | null = null;
     let client: PoolClient | null = null;
     let transactionOpen = false;
+    let discardClient = false;
     try {
         const gameResult = await db.query(
             `SELECT id, point_rate, daily_point_limit, metadata
@@ -869,7 +875,26 @@ export async function handleGameScoreRequest(req: AuthRequest, res: Response) {
             return sendError(res, CLIENT_GAME_PRACTICE_ONLY_ERROR, 403);
         }
 
-        const score = Math.max(0, Math.floor(toNumber(req.body?.score)));
+        const fingerprint = gameScoreFingerprint(req.user!.id, game.id, req.body);
+        const score = req.body.score;
+        client = await db.pool.connect();
+        await client.query('BEGIN');
+        transactionOpen = true;
+        // Match economy's lock order. Serialize rounds and daily limits across processes.
+        await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [req.user!.id]);
+        const recovered = await client.query(
+            `SELECT request_fingerprint, outcome FROM game_score_recoveries
+             WHERE user_id = $1 AND client_round_id = $2`,
+            [req.user!.id, req.body.client_round_id],
+        );
+        if (recovered.rows[0]) {
+            if (recovered.rows[0].request_fingerprint !== fingerprint) {
+                throw new GameSessionProofError('game_round_payload_mismatch', 409);
+            }
+            await client.query('COMMIT');
+            transactionOpen = false;
+            return sendSuccess(res, recovered.rows[0].outcome, 'Game score submitted', undefined, 201);
+        }
         const claim = claimGameSessionProof({
             sessionId: req.body?.session_id,
             nonce: req.body?.nonce,
@@ -881,9 +906,6 @@ export async function handleGameScoreRequest(req: AuthRequest, res: Response) {
         });
         claimedSessionId = claim.sessionId;
 
-        client = await db.pool.connect();
-        await client.query('BEGIN');
-        transactionOpen = true;
         const dailyResult = await client.query(
             `SELECT COALESCE(SUM(points_awarded), 0) AS awarded_today
              FROM game_score_submissions
@@ -929,16 +951,31 @@ export async function handleGameScoreRequest(req: AuthRequest, res: Response) {
             spendablePoints = gold.spendablePoints;
         }
 
-        await client.query('COMMIT');
-        transactionOpen = false;
-        completeGameSessionProof(claim.sessionId);
-        return sendSuccess(res, {
+        const outcome = {
             score,
             points_awarded: pointsAwarded,
             ...(spendablePoints === null ? {} : { spendable_points: spendablePoints }),
-        }, 'Game score submitted', undefined, 201);
+        };
+        await client.query(
+            `INSERT INTO game_score_recoveries
+             (user_id, client_round_id, request_fingerprint, outcome) VALUES ($1, $2, $3, $4::jsonb)`,
+            [req.user!.id, claim.clientRoundId, fingerprint, JSON.stringify(outcome)],
+        );
+        await client.query('COMMIT');
+        transactionOpen = false;
+        completeGameSessionProof(claim.sessionId);
+        return sendSuccess(res, outcome, 'Game score submitted', undefined, 201);
     } catch (error: any) {
-        if (transactionOpen && client) await client.query('ROLLBACK');
+        if (transactionOpen && client) {
+            // COMMIT may have succeeded even if its acknowledgement was lost. Never
+            // infer an outcome here: the next attempt reads the durable row first.
+            discardClient = true;
+            try {
+                await client.query('ROLLBACK');
+            } catch (rollbackError) {
+                console.error('Game score rollback error:', rollbackError);
+            }
+        }
         if (claimedSessionId) releaseGameSessionProof(claimedSessionId);
         if (error instanceof GameSessionProofError) {
             return sendError(res, error.code, error.status);
@@ -949,7 +986,7 @@ export async function handleGameScoreRequest(req: AuthRequest, res: Response) {
         console.error('Game score error:', error);
         return sendError(res, 'Failed to submit game score', 500);
     } finally {
-        client?.release();
+        client?.release(discardClient);
     }
 }
 
