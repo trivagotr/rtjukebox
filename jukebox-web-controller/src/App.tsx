@@ -1005,6 +1005,7 @@ function App() {
       setMsg({ type: 'success', text: 'Şarkı kuyruğa eklendi!' });
       setSearch('');
       setResults([]);
+      void fetchCurrentQueue(device.id);
 
       if (user.is_guest) {
         setUser({ ...user, total_songs_added: user.total_songs_added + 1 });

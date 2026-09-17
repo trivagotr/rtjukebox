@@ -504,6 +504,7 @@ h2 {
 
 .control-rail {
   min-height: 100vh;
+  max-height: 100vh;
   padding: 18px;
   display: flex;
   flex-direction: column;
@@ -511,6 +512,7 @@ h2 {
   border-left: 0;
   border-top: 0;
   border-bottom: 0;
+  overflow: hidden;
 }
 
 .rail-brand {
@@ -561,8 +563,10 @@ h2 {
 }
 
 .search-results {
-  min-height: 160px;
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .section-heading {
@@ -641,6 +645,8 @@ h2 {
 }
 
 .rail-footer {
+  margin-top: auto;
+  flex-shrink: 0;
   display: grid;
   gap: 14px;
 }
