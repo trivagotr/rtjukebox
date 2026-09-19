@@ -12,6 +12,7 @@ import { songUpload, songUploadDir, normalizeUploadedSongFilename } from '../mid
 import path from 'path';
 import { buildSongFileUrl, normalizeText } from '../utils/textNormalization';
 import { CatalogSongSearchItem, spotifyService, toCatalogSongSearchItem, toContentFilterTrack, upsertSpotifyTrack } from '../services/spotify';
+import { fetchLyrics } from '../services/lyrics';
 import { buildAutoplaySelection, buildSystemQueueInsertions, loadEffectiveRadioProfileConfig } from '../services/radioProfiles';
 import { createDefaultFilterService, SpotifyTrack as ContentFilterTrack } from '../services/contentFilter';
 import {
@@ -493,19 +494,17 @@ export async function dispatchSpotifyPlaybackForSong(params: {
     const spotifyUri = params.song.spotify_uri;
     const playbackTarget = await loadSpotifyKioskPlaybackTarget(params.deviceId);
     const playbackDeviceId = resolveSpotifyKioskPlaybackDeviceId(playbackTarget ?? {});
+
     if (!playbackDeviceId) {
         throw new Error('No active Spotify kiosk playback device registered');
     }
 
     const service = params.spotifyService ?? spotifyService;
     const token = await service.getKioskPlaybackToken(params.deviceId);
-    const runDispatch = async (accessToken: string) => {
-        await service.transferPlayback(playbackDeviceId, true, accessToken);
-        await service.playTrack(playbackDeviceId, spotifyUri, accessToken);
-    };
 
     try {
-        await runDispatch(token.accessToken);
+        await service.transferPlayback(playbackDeviceId, true, token.accessToken);
+        await service.playTrack(playbackDeviceId, spotifyUri, token.accessToken);
     } catch (error) {
         if (isSpotifyMissingPlaybackDeviceError(error)) {
             await markSpotifyKioskPlaybackDeviceInactive(params.deviceId);
@@ -513,7 +512,8 @@ export async function dispatchSpotifyPlaybackForSong(params: {
         if (isSpotifyUnauthorizedAccessTokenError(error)) {
             const refreshedAccessToken = await service.refreshDeviceAccessToken(params.deviceId);
             try {
-                await runDispatch(refreshedAccessToken);
+                await service.transferPlayback(playbackDeviceId, true, refreshedAccessToken);
+                await service.playTrack(playbackDeviceId, spotifyUri, refreshedAccessToken);
             } catch (retryError) {
                 if (isSpotifyMissingPlaybackDeviceError(retryError)) {
                     await markSpotifyKioskPlaybackDeviceInactive(params.deviceId);
@@ -767,7 +767,11 @@ function readSpotifyKioskDeviceId(req: Request) {
         ? ((req.body as { device_id?: string }).device_id || null)
         : null;
 
-    return (queryDeviceId ?? bodyDeviceId)?.trim() || null;
+    const raw = (queryDeviceId ?? bodyDeviceId)?.trim();
+    if (!raw || raw === 'undefined' || raw === 'null') {
+        return null;
+    }
+    return raw;
 }
 
 function readSpotifyKioskDevicePassword(req: Request) {
@@ -780,21 +784,28 @@ function readSpotifyKioskDevicePassword(req: Request) {
 }
 
 async function loadValidatedSpotifyKioskDevice(deviceId: string, devicePassword: string) {
-    const deviceResult = await db.query(
-        'SELECT id, password FROM devices WHERE id = $1',
-        [deviceId]
-    );
+    try {
+        const deviceResult = await db.query(
+            'SELECT id, password FROM devices WHERE id = $1',
+            [deviceId]
+        );
 
-    if (deviceResult.rows.length === 0) {
-        return { ok: false as const, statusCode: 404, error: 'Device not found' };
+        if (deviceResult.rows.length === 0) {
+            return { ok: false as const, statusCode: 404, error: 'Device not found' };
+        }
+
+        const device = deviceResult.rows[0];
+        if (device.password && device.password !== devicePassword) {
+            return { ok: false as const, statusCode: 403, error: 'Invalid device password' };
+        }
+
+        return { ok: true as const };
+    } catch (error: any) {
+        if (error?.code === '22P02') {
+            return { ok: false as const, statusCode: 404, error: 'Device not found' };
+        }
+        throw error;
     }
-
-    const device = deviceResult.rows[0];
-    if (device.password && device.password !== devicePassword) {
-        return { ok: false as const, statusCode: 403, error: 'Invalid device password' };
-    }
-
-    return { ok: true as const };
 }
 
 function buildSpotifyKioskTokenResponse(params: {
@@ -1000,7 +1011,7 @@ export async function handleSpotifyKioskDeviceRegistration(req: Request, res: Re
                  is_active = $6,
                  last_heartbeat = $7,
                  current_song_id = CASE
-                     WHEN EXISTS (
+                     WHEN $5 = false AND EXISTS (
                          SELECT 1
                          FROM songs s
                          WHERE s.id = devices.current_song_id
@@ -2354,7 +2365,7 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
 
         let autoStarted = false;
         if (queueSelection.sourceType === 'spotify') {
-            const [deviceStateResult, pendingCountResult, songSourceResult] = await Promise.all([
+            const [deviceStateResult, pendingCountResult, songSourceResult, activePlayingResult] = await Promise.all([
                 db.query(
                     `SELECT current_song_id, spotify_playback_device_id, spotify_player_is_active
                      FROM devices
@@ -2369,13 +2380,18 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
                     'SELECT source_type, spotify_uri FROM songs WHERE id = $1',
                     [queueSelection.songId]
                 ),
+                db.query(
+                    "SELECT id FROM queue_items WHERE device_id = $1 AND status = 'playing'",
+                    [device_id]
+                ),
             ]);
 
             const deviceState = deviceStateResult.rows[0] ?? null;
             const pendingCount = Number.parseInt(pendingCountResult.rows[0]?.pending_count ?? '0', 10);
             const songSource = songSourceResult.rows[0] ?? null;
+            const hasActivePlaying = activePlayingResult.rows.length > 0 || Boolean(deviceState?.current_song_id);
 
-            if (shouldImmediatelyStartSpotifyQueueItem({
+            if (!hasActivePlaying && shouldImmediatelyStartSpotifyQueueItem({
                 song: {
                     source_type: songSource?.source_type ?? 'spotify',
                     spotify_uri: songSource?.spotify_uri ?? null,
@@ -3018,6 +3034,34 @@ router.post('/kiosk/spotify-device-auth/start', handleSpotifyKioskDeviceAuthStar
 
 router.post('/kiosk/spotify-device', handleSpotifyKioskDeviceRegistration);
 
+router.get('/kiosk/playback-state/:deviceId', async (req: Request, res: Response) => {
+    const { deviceId } = req.params;
+    try {
+        const token = await spotifyService.getKioskPlaybackToken(deviceId);
+        const snapshot = await spotifyService.getCurrentPlaybackSnapshot(token.accessToken);
+        return sendSuccess(res, snapshot, 'Playback state fetched');
+    } catch {
+        return sendSuccess(res, null, 'No active playback');
+    }
+});
+
+router.get('/lyrics', async (req: Request, res: Response) => {
+    const { title, artist, duration } = req.query;
+    if (!title || !artist) {
+        return sendError(res, 'title and artist query parameters are required', 400);
+    }
+    try {
+        const lyrics = await fetchLyrics({
+            title: String(title),
+            artist: String(artist),
+            durationSeconds: duration ? Number(duration) : undefined,
+        });
+        return sendSuccess(res, lyrics, 'Lyrics fetched');
+    } catch (error) {
+        return sendError(res, 'Failed to fetch lyrics', 500);
+    }
+});
+
 router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
     const { device_id, song_id } = req.body;
 
@@ -3053,10 +3097,22 @@ router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
             return res.json({ success: true });
         }
 
-        const currentSongResult = await db.query(
+        // Resolve song_id if a queue_item ID was passed
+        let resolvedSongId = song_id;
+        let queueItemIdToPlay: string | null = null;
+        let currentSongResult = await db.query(
             'SELECT id, source_type, spotify_uri FROM songs WHERE id = $1',
-            [song_id]
+            [resolvedSongId]
         );
+        if (currentSongResult.rows.length === 0) {
+            const queueRow = await db.query('SELECT id, song_id FROM queue_items WHERE id = $1', [song_id]);
+            if (queueRow.rows.length > 0) {
+                queueItemIdToPlay = queueRow.rows[0].id;
+                resolvedSongId = queueRow.rows[0].song_id;
+                currentSongResult = await db.query('SELECT id, source_type, spotify_uri FROM songs WHERE id = $1', [resolvedSongId]);
+            }
+        }
+
         const currentSong = currentSongResult.rows[0] ?? null;
 
         if (currentSong?.source_type === 'spotify') {
@@ -3079,10 +3135,15 @@ router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
         }
 
         // Try to find if this song is in the queue
-        const queueItem = await db.query(
-            "SELECT id FROM queue_items WHERE device_id = $1 AND song_id = $2 AND status = 'pending' ORDER BY priority_score DESC LIMIT 1",
-            [device_id, song_id]
-        );
+        let queueItem;
+        if (queueItemIdToPlay) {
+            queueItem = await db.query("SELECT id FROM queue_items WHERE id = $1", [queueItemIdToPlay]);
+        } else {
+            queueItem = await db.query(
+                "SELECT id FROM queue_items WHERE device_id = $1 AND song_id = $2 AND status = 'pending' ORDER BY priority_score DESC LIMIT 1",
+                [device_id, resolvedSongId]
+            );
+        }
 
         if (queueItem.rows.length > 0) {
             // Mark previous playing song as played and award points (+10)
@@ -3114,7 +3175,7 @@ router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
         // Update device current song state (always, even for autoplay)
         await db.query(
             'UPDATE devices SET current_song_id = $2, last_heartbeat = NOW() WHERE id = $1',
-            [device_id, song_id]
+            [device_id, resolvedSongId]
         );
 
         // Broadcast update to all clients (always trigger so Web UI stays in sync)

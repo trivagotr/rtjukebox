@@ -112,8 +112,10 @@
         let currentStatus = null;
         let messageListener = null;
 
+        const fetchFn = (typeof options.fetch === 'function' ? options.fetch : (typeof window !== 'undefined' ? window.fetch : globalThis.fetch)).bind(typeof window !== 'undefined' ? window : globalThis);
+
         async function fetchJson(url, init = {}) {
-            const response = await options.fetch(url, {
+            const response = await fetchFn(url, {
                 ...init,
                 headers: {
                     'Content-Type': 'application/json',

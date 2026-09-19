@@ -975,7 +975,10 @@ export class SpotifyService {
     deviceId: string | null;
     isPlaying: boolean;
     progressMs: number | null;
+    durationMs: number | null;
     itemUri: string | null;
+    trackName: string | null;
+    artistName: string | null;
   } | null> {
     const token = await this.resolvePlaybackAccessToken(accessTokenOverride);
 
@@ -995,8 +998,27 @@ export class SpotifyService {
       deviceId: response.data.device?.id ?? null,
       isPlaying: Boolean(response.data.is_playing),
       progressMs: typeof response.data.progress_ms === 'number' ? response.data.progress_ms : null,
+      durationMs: typeof response.data.item?.duration_ms === 'number' ? response.data.item.duration_ms : null,
       itemUri: response.data.item?.uri ?? null,
+      trackName: response.data.item?.name ?? null,
+      artistName: response.data.item?.artists?.[0]?.name ?? null,
     };
+  }
+
+  async getAvailableDevices(accessTokenOverride?: string): Promise<{ id: string; name: string; is_active: boolean }[]> {
+    const token = await this.resolvePlaybackAccessToken(accessTokenOverride);
+    try {
+      const response = await axios.get(`${SPOTIFY_API_URL}/me/player/devices`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return (response.data?.devices || []).map((d: any) => ({
+        id: d.id,
+        name: d.name,
+        is_active: Boolean(d.is_active),
+      }));
+    } catch {
+      return [];
+    }
   }
 
   async getKioskPlaybackToken(deviceId: string): Promise<{

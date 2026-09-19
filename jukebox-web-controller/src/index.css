@@ -679,21 +679,26 @@ h2 {
 .queue-column {
   border-radius: 18px;
   min-height: calc(100vh - 36px);
-  overflow: hidden;
 }
 
 .now-playing-panel {
-  display: grid;
-  place-items: center;
-  padding: clamp(20px, 4vw, 52px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: clamp(16px, 2.8vw, 36px);
+  overflow-y: auto;
+  max-height: calc(100vh - 36px);
 }
 
 .record-display {
-  width: min(100%, 680px);
-  display: grid;
-  justify-items: center;
-  gap: 24px;
+  width: min(100%, 580px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
   text-align: center;
+  margin: auto 0;
 }
 
 .record-art {
@@ -847,6 +852,113 @@ h2 {
 .vote.active-super {
   color: var(--amber);
   border-color: rgba(255, 178, 56, 0.45);
+}
+
+.member-lyrics-card {
+  width: min(100%, 460px);
+  border-radius: 16px;
+  background: rgba(14, 10, 13, 0.75);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(14px);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  margin-top: 4px;
+}
+
+.lyrics-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 8px;
+}
+
+.lyrics-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--amber);
+}
+
+.lyrics-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(47, 212, 125, 0.15);
+  color: var(--green);
+  border: 1px solid rgba(47, 212, 125, 0.3);
+  font-weight: 800;
+}
+
+.lyrics-badge.plain {
+  background: rgba(255, 178, 56, 0.12);
+  color: var(--amber);
+  border-color: rgba(255, 178, 56, 0.3);
+}
+
+.lyrics-badge.none {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  border-color: var(--line);
+}
+
+.member-lyrics-scroller {
+  max-height: 130px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-right: 4px;
+  scroll-behavior: smooth;
+}
+
+.lyrics-placeholder {
+  color: var(--muted);
+  font-size: 13px;
+  font-style: italic;
+  text-align: center;
+  padding: 16px 0;
+}
+
+.lyric-line {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: rgba(255, 248, 239, 0.38);
+  transition: color 0.2s ease, transform 0.2s ease, text-shadow 0.2s ease, opacity 0.2s ease;
+  padding: 4px 8px;
+  border-radius: 6px;
+  text-align: center;
+}
+
+.lyric-line.plain-mode {
+  color: rgba(255, 248, 239, 0.7);
+  font-size: 13px;
+}
+
+.lyric-line.active {
+  color: var(--amber);
+  font-size: 15px;
+  font-weight: 900;
+  text-shadow: 0 0 12px rgba(255, 178, 56, 0.5);
+  background: rgba(255, 178, 56, 0.1);
+  transform: scale(1.03);
+}
+
+.lyric-line.past {
+  opacity: 0.35;
+}
+
+.lyric-line.future {
+  opacity: 0.55;
 }
 
 .queue-column {

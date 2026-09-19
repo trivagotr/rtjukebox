@@ -10,6 +10,7 @@ import {
   Disc3,
   ListMusic,
   LogOut,
+  Mic2,
   Plus,
   Radio,
   RefreshCw,
@@ -58,6 +59,7 @@ interface QueueSong {
   cover_url: string | null;
   added_by_name?: string | null;
   duration_seconds?: number | null;
+  duration_ms?: number | null;
   user_vote?: number;
   upvotes?: number;
   downvotes?: number;
@@ -98,6 +100,7 @@ interface ConnectResponse {
 }
 
 interface ProgressState {
+  device_id?: string;
   currentTime: number;
   duration: number;
   percent: number;
@@ -403,6 +406,144 @@ const QueueItem = ({ item, idx, myVotes, handleVote, user }: QueueItemProps) => 
   );
 };
 
+interface SyncedLyricLine {
+  time: number;
+  text: string;
+}
+
+interface LyricsData {
+  synced: boolean;
+  lines: SyncedLyricLine[];
+  plainLyrics: string | null;
+  title: string;
+  artist: string;
+}
+
+const SyncedLyricsCard = ({
+  nowPlaying,
+  interpolatedProgress,
+}: {
+  nowPlaying: QueueSong | null;
+  interpolatedProgress: number;
+}) => {
+  const [lyrics, setLyrics] = useState<LyricsData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const activeLineRef = useRef<HTMLDivElement | null>(null);
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+
+  const title = nowPlaying?.title || '';
+  const artist = nowPlaying?.artist || '';
+  const durationMs = nowPlaying?.duration_ms ?? (nowPlaying?.duration_seconds ? nowPlaying.duration_seconds * 1000 : null);
+
+  useEffect(() => {
+    if (!title || !artist) {
+      setLyrics(null);
+      setLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+    setLoading(true);
+
+    const durationSec = durationMs ? Math.round(durationMs / 1000) : undefined;
+    const params = new URLSearchParams({
+      title,
+      artist,
+    });
+    if (durationSec) params.set('duration', String(durationSec));
+
+    const token = localStorage.getItem('token');
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+    axios
+      .get<{ data: LyricsData | null }>(`${API_URL}/api/v1/jukebox/lyrics?${params.toString()}`, { headers })
+      .then((res) => {
+        if (!isMounted) return;
+        setLyrics(res.data.data || null);
+      })
+      .catch((err) => {
+        console.warn('Lyrics fetch error:', err);
+        if (!isMounted) return;
+        setLyrics(null);
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [title, artist, durationMs]);
+
+  // Find active line
+  let activeIndex = -1;
+  if (lyrics?.synced && lyrics.lines.length > 0) {
+    for (let i = lyrics.lines.length - 1; i >= 0; i--) {
+      if (lyrics.lines[i].time <= interpolatedProgress + 0.2) {
+        activeIndex = i;
+        break;
+      }
+    }
+  }
+
+  // Auto-scroll active line into view smoothly
+  useEffect(() => {
+    if (activeLineRef.current) {
+      activeLineRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }
+  }, [activeIndex]);
+
+  if (!nowPlaying) return null;
+
+  return (
+    <div className="member-lyrics-card">
+      <div className="lyrics-header">
+        <div className="lyrics-header-left">
+          <Mic2 size={16} />
+          <span>Canlı Şarkı Sözleri</span>
+        </div>
+        <span className={`lyrics-badge ${lyrics?.synced ? '' : lyrics?.plainLyrics ? 'plain' : 'none'}`}>
+          {loading ? 'Aranıyor...' : lyrics?.synced ? 'Canlı' : lyrics?.plainLyrics ? 'Metin' : 'Söz Yok'}
+        </span>
+      </div>
+
+      <div className="member-lyrics-scroller custom-scrollbar" ref={scrollerRef}>
+        {loading ? (
+          <div className="lyrics-placeholder">Sözler yükleniyor...</div>
+        ) : lyrics?.synced && lyrics.lines.length > 0 ? (
+          lyrics.lines.map((line, idx) => {
+            const isActive = idx === activeIndex;
+            const isPast = idx < activeIndex;
+            return (
+              <div
+                key={idx}
+                ref={isActive ? activeLineRef : null}
+                className={`lyric-line ${isActive ? 'active' : isPast ? 'past' : 'future'}`}
+              >
+                {line.text}
+              </div>
+            );
+          })
+        ) : lyrics?.plainLyrics ? (
+          lyrics.plainLyrics
+            .split('\n')
+            .filter((l) => l.trim().length > 0)
+            .map((line, idx) => (
+              <div key={idx} className="lyric-line plain-mode">
+                {line}
+              </div>
+            ))
+        ) : (
+          <div className="lyrics-placeholder">Müziğin ritmine kulak ver 🎶</div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 interface JukeboxViewProps {
   user: AppUser;
   device: DeviceSummary;
@@ -444,7 +585,7 @@ const JukeboxView = ({
 }: JukeboxViewProps) => {
   const nowPlayingCurrentVote = nowPlaying ? resolveDisplayedVote(nowPlaying, myVotes) : undefined;
   const nowPlayingSongScore = nowPlaying ? getDisplayedSongScore(nowPlaying) : 0;
-  const duration = progress?.duration || nowPlaying?.duration_seconds || 0;
+  const duration = progress?.duration || (nowPlaying?.duration_ms ? nowPlaying.duration_ms / 1000 : (nowPlaying?.duration_seconds || 0));
   const progressPercent = duration ? Math.min(100, (interpolatedProgress / duration) * 100) : 0;
   const supervoteAvailable = hasSupervoteAvailableToday(user.last_super_vote_at);
 
@@ -590,6 +731,8 @@ const JukeboxView = ({
                   )}
                 </div>
               </div>
+
+              <SyncedLyricsCard nowPlaying={nowPlaying} interpolatedProgress={interpolatedProgress} />
             </div>
           ) : (
             <div className="empty-stage">
@@ -675,14 +818,32 @@ function App() {
   const fetchCurrentQueue = useCallback(
     async (deviceId: string) => {
       try {
-        const res = await axios.get<QueueState>(`${API_URL}/api/v1/jukebox/queue/${deviceId}`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-        });
+        const [res, playbackRes] = await Promise.all([
+          axios.get<QueueState>(`${API_URL}/api/v1/jukebox/queue/${deviceId}`, {
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+          }),
+          axios.get<{ success: boolean; data: { progressMs?: number; durationMs?: number; isPlaying?: boolean } | null }>(
+            `${API_URL}/api/v1/jukebox/kiosk/playback-state/${deviceId}`
+          ).catch(() => null),
+        ]);
         const nextQueue = res.data.queue || [];
         const nextNowPlaying = res.data.now_playing || null;
         setQueue(nextQueue);
         setNowPlaying(nextNowPlaying);
         syncVotesFromQueue(nextNowPlaying, nextQueue);
+
+        const pbData = playbackRes?.data?.data;
+        if (pbData && typeof pbData.progressMs === 'number' && typeof pbData.durationMs === 'number') {
+          const currentTime = pbData.progressMs / 1000;
+          const duration = pbData.durationMs / 1000;
+          setProgress({
+            device_id: deviceId,
+            currentTime,
+            duration,
+            percent: duration > 0 ? (currentTime / duration) * 100 : 0,
+          });
+          setInterpolatedProgress(currentTime);
+        }
       } catch (error) {
         console.error('Failed to sync queue:', error);
       }
@@ -840,8 +1001,12 @@ function App() {
       const nextQueue = data.queue || [];
       const nextNowPlaying = data.now_playing || null;
       setQueue(nextQueue);
-      setNowPlaying(nextNowPlaying);
-      setProgress(null);
+      setNowPlaying((prev) => {
+        if (prev?.id !== nextNowPlaying?.id) {
+          setProgress(null);
+        }
+        return nextNowPlaying;
+      });
       syncVotesFromQueue(nextNowPlaying, nextQueue);
     };
 
@@ -872,7 +1037,14 @@ function App() {
   }, [device, fetchCurrentQueue, socket, syncVotesFromQueue, user?.role]);
 
   useEffect(() => {
-    if (device?.id) void fetchCurrentQueue(device.id);
+    if (!device?.id) return undefined;
+    void fetchCurrentQueue(device.id);
+
+    const interval = window.setInterval(() => {
+      void fetchCurrentQueue(device.id);
+    }, 3000);
+
+    return () => window.clearInterval(interval);
   }, [device?.id, fetchCurrentQueue]);
 
   const handleGuestLogin = async () => {

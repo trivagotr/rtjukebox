@@ -25,6 +25,9 @@ class KioskApp {
         this.waveformCtx = this.waveformCanvas?.getContext('2d');
         this.visualStateTransitionTimer = null;
 
+        // Lyrics State
+        this.lyricsState = { trackKey: null, lines: [], plain: null, activeIndex: -1, synced: false };
+
         // Autoplay Logic
         this.autoplayTriggered = false;
         this.lastEmitTime = 0;
@@ -136,19 +139,21 @@ class KioskApp {
     }
 
     isSpotifyDeviceAuthConnected() {
-        if (!this.spotifyDeviceAuthController) {
-            return this.spotifyDeviceAuthReady === true && !this.spotifyDeviceAuthSetupState?.required;
+        if (this.spotifyDeviceAuthStatus?.connected === true) {
+            this.clearSpotifyDeviceAuthSetupState();
+            return true;
         }
 
         if (this.spotifyDeviceAuthStatus?.connected === false) {
             return false;
         }
 
-        if (this.spotifyDeviceAuthSetupState?.required) {
-            return false;
+        if (this.spotifyDeviceAuthReady === true) {
+            this.clearSpotifyDeviceAuthSetupState();
+            return true;
         }
 
-        return true;
+        return !this.spotifyDeviceAuthSetupState?.required;
     }
 
     async setupSpotifyDeviceAuthFlow() {
@@ -170,7 +175,7 @@ class KioskApp {
             deviceId: this.device?.id,
             devicePassword: localStorage.getItem('device_pwd') || CONFIG.DEVICE_PWD || '',
             document,
-            fetch,
+            fetch: window.fetch.bind(window),
             window,
             onMissing: (status) => {
                 this.spotifyDeviceAuthStatus = status;
@@ -663,6 +668,15 @@ class KioskApp {
                 onStateChange: (state) => this.handleSpotifyPlayerStateChange(state),
                 onAutoplayFailed: () => this.log('⚠️ Spotify autoplay başarısız oldu', 'error'),
                 onError: (error) => {
+                    const message = error?.message || String(error || '');
+                    if (message.includes('No supported keysystem') || message.includes('Failed to initialize player') || message.includes('initialization_error') || message.includes('EMEError')) {
+                        console.warn('ℹ️ Tarayıcı DRM desteklemiyor, Spotify Connect ile masaüstü oynatıcı kullanılıyor.');
+                        this.spotifyController = null;
+                        this.spotifyReadyPromise = null;
+                        this.spotifyReadyResolve = null;
+                        return;
+                    }
+
                     const authRequiredMessage = this.getSpotifyDeviceAuthRequiredMessage(error);
                     if (authRequiredMessage) {
                         this.saveSpotifyDeviceAuthSetupState(authRequiredMessage);
@@ -680,17 +694,30 @@ class KioskApp {
                         this.log(`⚠️ Spotify bağlantısı gerekli: ${authRequiredMessage}`, 'error');
                         return;
                     }
-                    this.log(`❌ Spotify player hatası: ${error.message || error}`, 'error');
+                    this.log(`❌ Spotify player uyarısı: ${error.message || error}`, 'warn');
                 },
             });
 
             const connected = await this.spotifyController.connect();
             if (connected === false) {
-                throw new Error('Spotify player failed to connect');
+                console.warn('ℹ️ Spotify Web Playback SDK bağlantısı kurulamadı, Spotify Connect kullanılıyor.');
+                this.spotifyController = null;
+                this.spotifyReadyPromise = null;
+                this.spotifyReadyResolve = null;
+                return null;
             }
             this.clearSpotifyDeviceAuthSetupState();
             return this.spotifyController;
         } catch (error) {
+            const message = error?.message || String(error || '');
+            if (message.includes('No supported keysystem') || message.includes('Failed to initialize player') || message.includes('failed to connect') || message.includes('initialization_error') || message.includes('EMEError')) {
+                console.warn('ℹ️ Spotify Web Playback SDK başlatılamadı, Spotify Connect üzerinden yürütülüyor.');
+                this.spotifyController = null;
+                this.spotifyReadyPromise = null;
+                this.spotifyReadyResolve = null;
+                return null;
+            }
+
             const authRequiredMessage = this.getSpotifyDeviceAuthRequiredMessage(error);
             if (authRequiredMessage) {
                 this.saveSpotifyDeviceAuthSetupState(authRequiredMessage);
@@ -706,29 +733,24 @@ class KioskApp {
     }
 
     async ensureSpotifyPlaybackReady() {
-        if (!this.spotifyController) {
-            await this.initializeSpotifyPlayback();
+        if (!this.spotifyController && window.KioskSpotifyPlayer) {
+            try {
+                await this.initializeSpotifyPlayback();
+            } catch (initError) {
+                console.warn('⚠️ Local Spotify Web Playback SDK init skipped:', initError);
+            }
         }
 
         if (this.spotifyReadyPromise) {
             try {
                 await Promise.race([
                     this.spotifyReadyPromise,
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Spotify player readiness timeout')), 10000)),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Spotify player readiness timeout')), 3000)),
                 ]);
             } catch (error) {
-                const controller = this.spotifyController;
-                this.spotifyController = null;
+                console.warn('⚠️ Spotify Web SDK timeout, falling back to Spotify Connect on Kiosk machine:', error);
                 this.spotifyReadyPromise = null;
                 this.spotifyReadyResolve = null;
-                this.spotifyDeviceId = null;
-                this.spotifyPlayerState = null;
-                try {
-                    controller?.disconnect?.();
-                } catch (disconnectError) {
-                    this.log(`⚠️ Spotify player kapatılamadı: ${disconnectError.message}`, 'error');
-                }
-                throw error;
             }
         }
 
@@ -1111,12 +1133,27 @@ class KioskApp {
             return;
         }
 
-        if (!this.isPlaying && this.queueData.now_playing) {
-            this.playSong(this.queueData.now_playing);
-        } else if (!this.isPlaying && this.queueData.queue && this.queueData.queue.length > 0) {
+        // Do not interrupt or restart currently playing song!
+        if (this.isPlaying) {
+            return;
+        }
+
+        // If there is already an active now_playing track, sync UI state without restarting playback from 0:00!
+        if (this.queueData.now_playing) {
+            this.isPlaying = true;
+            this.currentPlayingSong = this.queueData.now_playing;
+            if (!this.playbackStartedAt) {
+                this.playbackStartedAt = Date.now();
+            }
+            this.startProgressUpdate();
+            this.showPlayingState(this.queueData.now_playing);
+            return;
+        }
+
+        if (this.queueData.queue && this.queueData.queue.length > 0) {
             this.playSong(this.queueData.queue[0]);
-        } else if (!this.isPlaying && !this.queueData.now_playing) {
-            // Trigger autoplay if nothing is playing and no now_playing exists
+        } else {
+            // Trigger autoplay if nothing is playing and queue is empty
             this.triggerAutoplay();
         }
     }
@@ -1200,6 +1237,16 @@ class KioskApp {
     }
 
     async playSong(song) {
+        if (this.isPlaying && this.currentPlayingSong) {
+            const isSameSong = (song.song_id && this.currentPlayingSong.song_id === song.song_id) ||
+                               (song.id && (this.currentPlayingSong.id === song.id || this.currentPlayingSong.song_id === song.id)) ||
+                               (song.spotify_uri && this.currentPlayingSong.spotify_uri === song.spotify_uri);
+            if (isSameSong) {
+                console.log('⏭️ Bu şarkı zaten çalıyor, yeniden başlatılmadı:', song.title);
+                return;
+            }
+        }
+
         console.log('▶️ Çalınıyor:', song.title);
 
         try {
@@ -1272,11 +1319,17 @@ class KioskApp {
 
     async playSpotifySong(song) {
         this.isPlaying = true;
-        await this.ensureSpotifyPlaybackReady();
+        this.currentPlayingSong = song;
+        this.playbackStartedAt = Date.now();
+        this.liveSpotifyState = null;
+        this.lastSpotifyPoll = 0;
+        this.trackTransitioning = false;
+        this.autoplayTriggered = false;
 
-        if (!this.spotifyController) {
-            this.isPlaying = false;
-            throw new Error('Spotify player is not ready');
+        try {
+            await this.ensureSpotifyPlaybackReady();
+        } catch (e) {
+            console.warn('Spotify local SDK not ready, proceeding with backend dispatch:', e);
         }
 
         const songId = song.song_id || song.id;
@@ -1314,6 +1367,10 @@ class KioskApp {
         this.audioPlayer.src = '';
         this.isPlaying = false;
         this.queueData.now_playing = null; // Clear local state immediately to prevent loop
+        this.currentPlayingSong = null;
+        this.playbackStartedAt = null;
+        this.liveSpotifyState = null;
+        this.trackTransitioning = false;
         this.showIdleState();
 
         if (this.device) {
@@ -1343,18 +1400,78 @@ class KioskApp {
         }
     }
 
-    async updateProgress() {
-        await this.refreshSpotifyPlaybackStateFromSdk();
+    async pollLiveSpotifyPlaybackState() {
+        if (!this.device) return;
+        const now = Date.now();
+        if (this.lastSpotifyPoll && now - this.lastSpotifyPoll < 1200) {
+            return;
+        }
+        this.lastSpotifyPoll = now;
 
-        const useSpotifyProgress = Boolean(this.spotifyPlayerState?.track_uri)
-            && (!this.audioPlayer.src || this.audioPlayer.src === window.location.href);
-        const current = useSpotifyProgress
-            ? (this.spotifyPlayerState?.position_ms || 0) / 1000
-            : this.audioPlayer.currentTime;
-        const total = useSpotifyProgress
-            ? (this.spotifyPlayerState?.duration_ms || 0) / 1000
-            : (this.audioPlayer.duration || 0);
+        try {
+            const res = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/playback-state/${this.device.id}`);
+            if (!res.ok) return;
+            const payload = await res.json();
+            const data = payload?.data;
+            const currentSong = this.queueData?.now_playing || this.currentPlayingSong;
+
+            if (data && typeof data.progressMs === 'number') {
+                if (currentSong?.spotify_uri && data.itemUri && data.itemUri !== currentSong.spotify_uri) {
+                    return; // Ignore snapshot from previous song
+                }
+                this.liveSpotifyState = {
+                    progressMs: data.progressMs,
+                    durationMs: data.durationMs,
+                    isPlaying: data.isPlaying,
+                    itemUri: data.itemUri,
+                    syncedAt: Date.now(),
+                };
+            }
+        } catch {
+            // silent ignore
+        }
+    }
+
+    async updateProgress() {
+        if (this.spotifyController) {
+            await this.refreshSpotifyPlaybackStateFromSdk();
+        } else {
+            await this.pollLiveSpotifyPlaybackState();
+        }
+
+        const currentSong = this.queueData?.now_playing || this.currentPlayingSong;
+        let current = 0;
+        let total = 0;
+
+        if (this.spotifyPlayerState?.track_uri && this.spotifyPlayerState?.duration_ms) {
+            current = (this.spotifyPlayerState.position_ms || 0) / 1000;
+            total = (this.spotifyPlayerState.duration_ms || 0) / 1000;
+        } else if (this.liveSpotifyState && typeof this.liveSpotifyState.progressMs === 'number') {
+            const elapsedSinceSync = Math.max(0, Date.now() - this.liveSpotifyState.syncedAt);
+            current = (this.liveSpotifyState.progressMs + (this.liveSpotifyState.isPlaying ? elapsedSinceSync : 0)) / 1000;
+            total = (this.liveSpotifyState.durationMs || (currentSong?.duration_ms ?? 0)) / 1000;
+            if (total > 0 && current > total) {
+                current = total;
+            }
+        } else if (this.audioPlayer.src && this.audioPlayer.src !== window.location.href && !this.audioPlayer.paused) {
+            current = this.audioPlayer.currentTime;
+            total = this.audioPlayer.duration || 0;
+        } else if (currentSong?.duration_ms && this.playbackStartedAt && this.isPlaying) {
+            total = currentSong.duration_ms / 1000;
+            current = Math.min(total, (Date.now() - this.playbackStartedAt) / 1000);
+        }
+
         const percent = total > 0 ? (current / total) * 100 : 0;
+
+        // Auto transition to next song when duration expires
+        if (total > 0 && current >= total && this.isPlaying && !this.trackTransitioning) {
+            this.trackTransitioning = true;
+            console.log('🎵 Şarkı süresi tamamlandı, sonraki şarkıya geçiliyor...');
+            setTimeout(() => {
+                this.trackTransitioning = false;
+                this.playNextFromQueue();
+            }, 1000);
+        }
 
         // Emit progress via socket only at larger intervals
         const now = Date.now();
@@ -1374,7 +1491,7 @@ class KioskApp {
 
         // Check for Autoplay Trigger (80% Rule)
         // If 80% played, queue is empty, and we haven't triggered yet
-        if (total > 0 && percent > 80 && this.queueData.queue.length === 0 && !this.autoplayTriggered) {
+        if (total > 0 && percent > 80 && (!this.queueData.queue || this.queueData.queue.length === 0) && !this.autoplayTriggered) {
             console.log('⏳ 80% Kuralı: Otomatik sonraki şarkı tetikleniyor...');
             this.autoplayTriggered = true;
 
@@ -1401,6 +1518,9 @@ class KioskApp {
         // Update time display
         document.getElementById('currentTime').textContent = this.formatTime(current);
         document.getElementById('totalTime').textContent = this.formatTime(total);
+
+        // Update live lyrics active line
+        this.updateActiveLyric(current);
     }
 
     formatTime(seconds) {
@@ -1466,6 +1586,135 @@ class KioskApp {
 
         // Redraw waveform
         this.drawWaveform();
+
+        // Load & Sync Lyrics
+        this.loadLyricsForSong(song);
+    }
+
+    async loadLyricsForSong(song) {
+        if (!song || !song.title || !song.artist) return;
+        const trackKey = `${song.artist} - ${song.title}`.toLowerCase();
+
+        // If same song is replaying, reset active line and scroll to top
+        if (this.lyricsState.trackKey === trackKey && this.lyricsState.lines?.length > 0) {
+            this.lyricsState.activeIndex = -1;
+            const scroller = document.getElementById('lyricsScroller');
+            if (scroller) {
+                scroller.scrollTop = 0;
+                const domLines = scroller.querySelectorAll('.lyric-line');
+                domLines.forEach(el => { el.className = 'lyric-line future'; });
+            }
+            return;
+        }
+
+        this.lyricsState = { trackKey, lines: [], plain: null, activeIndex: -1, synced: false };
+
+        const scroller = document.getElementById('lyricsScroller');
+        const badge = document.getElementById('lyricsBadge');
+        if (scroller) {
+            scroller.scrollTop = 0;
+            scroller.innerHTML = '<div class="lyrics-placeholder">Sözler yükleniyor...</div>';
+        }
+        if (badge) {
+            badge.textContent = 'Aranıyor...';
+            badge.className = 'lyrics-badge';
+        }
+
+        try {
+            const durationSec = song.duration_ms ? Math.round(song.duration_ms / 1000) : (song.duration_seconds || undefined);
+            const params = new URLSearchParams({
+                title: song.title,
+                artist: song.artist,
+            });
+            if (durationSec) params.set('duration', String(durationSec));
+
+            const res = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/lyrics?${params.toString()}`);
+            if (!res.ok) throw new Error('Lyrics request failed');
+            const json = await res.json();
+            const payload = json.data;
+
+            if (this.lyricsState.trackKey !== trackKey) return;
+
+            if (payload && (payload.lines?.length > 0 || payload.plainLyrics)) {
+                this.lyricsState.lines = payload.lines || [];
+                this.lyricsState.plain = payload.plainLyrics || null;
+                this.lyricsState.synced = Boolean(payload.synced && payload.lines?.length > 0);
+                this.renderLyrics();
+            } else {
+                if (scroller) scroller.innerHTML = '<div class="lyrics-placeholder">Bu şarkı için söz bulunamadı 🎵</div>';
+                if (badge) {
+                    badge.textContent = 'Yok';
+                    badge.className = 'lyrics-badge none';
+                }
+            }
+        } catch (error) {
+            if (this.lyricsState.trackKey !== trackKey) return;
+            if (scroller) scroller.innerHTML = '<div class="lyrics-placeholder">Müziğin ritmine kulak ver 🎶</div>';
+            if (badge) {
+                badge.textContent = 'Yok';
+                badge.className = 'lyrics-badge none';
+            }
+        }
+    }
+
+    renderLyrics() {
+        const scroller = document.getElementById('lyricsScroller');
+        const badge = document.getElementById('lyricsBadge');
+        if (!scroller) return;
+
+        if (this.lyricsState.synced && this.lyricsState.lines.length > 0) {
+            if (badge) {
+                badge.textContent = 'Canlı';
+                badge.className = 'lyrics-badge';
+            }
+            scroller.innerHTML = this.lyricsState.lines
+                .map((line, idx) => `<div class="lyric-line future" data-index="${idx}" data-time="${line.time}">${this.escapeHtml(line.text)}</div>`)
+                .join('');
+        } else if (this.lyricsState.plain) {
+            if (badge) {
+                badge.textContent = 'Metin';
+                badge.className = 'lyrics-badge plain';
+            }
+            const lines = this.lyricsState.plain.split('\n').filter(l => l.trim().length > 0);
+            scroller.innerHTML = lines
+                .map(line => `<div class="lyric-line">${this.escapeHtml(line)}</div>`)
+                .join('');
+        }
+    }
+
+    updateActiveLyric(currentSeconds) {
+        if (!this.lyricsState.synced || !this.lyricsState.lines || this.lyricsState.lines.length === 0) return;
+
+        const lines = this.lyricsState.lines;
+        let activeIdx = -1;
+        for (let i = lines.length - 1; i >= 0; i--) {
+            if (lines[i].time <= currentSeconds + 0.2) {
+                activeIdx = i;
+                break;
+            }
+        }
+
+        if (activeIdx === this.lyricsState.activeIndex) return;
+        this.lyricsState.activeIndex = activeIdx;
+
+        const scroller = document.getElementById('lyricsScroller');
+        if (!scroller) return;
+
+        if (activeIdx === -1) {
+            scroller.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        const domLines = scroller.querySelectorAll('.lyric-line');
+        domLines.forEach((el, idx) => {
+            if (idx === activeIdx) {
+                el.className = 'lyric-line active';
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            } else if (idx < activeIdx) {
+                el.className = 'lyric-line past';
+            } else {
+                el.className = 'lyric-line future';
+            }
+        });
     }
 
     showIdleState() {
@@ -1481,6 +1730,11 @@ class KioskApp {
         if (overlay) overlay.style.width = '0%';
         document.getElementById('currentTime').textContent = '0:00';
         document.getElementById('totalTime').textContent = '0:00';
+
+        // Reset lyrics
+        this.lyricsState = { trackKey: null, lines: [], plain: null, activeIndex: -1, synced: false };
+        const scroller = document.getElementById('lyricsScroller');
+        if (scroller) scroller.innerHTML = '<div class="lyrics-placeholder">Müzik bekliyor...</div>';
     }
 
     renderQueue() {

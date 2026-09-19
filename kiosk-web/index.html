@@ -31,10 +31,10 @@
                     return basePath + String(assetPath).replace(/^\/+/, '');
                 },
                 writeStyle: function (assetPath) {
-                    document.write('<link rel="stylesheet" href="' + escapeAttribute(this.resolve(assetPath)) + '">');
+                    document.write('<link rel="stylesheet" href="' + escapeAttribute(this.resolve(assetPath) + '?v=' + Date.now()) + '">');
                 },
                 writeScript: function (assetPath) {
-                    document.write('<script src="' + escapeAttribute(this.resolve(assetPath)) + '"><\/script>');
+                    document.write('<script src="' + escapeAttribute(this.resolve(assetPath) + '?v=' + Date.now()) + '"><\/script>');
                 }
             };
 
@@ -136,6 +136,19 @@
                             <div class="time-display">
                                 <span id="currentTime">0:00</span>
                                 <span id="totalTime">0:00</span>
+                            </div>
+                        </div>
+
+                        <div class="lyrics-card" id="lyricsCard">
+                            <div class="lyrics-header">
+                                <div class="lyrics-header-left">
+                                    <span class="material-symbols-rounded">mic</span>
+                                    <span>Şarkı Sözleri</span>
+                                </div>
+                                <span class="lyrics-badge" id="lyricsBadge">Canlı</span>
+                            </div>
+                            <div class="lyrics-scroller" id="lyricsScroller">
+                                <div class="lyrics-placeholder" id="lyricsPlaceholder">Sözler yükleniyor...</div>
                             </div>
                         </div>
                     </div>

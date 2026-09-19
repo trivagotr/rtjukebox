@@ -55,5 +55,5 @@ const CONFIG = {
 
     // Progress bar güncellemeleri
     UI_UPDATE_INTERVAL: 100, // 0.1 saniye (görsel akıcılık için)
-    SOCKET_EMIT_INTERVAL: 5000 // 5 saniye (sunucu yükü için)
+    SOCKET_EMIT_INTERVAL: 1000 // 1 saniye (canlı üye senkronizasyonu için)
 };
