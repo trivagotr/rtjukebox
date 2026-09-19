@@ -16,12 +16,19 @@ build/
 # Large local exports
 docker_export/
 
+# Uploads & Media Files
+uploads/
+backend/uploads/
+*.mp3
+*.wav
+*.m4a
+*.flac
+*.aac
+
 # Environment
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
 
 # IDE
 .vscode/

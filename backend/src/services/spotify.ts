@@ -949,12 +949,11 @@ export class SpotifyService {
               spotify_id: (t.uri || '').replace('spotify:track:', '') || t.id || t.uid,
               title: t.title || t.name || 'Unknown',
               artist: t.subtitle || (Array.isArray(t.artists) ? t.artists.map((a: any) => a.name).join(', ') : 'Unknown'),
+              artist_id: t.artists?.[0]?.id || '',
               album: t.album?.name || t.title || 'Single',
-              cover_url: t.audioPreview?.coverUrl || null,
+              cover_url: t.audioPreview?.coverUrl || '',
               duration_ms: Number(t.duration || 0),
-              duration_seconds: Math.round(Number(t.duration || 0) / 1000),
-              is_explicit: Boolean(t.isExplicit || t.contentRatings?.labels?.includes('EXPLICIT')),
-              source_type: 'spotify' as const,
+              explicit: Boolean(t.isExplicit || t.contentRatings?.labels?.includes('EXPLICIT')),
             }));
           }
         }
