@@ -844,19 +844,32 @@ class KioskApp {
     }
 
     syncNowPlayingUi() {
-        if (!window.KioskPlayback?.shouldSyncNowPlayingView) {
+        const nextNowPlaying = this.queueData?.now_playing || null;
+        if (!nextNowPlaying) {
+            if (this.currentPlayingSong && !this.audioPlayer.src) {
+                this.stopPlayback();
+            }
             return;
         }
 
-        const shouldSync = window.KioskPlayback.shouldSyncNowPlayingView({
-            nowPlaying: this.queueData.now_playing,
-            isPlaying: this.isPlaying,
-            spotifyTrackUri: this.spotifyPlayerState?.track_uri || null,
-            startupBlocked: Boolean(document.getElementById('startupOverlay')),
-        });
+        const isDifferentSong = !this.currentPlayingSong ||
+            (nextNowPlaying.id && this.currentPlayingSong.id !== nextNowPlaying.id) ||
+            (nextNowPlaying.song_id && this.currentPlayingSong.song_id !== nextNowPlaying.song_id) ||
+            (nextNowPlaying.title !== this.currentPlayingSong.title);
 
-        if (shouldSync) {
-            this.showPlayingState(this.queueData.now_playing);
+        if (isDifferentSong) {
+            console.log('🎵 Kiosk now_playing değişti:', nextNowPlaying.title);
+            this.currentPlayingSong = nextNowPlaying;
+            this.isPlaying = true;
+            this.playbackStartedAt = Date.now();
+            this.liveSpotifyState = null;
+            this.lastSpotifyPoll = 0;
+            this.trackTransitioning = false;
+            this.autoplayTriggered = false;
+            this.showPlayingState(nextNowPlaying);
+            this.startProgressUpdate();
+        } else if (this.isPlaying) {
+            this.showPlayingState(nextNowPlaying);
         }
     }
 
@@ -1023,6 +1036,14 @@ class KioskApp {
                 this.socket.emit('join_device', this.device.id);
                 this.log(`🏠 ${this.device.id} odasına katıldı`);
                 this.loadInitialQueue();
+
+                // Periodic queue sync to guarantee perfect state match
+                if (this.queueSyncInterval) clearInterval(this.queueSyncInterval);
+                this.queueSyncInterval = setInterval(() => {
+                    if (this.device) {
+                        this.loadInitialQueue();
+                    }
+                }, 3000);
 
                 // Heartbeat to test connectivity
                 if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);

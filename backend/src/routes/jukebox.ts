@@ -11,10 +11,17 @@ import { AudioService } from '../services/audio';
 import { songUpload, songUploadDir, normalizeUploadedSongFilename } from '../middleware/upload';
 import path from 'path';
 import { buildSongFileUrl, normalizeText } from '../utils/textNormalization';
-import { CatalogSongSearchItem, spotifyService, toCatalogSongSearchItem, toContentFilterTrack, upsertSpotifyTrack } from '../services/spotify';
+import { CatalogSongSearchItem, parseSpotifyPlaylistId, spotifyService, toCatalogSongSearchItem, toContentFilterTrack, upsertSpotifyTrack } from '../services/spotify';
 import { fetchLyrics } from '../services/lyrics';
 import { buildAutoplaySelection, buildSystemQueueInsertions, loadEffectiveRadioProfileConfig } from '../services/radioProfiles';
 import { createDefaultFilterService, SpotifyTrack as ContentFilterTrack } from '../services/contentFilter';
+import {
+    getContentFilterSettings,
+    getDbBlockedKeywords,
+    invalidateBlockedKeywordsCache,
+    invalidateContentFilterSettingsCache,
+    checkProfanityText,
+} from '../services/profanityFilter';
 import {
     getInitialSongScore,
     getIstanbulDayKey,
@@ -1119,11 +1126,18 @@ export async function resolveQueueSongSelection(params: {
     loadSongById: (songId: string) => Promise<QueueSongSelectionRow | null>;
     resolveSpotifyTrackByUri: (spotifyUri: string) => Promise<ContentFilterTrack>;
     upsertSpotifyTrack: (track: ContentFilterTrack) => Promise<string>;
+    validateTrack?: (track: ContentFilterTrack) => Promise<{ allowed: boolean; reason?: string }>;
 }): Promise<{ songId: string; sourceType: 'spotify' | 'local'; queueReason: 'user' | 'admin' }> {
     const queueReason = params.requesterRole === ROLES.ADMIN ? 'admin' : 'user';
 
     if (params.request.spotify_uri) {
         const track = await params.resolveSpotifyTrackByUri(params.request.spotify_uri);
+        if (params.validateTrack && params.requesterRole !== ROLES.ADMIN) {
+            const validation = await params.validateTrack(track);
+            if (!validation.allowed) {
+                throw new Error(validation.reason || 'Track rejected by content policy');
+            }
+        }
         const songId = await params.upsertSpotifyTrack(track);
         return {
             songId,
@@ -2315,6 +2329,11 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
                 },
                 resolveSpotifyTrackByUri: (spotifyTrackUri) => spotifyService.getTrackByUri(spotifyTrackUri),
                 upsertSpotifyTrack,
+                validateTrack: async (track) => {
+                    const filterService = createDefaultFilterService();
+                    const results = await filterService.filterTracksDetailed([track]);
+                    return results[0] || { allowed: true };
+                },
             });
         } catch (selectionError: any) {
             if (selectionError.message === 'Song not found') {
@@ -2327,6 +2346,18 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
 
             if (selectionError.message === 'A song_id or spotify_uri is required') {
                 return sendError(res, selectionError.message, 400);
+            }
+
+            if (
+                selectionError.message &&
+                (selectionError.message.includes('uygunsuz') ||
+                 selectionError.message.includes('küfürlü') ||
+                 selectionError.message.includes('explicit') ||
+                 selectionError.message.includes('popülaritesi') ||
+                 selectionError.message.includes('blocklist') ||
+                 selectionError.message.includes('engellendi'))
+            ) {
+                return sendError(res, selectionError.message, 403, selectionError.message);
             }
 
             throw selectionError;
@@ -2930,7 +2961,15 @@ router.put('/admin/devices/:id', authMiddleware, async (req: Request, res: Respo
     if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
 
     const { id } = req.params;
-    const { name, location, is_active, password } = req.body;
+    const {
+        name,
+        location,
+        is_active,
+        password,
+        override_autoplay_spotify_playlist_uri,
+        fallback_playlist_url,
+        override_enabled
+    } = req.body;
 
     try {
         let normalizedDevice;
@@ -2939,24 +2978,85 @@ router.put('/admin/devices/:id', authMiddleware, async (req: Request, res: Respo
         } catch (validationError: any) {
             return sendError(res, validationError.message || 'Invalid device name', 400);
         }
+
+        const rawPlaylistInput = override_autoplay_spotify_playlist_uri !== undefined
+            ? override_autoplay_spotify_playlist_uri
+            : fallback_playlist_url;
+
+        let normalizedPlaylistUri = undefined;
+        if (rawPlaylistInput !== undefined) {
+            if (!rawPlaylistInput || (typeof rawPlaylistInput === 'string' && rawPlaylistInput.trim() === '')) {
+                normalizedPlaylistUri = null;
+            } else {
+                const playlistId = parseSpotifyPlaylistId(String(rawPlaylistInput));
+                normalizedPlaylistUri = playlistId ? `spotify:playlist:${playlistId}` : String(rawPlaylistInput).trim();
+            }
+        }
+
         const result = await db.query(
             `UPDATE devices SET 
                 name = COALESCE($1, name),
                 location = COALESCE($2, location),
                 is_active = COALESCE($3, is_active),
-                password = COALESCE($4, password)
-             WHERE id = $5 RETURNING *`,
-            [normalizedDevice.name, normalizedDevice.location, is_active, password, id]
+                password = COALESCE($4, password),
+                override_autoplay_spotify_playlist_uri = CASE WHEN $5::boolean THEN $6 ELSE override_autoplay_spotify_playlist_uri END,
+                override_enabled = CASE WHEN $7::boolean THEN $8 ELSE override_enabled END
+             WHERE id = $9 RETURNING *`,
+            [
+                normalizedDevice.name,
+                normalizedDevice.location,
+                is_active,
+                password,
+                normalizedPlaylistUri !== undefined,
+                normalizedPlaylistUri ?? null,
+                override_enabled !== undefined,
+                override_enabled !== undefined ? Boolean(override_enabled) : false,
+                id
+            ]
         );
 
         if (result.rows.length === 0) {
             return sendError(res, 'Device not found', 404);
         }
 
+        if (normalizedPlaylistUri !== undefined || override_enabled !== undefined) {
+            try {
+                if (result.rows[0].override_enabled && result.rows[0].override_autoplay_spotify_playlist_uri) {
+                    await db.query(
+                        "DELETE FROM queue_items WHERE device_id = $1 AND status = 'pending' AND queue_reason = 'autoplay'",
+                        [id]
+                    );
+                    await enqueueAutoplayForDevice({ deviceId: id });
+                }
+                getIO()?.to(`device:${id}`).emit('queue_updated', await getQueueForDevice(id));
+            } catch (queueErr) {
+                console.warn('[Jukebox] Failed to auto-populate queue after device playlist update:', queueErr);
+            }
+        }
+
         return sendSuccess(res, { device: result.rows[0] }, 'Device updated');
     } catch (error) {
         console.error('Update device error:', error);
         return sendError(res, 'Failed to update device', 500);
+    }
+});
+
+// Preview Spotify playlist metadata
+router.get('/admin/playlist-preview', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    const url = typeof req.query?.url === 'string' ? req.query.url.trim() : '';
+    if (!url) {
+        return sendError(res, 'Playlist URL veya URI gerekli', 400);
+    }
+
+    try {
+        const details = await spotifyService.getPlaylistDetails(url);
+        return sendSuccess(res, details, 'Playlist details fetched');
+    } catch (error: any) {
+        console.error('Playlist preview error:', error);
+        return sendError(res, error.message || 'Playlist bilgileri çekilemedi', 400);
     }
 });
 
@@ -3353,12 +3453,183 @@ router.get('/admin/blocked', authMiddleware, async (req: Request, res: Response)
     }
 });
 
+// GET /admin/moderation/settings - get content filter settings
+router.get('/admin/moderation/settings', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    try {
+        const settings = await getContentFilterSettings();
+        return sendSuccess(res, settings);
+    } catch (error) {
+        console.error('Get moderation settings error:', error);
+        return sendError(res, 'Failed to get moderation settings', 500);
+    }
+});
+
+// PUT /admin/moderation/settings - update content filter settings
+router.put('/admin/moderation/settings', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    const { lyrics_filter_enabled, block_unverified_obscure_tracks, min_popularity_without_lyrics } = req.body;
+
+    try {
+        const lyricsEnabled = typeof lyrics_filter_enabled === 'boolean' ? lyrics_filter_enabled : true;
+        const blockObscure = typeof block_unverified_obscure_tracks === 'boolean' ? block_unverified_obscure_tracks : true;
+        const minPop = typeof min_popularity_without_lyrics === 'number' ? Math.max(0, Math.min(100, min_popularity_without_lyrics)) : 15;
+
+        await db.query(
+            `INSERT INTO content_filter_settings (id, lyrics_filter_enabled, block_unverified_obscure_tracks, min_popularity_without_lyrics, updated_at)
+             VALUES (1, $1, $2, $3, NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               lyrics_filter_enabled = EXCLUDED.lyrics_filter_enabled,
+               block_unverified_obscure_tracks = EXCLUDED.block_unverified_obscure_tracks,
+               min_popularity_without_lyrics = EXCLUDED.min_popularity_without_lyrics,
+               updated_at = NOW()`,
+            [lyricsEnabled, blockObscure, minPop]
+        );
+
+        invalidateContentFilterSettingsCache();
+
+        const updated = await getContentFilterSettings();
+        return sendSuccess(res, updated, 'Moderation settings updated');
+    } catch (error) {
+        console.error('Update moderation settings error:', error);
+        return sendError(res, 'Failed to update moderation settings', 500);
+    }
+});
+
+// GET /admin/moderation/keywords - list custom blocked keywords
+router.get('/admin/moderation/keywords', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    try {
+        const result = await db.query('SELECT * FROM blocked_keywords ORDER BY created_at DESC');
+        return sendSuccess(res, result.rows);
+    } catch (error) {
+        console.error('List blocked keywords error:', error);
+        return sendError(res, 'Failed to fetch blocked keywords', 500);
+    }
+});
+
+// POST /admin/moderation/keywords - add custom blocked keyword
+router.post('/admin/moderation/keywords', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    const { word, category } = req.body;
+    if (!word || typeof word !== 'string' || !word.trim()) {
+        return sendError(res, 'Yasaklı kelime boş olamaz', 400);
+    }
+
+    try {
+        const cleanWord = word.trim().toLowerCase();
+        const result = await db.query(
+            `INSERT INTO blocked_keywords (word, category)
+             VALUES ($1, $2)
+             ON CONFLICT (word) DO NOTHING
+             RETURNING *`,
+            [cleanWord, category || 'profanity']
+        );
+
+        invalidateBlockedKeywordsCache();
+
+        if (result.rows.length === 0) {
+            return sendError(res, 'Bu kelime zaten yasaklı listede', 409);
+        }
+
+        return sendSuccess(res, result.rows[0], 'Yasaklı kelime eklendi', undefined, 201);
+    } catch (error) {
+        console.error('Add blocked keyword error:', error);
+        return sendError(res, 'Failed to add blocked keyword', 500);
+    }
+});
+
+// DELETE /admin/moderation/keywords/:id - delete custom blocked keyword
+router.delete('/admin/moderation/keywords/:id', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    const { id } = req.params;
+    try {
+        const result = await db.query('DELETE FROM blocked_keywords WHERE id = $1 RETURNING *', [id]);
+        invalidateBlockedKeywordsCache();
+
+        if (result.rows.length === 0) {
+            return sendError(res, 'Yasaklı kelime bulunamadı', 404);
+        }
+
+        return sendSuccess(res, result.rows[0], 'Yasaklı kelime silindi');
+    } catch (error) {
+        console.error('Delete blocked keyword error:', error);
+        return sendError(res, 'Failed to delete blocked keyword', 500);
+    }
+});
+
+// POST /admin/moderation/test - test lyrics or text for profanity
+router.post('/admin/moderation/test', authMiddleware, async (req: Request, res: Response) => {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+
+    const { text, title, artist } = req.body;
+
+    try {
+        let contentToTest = text;
+        let fetchedFromLyrics = false;
+
+        if (!contentToTest && title && artist) {
+            const lyricsData = await fetchLyrics({ title, artist });
+            if (lyricsData?.plainLyrics || (lyricsData?.lines && lyricsData.lines.length > 0)) {
+                contentToTest = lyricsData.plainLyrics || lyricsData.lines.map((l: any) => l.text).join('\n');
+                fetchedFromLyrics = true;
+            } else {
+                return sendSuccess(res, {
+                    foundLyrics: false,
+                    isProfane: false,
+                    message: 'İnternette bu şarkının sözü bulunamadı.',
+                });
+            }
+        }
+
+        if (!contentToTest) {
+            return sendError(res, 'Test edilecek metin veya şarkı adı/sanatçı gereklidir', 400);
+        }
+
+        const customKeywords = await getDbBlockedKeywords();
+        const check = checkProfanityText(contentToTest, customKeywords);
+
+        return sendSuccess(res, {
+            foundLyrics: fetchedFromLyrics,
+            isProfane: check.isProfane,
+            matchedWord: check.matchedWord,
+            testedTextSnippet: contentToTest.substring(0, 300),
+        });
+    } catch (error) {
+        console.error('Test profanity error:', error);
+        return sendError(res, 'Failed to test text', 500);
+    }
+});
+
 async function getQueueForDevice(deviceId: string, userId?: string, options?: { skipRecovery?: boolean }) {
     if (!options?.skipRecovery) {
         try {
             await reconcileStoppedSpotifyPlaybackForDevice({ deviceId });
         } catch (error) {
             console.warn('[Jukebox] Spotify queue reconciliation failed:', error);
+        }
+        try {
+            const pendingCountCheck = await db.query(
+                "SELECT COUNT(id) AS count FROM queue_items WHERE device_id = $1 AND status = 'pending'",
+                [deviceId]
+            );
+            const pendingCount = Number(pendingCountCheck.rows[0]?.count ?? 0);
+            if (pendingCount === 0) {
+                await enqueueAutoplayForDevice({ deviceId });
+            }
+        } catch {
+            // Autoplay skipped or failed cleanly
         }
     }
 
@@ -3373,7 +3644,9 @@ async function getQueueForDevice(deviceId: string, userId?: string, options?: { 
      WHERE qi.device_id = $1 AND qi.status IN ('pending', 'playing')
      ORDER BY
         CASE WHEN qi.status = 'playing' THEN 1 ELSE 2 END,
-        qi.priority_score DESC`,
+        CASE WHEN qi.queue_reason = 'autoplay' THEN 2 ELSE 1 END,
+        qi.priority_score DESC,
+        qi.added_at ASC`,
         userId ? [deviceId, userId] : [deviceId]
     );
 

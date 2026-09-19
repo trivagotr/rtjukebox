@@ -571,6 +571,29 @@ CREATE TABLE IF NOT EXISTS blocked_artists (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_blocked_artists_spotify_id
     ON blocked_artists(spotify_artist_id) WHERE spotify_artist_id IS NOT NULL;
 
+-- Blocked Keywords Table (Custom Profanity & Moderation)
+CREATE TABLE IF NOT EXISTS blocked_keywords (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    word VARCHAR(100) NOT NULL UNIQUE,
+    category VARCHAR(50) DEFAULT 'profanity',
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_blocked_keywords_word ON blocked_keywords(word);
+
+-- Content Filter Settings Table
+CREATE TABLE IF NOT EXISTS content_filter_settings (
+    id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    lyrics_filter_enabled BOOLEAN DEFAULT true,
+    block_unverified_obscure_tracks BOOLEAN DEFAULT true,
+    min_popularity_without_lyrics INTEGER DEFAULT 15,
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+INSERT INTO content_filter_settings (id, lyrics_filter_enabled, block_unverified_obscure_tracks, min_popularity_without_lyrics)
+VALUES (1, true, true, 15)
+ON CONFLICT (id) DO NOTHING;
+
 -- Spotify OAuth Tokens Table
 CREATE TABLE IF NOT EXISTS spotify_app_config (
     id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),

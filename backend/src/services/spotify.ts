@@ -81,6 +81,7 @@ interface SpotifyTrack {
   uri: string;
   preview_url: string | null;
   explicit: boolean;
+  popularity?: number;
   external_urls: { spotify: string };
 }
 
@@ -171,6 +172,24 @@ export function normalizeSpotifyReturnOrigin(returnOrigin?: string | null): stri
 function isSpotifyInvalidGrantError(error: unknown): boolean {
   const response = (error as { response?: { data?: { error?: unknown }; status?: number } } | null)?.response;
   return response?.status === 400 && response.data?.error === 'invalid_grant';
+}
+
+export function parseSpotifyPlaylistId(input: string | null | undefined): string | null {
+  if (!input || typeof input !== 'string') return null;
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('spotify:playlist:')) {
+    const id = trimmed.replace('spotify:playlist:', '').split('?')[0].split(':')[0].trim();
+    return id || null;
+  }
+  const urlMatch = trimmed.match(/playlist\/([a-zA-Z0-9]+)/i);
+  if (urlMatch && urlMatch[1]) {
+    return urlMatch[1];
+  }
+  if (/^[a-zA-Z0-9]{22}$/.test(trimmed)) {
+    return trimmed;
+  }
+  return null;
 }
 
 export class SpotifyService {
@@ -814,6 +833,7 @@ export class SpotifyService {
       uri: track.uri,
       preview_url: track.preview_url,
       explicit: track.explicit || false,
+      popularity: typeof track.popularity === 'number' ? track.popularity : undefined,
       external_urls: track.external_urls,
     };
   }
@@ -859,27 +879,192 @@ export class SpotifyService {
   }
 
   async getPlaylistTracks(playlistUri: string, market = 'TR', limit = 50): Promise<ContentFilterTrack[]> {
-    const token = await this.getAccessToken();
-    const playlistId = playlistUri.startsWith('spotify:playlist:')
+    const playlistId = parseSpotifyPlaylistId(playlistUri) || (playlistUri.startsWith('spotify:playlist:')
       ? playlistUri.split(':').pop()
-      : playlistUri;
+      : playlistUri);
 
     if (!playlistId) {
       throw new Error('Invalid Spotify playlist URI');
     }
 
-    const response = await axios.get(`${SPOTIFY_API_URL}/playlists/${playlistId}/items`, {
-      headers: { Authorization: `Bearer ${token}` },
-      params: {
-        market,
-        limit,
-      },
-    });
+    let token: string | null = null;
+    try {
+      token = await this.getAccessToken();
+    } catch {
+      try {
+        token = await this.getClientToken();
+      } catch {
+        token = null;
+      }
+    }
 
-    return response.data.items
-      .map((item: any) => item.item ?? item.track)
-      .filter((track: any) => track && track.type === 'track')
-      .map((track: any) => toContentFilterTrack(this.mapSpotifyApiTrack(track)));
+    if (token) {
+      try {
+        const response = await axios.get(`${SPOTIFY_API_URL}/playlists/${playlistId}/items`, {
+          headers: { Authorization: `Bearer ${token}` },
+          params: { market, limit },
+        });
+        const items = response.data?.items;
+        if (Array.isArray(items)) {
+          return items
+            .map((item: any) => item?.item ?? item?.track)
+            .filter((track: any) => track && track.type === 'track')
+            .map((track: any) => toContentFilterTrack(this.mapSpotifyApiTrack(track)));
+        }
+      } catch (apiError) {
+        try {
+          const response = await axios.get(`${SPOTIFY_API_URL}/playlists/${playlistId}/tracks`, {
+            headers: { Authorization: `Bearer ${token}` },
+            params: { market, limit },
+          });
+          const items = response.data?.items;
+          if (Array.isArray(items) && items.length > 0) {
+            return items
+              .map((item: any) => item?.item ?? item?.track)
+              .filter((track: any) => track && track.type === 'track')
+              .map((track: any) => toContentFilterTrack(this.mapSpotifyApiTrack(track)));
+          }
+        } catch {
+          // ignore, proceed to embed fallback
+        }
+      }
+    }
+
+    // Public Embed Fallback for algorithmic / radio / user playlists
+    try {
+      const embedUrl = `https://open.spotify.com/embed/playlist/${playlistId}`;
+      const embedRes = await axios.get(embedUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+      });
+      if (typeof embedRes.data === 'string') {
+        const match = embedRes.data.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]+?)<\/script>/);
+        if (match) {
+          const nextData = JSON.parse(match[1]);
+          const trackList = nextData.props?.pageProps?.state?.data?.entity?.trackList;
+          if (Array.isArray(trackList) && trackList.length > 0) {
+            return trackList.slice(0, limit).map((t: any) => ({
+              spotify_uri: t.uri || `spotify:track:${t.id || t.uid}`,
+              spotify_id: (t.uri || '').replace('spotify:track:', '') || t.id || t.uid,
+              title: t.title || t.name || 'Unknown',
+              artist: t.subtitle || (Array.isArray(t.artists) ? t.artists.map((a: any) => a.name).join(', ') : 'Unknown'),
+              album: t.album?.name || t.title || 'Single',
+              cover_url: t.audioPreview?.coverUrl || null,
+              duration_ms: Number(t.duration || 0),
+              duration_seconds: Math.round(Number(t.duration || 0) / 1000),
+              is_explicit: Boolean(t.isExplicit || t.contentRatings?.labels?.includes('EXPLICIT')),
+              source_type: 'spotify' as const,
+            }));
+          }
+        }
+      }
+    } catch (embedError) {
+      console.error('[SpotifyService] Embed playlist track scraping failed:', (embedError as any)?.message);
+    }
+
+    return [];
+  }
+
+  async getPlaylistDetails(playlistUriOrUrl: string): Promise<{
+    id: string;
+    uri: string;
+    name: string;
+    description: string;
+    cover_url: string | null;
+    owner_name: string;
+    total_tracks: number;
+  }> {
+    const playlistId = parseSpotifyPlaylistId(playlistUriOrUrl);
+    if (!playlistId) {
+      throw new Error('Geçersiz Spotify playlist bağlantısı veya ID');
+    }
+
+    let token: string | null = null;
+    try {
+      token = await this.getAccessToken();
+    } catch {
+      try {
+        token = await this.getClientToken();
+      } catch {
+        token = null;
+      }
+    }
+
+    if (token) {
+      try {
+        const response = await axios.get(`${SPOTIFY_API_URL}/playlists/${playlistId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          params: {
+            market: 'TR',
+            fields: 'id,name,description,images,owner(display_name),tracks.total',
+          },
+        });
+
+        const data = response.data;
+        if (data && data.name) {
+          return {
+            id: data.id,
+            uri: `spotify:playlist:${data.id}`,
+            name: data.name,
+            description: data.description || '',
+            cover_url: data.images?.[0]?.url ?? null,
+            owner_name: data.owner?.display_name ?? 'Spotify',
+            total_tracks: Number(data.tracks?.total ?? 0),
+          };
+        }
+      } catch (apiError) {
+        console.warn('[SpotifyService] API getPlaylistDetails failed, falling back to oEmbed / embed parser:', (apiError as any)?.message);
+      }
+    }
+
+    // Fallback 1: oEmbed API + Embed Page
+    let oembedTitle = 'Spotify Playlist';
+    let oembedThumbnail: string | null = null;
+    try {
+      const oembedRes = await axios.get(`https://open.spotify.com/oembed?url=https://open.spotify.com/playlist/${playlistId}`);
+      if (oembedRes.data) {
+        oembedTitle = oembedRes.data.title || oembedTitle;
+        oembedThumbnail = oembedRes.data.thumbnail_url || null;
+      }
+    } catch (oembedErr) {
+      console.warn('[SpotifyService] oEmbed fetch failed:', (oembedErr as any)?.message);
+    }
+
+    // Fallback 2: Embed Page for track count and description
+    let totalTracks = 0;
+    let embedName = oembedTitle;
+    try {
+      const embedUrl = `https://open.spotify.com/embed/playlist/${playlistId}`;
+      const embedRes = await axios.get(embedUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+      });
+      if (typeof embedRes.data === 'string') {
+        const match = embedRes.data.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]+?)<\/script>/);
+        if (match) {
+          const nextData = JSON.parse(match[1]);
+          const entity = nextData.props?.pageProps?.state?.data?.entity;
+          if (entity) {
+            embedName = entity.name || embedName;
+            totalTracks = Array.isArray(entity.trackList) ? entity.trackList.length : 0;
+          }
+        }
+      }
+    } catch (embedErr) {
+      console.warn('[SpotifyService] Embed metadata parse failed:', (embedErr as any)?.message);
+    }
+
+    return {
+      id: playlistId,
+      uri: `spotify:playlist:${playlistId}`,
+      name: embedName,
+      description: 'Spotify Çalma Listesi',
+      cover_url: oembedThumbnail,
+      owner_name: 'Spotify',
+      total_tracks: totalTracks || 50,
+    };
   }
 
   // ─── Playback Control ───
@@ -1110,6 +1295,7 @@ export function toContentFilterTrack(track: SpotifyTrack): ContentFilterTrack {
     cover_url: bestImage?.url || '',
     duration_ms: track.duration_ms,
     explicit: track.explicit,
+    popularity: track.popularity,
   };
 }
 

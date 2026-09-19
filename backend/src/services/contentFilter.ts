@@ -1,5 +1,11 @@
 // Content Filtering Pipeline for RadioTEDU Jukebox
 import { db } from '../db';
+import { fetchLyrics } from './lyrics';
+import {
+  checkProfanityText,
+  getContentFilterSettings,
+  getDbBlockedKeywords,
+} from './profanityFilter';
 
 /**
  * Represents a Spotify track with the fields needed for content filtering.
@@ -14,6 +20,7 @@ export interface SpotifyTrack {
   cover_url: string;
   duration_ms: number;
   explicit: boolean;
+  popularity?: number;
 }
 
 /**
@@ -53,7 +60,7 @@ export class BlacklistFilter implements ContentFilter {
   name = 'BlacklistFilter';
 
   async isAllowed(track: SpotifyTrack): Promise<boolean> {
-    // Check blocked songs by spotify_id (songs.spotify_id + is_blocked added in Phase 3 migration)
+    // Check blocked songs by spotify_id
     if (track.spotify_id) {
       const songResult = await db.query(
         `SELECT 1 FROM songs WHERE spotify_id = $1 AND is_blocked = true LIMIT 1`,
@@ -91,6 +98,60 @@ export class BlacklistFilter implements ContentFilter {
 
   getReason(_track: SpotifyTrack): string {
     return 'Track or artist is on the blocklist';
+  }
+}
+
+/**
+ * Inspects track lyrics for profanity and explicit content,
+ * and enforces popularity thresholds for unverified tracks without lyrics.
+ */
+export class LyricsProfanityFilter implements ContentFilter {
+  name = 'LyricsProfanityFilter';
+  private lastReason = 'Track lyrics contain explicit or inappropriate language';
+
+  async isAllowed(track: SpotifyTrack): Promise<boolean> {
+    const settings = await getContentFilterSettings();
+    if (!settings.lyrics_filter_enabled) {
+      return true;
+    }
+
+    try {
+      const lyricsData = await fetchLyrics({
+        title: track.title,
+        artist: track.artist,
+        durationSeconds: track.duration_ms ? track.duration_ms / 1000 : undefined,
+        album: track.album,
+      });
+
+      if (lyricsData && (lyricsData.plainLyrics || lyricsData.lines?.length > 0)) {
+        const fullText = lyricsData.plainLyrics || lyricsData.lines.map((l) => l.text).join('\n');
+        const customKeywords = await getDbBlockedKeywords();
+        const check = checkProfanityText(fullText, customKeywords);
+
+        if (check.isProfane) {
+          this.lastReason = `Şarkı sözlerinde uygunsuz/küfürlü içerik tespit edildi (${check.matchedWord || 'Yasaklı içerik'})`;
+          return false;
+        }
+
+        return true;
+      }
+    } catch (err) {
+      console.warn(`[LyricsFilter] Failed to inspect lyrics for ${track.artist} - ${track.title}:`, err);
+    }
+
+    // Lyrics were not found
+    if (settings.block_unverified_obscure_tracks) {
+      if (typeof track.popularity === 'number' && track.popularity < settings.min_popularity_without_lyrics) {
+        this.lastReason = `Şarkının sözleri doğrulanamadı ve popülaritesi eşik değerin altında (${track.popularity}/${settings.min_popularity_without_lyrics}) olduğu için eklenemedi`;
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  getReason(_track: SpotifyTrack): string {
+    return this.lastReason;
   }
 }
 
@@ -161,9 +222,12 @@ export class ContentFilterService {
  * Create a ContentFilterService pre-configured with the standard filters
  * for the RadioTEDU school jukebox.
  */
-export function createDefaultFilterService(): ContentFilterService {
+export function createDefaultFilterService(options?: { includeLyricsFilter?: boolean }): ContentFilterService {
   const service = new ContentFilterService();
   service.addFilter(new SpotifyExplicitFilter());
   service.addFilter(new BlacklistFilter());
+  if (options?.includeLyricsFilter !== false) {
+    service.addFilter(new LyricsProfanityFilter());
+  }
   return service;
 }
