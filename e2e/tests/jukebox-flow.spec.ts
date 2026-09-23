@@ -36,8 +36,9 @@ test('kiosk QR joins a guest, enforces the guest queue limit, and lets a member 
   await controllerPage.locator('.search-result').filter({ hasText: 'E2E Song Beta' }).click();
   const guestQueueResult = await guestQueueResponse;
   const guestQueueBody = await guestQueueResult.json();
-  expect(guestQueueResult.status(), JSON.stringify(guestQueueBody)).toBe(403);
-  expect(guestQueueBody.code).toBe('GUEST_LIMIT_REACHED');
+  console.log('Guest limit response:', guestQueueResult.status(), guestQueueBody);
+  expect(guestQueueBody).toMatchObject({ code: 'GUEST_LIMIT_REACHED' });
+  expect(guestQueueResult.status()).toBe(403);
   await expect(controllerPage.locator('.modal-screen')).toBeVisible();
 
   await controllerPage.locator('.modal-card input').nth(0).fill('e2e-member@radiotedu.com');
