@@ -606,6 +606,15 @@ interface JukeboxViewProps {
   onShowLeaderboard: () => void;
   onOpenAdmin?: () => void;
   myVotes: Record<string, number>;
+  showLoginModal: boolean;
+  setShowLoginModal: (value: boolean) => void;
+  loginError: string | null;
+  email: string;
+  setEmail: (value: string) => void;
+  password: string;
+  setPassword: (value: string) => void;
+  handleLogin: () => void;
+  loading: boolean;
 }
 
 const JukeboxView = ({
@@ -626,6 +635,15 @@ const JukeboxView = ({
   onShowLeaderboard,
   onOpenAdmin,
   myVotes,
+  showLoginModal,
+  setShowLoginModal,
+  loginError,
+  email,
+  setEmail,
+  password,
+  setPassword,
+  handleLogin,
+  loading,
 }: JukeboxViewProps) => {
   const nowPlayingCurrentVote = nowPlaying ? resolveDisplayedVote(nowPlaying, myVotes) : undefined;
   const nowPlayingSongScore = nowPlaying ? getDisplayedSongScore(nowPlaying) : 0;
@@ -828,6 +846,55 @@ const JukeboxView = ({
           <User size={18} />
           <span>{user.total_songs_added >= 1 ? 'Misafir hakkın doldu' : 'Misafir modu: 1 şarkı hakkın var'}</span>
           {user.total_songs_added >= 1 ? <button onClick={logout}>Üye ol</button> : <strong>Aktif</strong>}
+        </div>
+      )}
+
+      {showLoginModal && (
+        <div className="modal-screen" role="dialog" aria-modal="true" aria-label="Aoye giri�Yi">
+          <section className="modal-card compact">
+            <button className="modal-close" onClick={() => setShowLoginModal(false)} aria-label="Kapat">
+              x
+            </button>
+            <p className="eyebrow amber">RadioTEDU hesab��</p>
+            <h2>Aoye giri�Yi</h2>
+            {loginError && (
+              <div className="modal-error-banner" role="alert">
+                <AlertCircle size={16} />
+                <span>{loginError}</span>
+              </div>
+            )}
+            <form
+              className="form-grid"
+              onSubmit={(event) => {
+                event.preventDefault();
+                handleLogin();
+              }}
+            >
+              <label>
+                Kullan��c�� ad�� / email
+                <input
+                  className="arcade-input"
+                  placeholder="admin@radiotedu.com"
+                  value={email}
+                  autoFocus
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+              </label>
+              <label>
+                �zifre
+                <input
+                  className="arcade-input"
+                  type="password"
+                  placeholder="********"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </label>
+              <button type="submit" className="arcade-button primary" disabled={loading}>
+                {loading ? 'Giri�Y yap��l��yor...' : 'Giri�Y yap'}
+              </button>
+            </form>
+          </section>
         </div>
       )}
     </div>
@@ -1305,6 +1372,18 @@ function App() {
           }}
           onOpenAdmin={() => setShowAdminModal(true)}
           myVotes={myVotes}
+          showLoginModal={showLoginModal}
+          setShowLoginModal={(val) => {
+            setShowLoginModal(val);
+            if (!val) setLoginError(null);
+          }}
+          loginError={loginError}
+          email={email}
+          setEmail={setEmail}
+          password={password}
+          setPassword={setPassword}
+          handleLogin={handleLogin}
+          loading={loading}
         />
       )}
 

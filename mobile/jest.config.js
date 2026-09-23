@@ -7,7 +7,7 @@ module.exports = {
     '^.+\\.(js|jsx|ts|tsx|mjs)$': 'babel-jest',
   },
   transformIgnorePatterns: [
-    'node_modules/(?!((jest-)?react-native|@react-native|@react-navigation|msw|@mswjs|@open-draft|rettime|until-async|outvariant|is-node-process|strict-event-emitter)/)',
+    'node_modules/(?!((jest-)?react-native|@react-native|@react-navigation|msw|@mswjs|@open-draft|rettime|until-async|outvariant|is-node-process|strict-event-emitter|decode-uri-component)/)',
   ],
   moduleNameMapper: {
     '^msw/node$': '<rootDir>/node_modules/msw/lib/node/index.js',

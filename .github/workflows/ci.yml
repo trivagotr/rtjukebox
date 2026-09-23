@@ -242,7 +242,7 @@ jobs:
           python3 -m pip install semgrep
           semgrep scan \
             --config p/typescript \
-            --config p/express \
+            --config p/nodejs \
             --config p/react \
             --config p/jwt \
             --config p/secrets \
