@@ -15,7 +15,7 @@
     "framer-motion": "^12.29.0",
     "lucide-react": "^0.563.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "react-dom": "^19.3.0",
     "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
@@ -25,7 +25,7 @@
     "@testing-library/user-event": "^14.6.7",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
-    "@types/react-dom": "^19.2.3",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.1.1",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
