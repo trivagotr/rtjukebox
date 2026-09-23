@@ -2,6 +2,27 @@ import { expect, test } from '@playwright/test';
 
 const backendUrl = process.env.E2E_BACKEND_URL || 'http://127.0.0.1:3000';
 
+async function searchForSong(page: import('@playwright/test').Page, title: string) {
+  const searchResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname.endsWith('/api/v1/jukebox/songs')
+      && response.request().method() === 'GET'
+      && url.searchParams.get('search') === title;
+  });
+  const searchInput = page.locator('.search-panel input');
+  await searchInput.fill(title);
+  await searchInput.press('Enter');
+
+  const response = await searchResponse;
+  expect(response.ok()).toBeTruthy();
+  const payload = await response.json();
+  const song = payload.data.items.find((item: { title: string; source_type: string }) => (
+    item.title === title && item.source_type === 'local'
+  ));
+  expect(song, `Expected a local catalog result for ${title}`).toBeTruthy();
+  return song;
+}
+
 test('kiosk QR joins a guest, enforces the guest queue limit, and lets a member reorder the queue', async ({ browser }) => {
   const kioskContext = await browser.newContext();
   const kioskPage = await kioskContext.newPage();
@@ -22,21 +43,25 @@ test('kiosk QR joins a guest, enforces the guest queue limit, and lets a member 
   await controllerPage.locator('.login-card button').click();
   await expect(controllerPage.locator('.device-card')).toContainText('E2E-ROOM');
 
-  const searchInput = controllerPage.locator('.search-panel input');
-  await searchInput.fill('E2E Song Alpha');
-  await searchInput.press('Enter');
+  const alpha = await searchForSong(controllerPage, 'E2E Song Alpha');
+  const alphaQueueResponse = controllerPage.waitForResponse(
+    (response) => response.url().endsWith('/api/v1/jukebox/queue') && response.request().method() === 'POST',
+  );
   await controllerPage.locator('.search-result').filter({ hasText: 'E2E Song Alpha' }).click();
+  const alphaResult = await alphaQueueResponse;
+  expect(alphaResult.ok()).toBeTruthy();
+  expect(alphaResult.request().postDataJSON()).toMatchObject({ song_id: alpha.id });
   await expect(controllerPage.locator('.queue-item').filter({ hasText: 'E2E Song Alpha' })).toBeVisible();
 
-  await searchInput.fill('E2E Song Beta');
-  await searchInput.press('Enter');
+  const beta = await searchForSong(controllerPage, 'E2E Song Beta');
+  expect(beta.id).not.toBe(alpha.id);
   const guestQueueResponse = controllerPage.waitForResponse(
     (response) => response.url().endsWith('/api/v1/jukebox/queue') && response.request().method() === 'POST',
   );
   await controllerPage.locator('.search-result').filter({ hasText: 'E2E Song Beta' }).click();
   const guestQueueResult = await guestQueueResponse;
   const guestQueueBody = await guestQueueResult.json();
-  console.log('Guest limit response:', guestQueueResult.status(), guestQueueBody);
+  expect(guestQueueResult.request().postDataJSON()).toMatchObject({ song_id: beta.id });
   expect(guestQueueBody).toMatchObject({ code: 'GUEST_LIMIT_REACHED' });
   expect(guestQueueResult.status()).toBe(403);
   await expect(controllerPage.locator('.modal-screen')).toBeVisible();
@@ -46,8 +71,7 @@ test('kiosk QR joins a guest, enforces the guest queue limit, and lets a member 
   await controllerPage.locator('.modal-card button[type="submit"]').click();
   await expect(controllerPage.locator('.device-card')).toContainText('E2E-ROOM');
 
-  await searchInput.fill('E2E Song Beta');
-  await searchInput.press('Enter');
+  await searchForSong(controllerPage, 'E2E Song Beta');
   await controllerPage.locator('.search-result').filter({ hasText: 'E2E Song Beta' }).click();
   await expect(controllerPage.locator('.queue-item').filter({ hasText: 'E2E Song Beta' })).toBeVisible();
 
