@@ -80,8 +80,7 @@ test('kiosk QR joins a guest, enforces the guest queue limit, and lets a member 
   await expect(controllerPage.locator('.queue-item').filter({ hasText: 'E2E Song Beta' })).toBeVisible();
 
   await controllerPage.locator('.queue-item').filter({ hasText: 'E2E Song Beta' }).locator('button[title="Upvote"]').click();
-  await controllerPage.locator('.sync-button').click();
-  await expect(controllerPage.locator('.queue-item').first()).toContainText('E2E Song Beta');
+  await expect(controllerPage.locator('.queue-item').first()).toContainText('E2E Song Beta', { timeout: 10_000 });
 
   await expect(kioskPage.getByText('E2E Song Beta')).toBeVisible({ timeout: 10_000 });
 
