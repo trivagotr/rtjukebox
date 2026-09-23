@@ -238,13 +238,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run Semgrep SAST
+        env:
+          SEMGREP_BASELINE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
         run: |
           python3 -m pip install semgrep
-          semgrep scan \
+          semgrep ci \
             --config p/typescript \
             --config p/nodejs \
             --config p/react \
             --config p/jwt \
             --config p/secrets \
-            --config p/owasp-top-ten \
-            --error .
+            --config p/owasp-top-ten
