@@ -4,8 +4,10 @@ import {
   Activity,
   AlertTriangle,
   Check,
+  CheckCircle2,
   Edit2,
   FolderSearch,
+  Laptop,
   ListMusic,
   LogOut,
   Monitor,
@@ -17,7 +19,11 @@ import {
   ShieldAlert,
   SkipForward,
   Sliders,
+  Smartphone,
+  Speaker,
   Trash2,
+  Tv,
+  Volume2,
   Wifi,
   WifiOff,
   X,
@@ -26,14 +32,18 @@ import {
   buildSpotifyAppConfigPayload,
   buildSpotifyDeviceAuthDisconnectRequest,
   buildSpotifyDeviceAuthStartRequest,
+  buildSpotifyPlaybackTargetPayload,
   formatSpotifyDeviceAuthStatus,
+  formatSpotifyPlaybackDeviceType,
   isSpotifyDeviceAuthSuccessMessage,
   maskSpotifyAppConfigForForm,
+  resolveAssignedSpotifyDeviceLabel,
   SPOTIFY_APP_SECRET_MASK,
   type SpotifyAppConfigApiResponse,
   type SpotifyAppConfigFormState,
   type SpotifyDeviceAuthStatusApiResponse,
   type SpotifyDeviceAuthStatusView,
+  type SpotifyPlaybackDevice,
 } from './adminSpotifyConfig';
 import { resolveWebRuntimeConfig } from './runtimeConfig';
 
@@ -61,6 +71,10 @@ export interface DeviceSummary {
   password?: string | null;
   override_enabled?: boolean;
   override_autoplay_spotify_playlist_uri?: string | null;
+  spotify_playback_device_id?: string | null;
+  spotify_player_name?: string | null;
+  spotify_player_is_active?: boolean | null;
+  spotify_player_connected_at?: string | null;
 }
 
 export interface PlaylistPreview {
@@ -77,8 +91,10 @@ interface AdminSong {
   id: string;
   title: string;
   artist: string;
-  duration_seconds: number;
+  duration_seconds?: number;
+  duration_ms?: number;
   total_plays?: number;
+  cover_url?: string | null;
 }
 
 interface NewDeviceForm {
@@ -97,10 +113,13 @@ interface ScanFolderResponse {
   failedSongs?: Array<{ title: string }>;
 }
 
-interface AdminDashboardProps {
+export type AdminTab = 'spotify-players' | 'fallback' | 'moderation' | 'devices' | 'songs';
+
+export interface AdminDashboardProps {
   token: string;
   device: DeviceSummary;
   onSelectDevice?: (device: DeviceSummary) => void;
+  onClose?: () => void;
 }
 
 const authHeaders = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -118,22 +137,25 @@ const isOnline = (lastHeartbeat?: string | null) => {
   return Date.now() - new Date(lastHeartbeat).getTime() < 60000;
 };
 
-export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboardProps) {
+export function AdminDashboard({ token, device, onSelectDevice, onClose }: AdminDashboardProps) {
+  const [activeTab, setActiveTab] = useState<AdminTab>('spotify-players');
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
-  const [showDevices, setShowDevices] = useState(false);
   const [showNewDevice, setShowNewDevice] = useState(false);
   const [newDevice, setNewDevice] = useState<NewDeviceForm>({ device_code: '', name: '', location: '', password: '' });
   const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState({ name: '', location: '', password: '' });
   const [spotifyAppConfig, setSpotifyAppConfig] = useState<SpotifyAppConfigFormState>({ client_id: '', client_secret: '' });
   const [spotifyDeviceAuthStatuses, setSpotifyDeviceAuthStatuses] = useState<Record<string, SpotifyDeviceAuthStatusView>>({});
-  const [showSongs, setShowSongs] = useState(false);
   const [songs, setSongs] = useState<AdminSong[]>([]);
 
+  // Spotify Connect Playback Devices & Kiosk Target State
+  const [spotifyPlaybackDevices, setSpotifyPlaybackDevices] = useState<SpotifyPlaybackDevice[]>([]);
+  const [loadingSpotifyDevices, setLoadingSpotifyDevices] = useState(false);
+  const [updatingKioskTargetId, setUpdatingKioskTargetId] = useState<string | null>(null);
+
   // Moderation & Content Filtering State
-  const [showModeration, setShowModeration] = useState(false);
   const [moderationSettings, setModerationSettings] = useState({
     lyrics_filter_enabled: true,
     block_unverified_obscure_tracks: true,
@@ -222,7 +244,7 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
     try {
       setTestingProfanity(true);
       setTestResult(null);
-      const res = await axios.post<{ data: any }>(`${API_URL}/api/v1/jukebox/admin/moderation/test`, {
+      const res = await axios.post<{ data: NonNullable<typeof testResult> }>(`${API_URL}/api/v1/jukebox/admin/moderation/test`, {
         title: testForm.title.trim(),
         artist: testForm.artist.trim(),
         text: testForm.text.trim(),
@@ -238,7 +260,6 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
   };
 
   // Fallback Playlist (Yedek Çalma Listesi) State
-  const [showFallbackPlaylist, setShowFallbackPlaylist] = useState(false);
   const [selectedPlaylistDeviceId, setSelectedPlaylistDeviceId] = useState<string>(device.id);
   const [fallbackPlaylistUrl, setFallbackPlaylistUrl] = useState<string>('');
   const [fallbackAutoplayEnabled, setFallbackAutoplayEnabled] = useState<boolean>(true);
@@ -314,7 +335,7 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
   const lastLoadedDeviceIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!showFallbackPlaylist) {
+    if (activeTab !== 'fallback') {
       lastLoadedDeviceIdRef.current = null;
       return;
     }
@@ -330,14 +351,14 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
         setPlaylistPreview(null);
       }
     }
-  }, [showFallbackPlaylist, selectedPlaylistDeviceId, devices, device, fetchPlaylistPreview]);
+  }, [activeTab, selectedPlaylistDeviceId, devices, device, fetchPlaylistPreview]);
 
   useEffect(() => {
-    if (showModeration) {
+    if (activeTab === 'moderation') {
       void fetchModerationSettings();
       void fetchBlockedKeywords();
     }
-  }, [showModeration, fetchModerationSettings, fetchBlockedKeywords]);
+  }, [activeTab, fetchModerationSettings, fetchBlockedKeywords]);
 
   const refreshSpotifyDeviceStatuses = useCallback(
     async (nextDevices: DeviceSummary[]) => {
@@ -395,28 +416,80 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
     }
   }, [token]);
 
-  useEffect(() => {
-    if (!showDevices && !showFallbackPlaylist) return;
-    void fetchDevices();
-    if (showDevices) {
-      void fetchSpotifyAppConfig();
+  const fetchSpotifyPlaybackDevices = useCallback(async () => {
+    try {
+      setLoadingSpotifyDevices(true);
+      const res = await axios.get<{ data: { devices: SpotifyPlaybackDevice[] } }>(
+        `${API_URL}/api/v1/spotify/playback-devices`,
+        { headers: authHeaders(token) }
+      );
+      if (Array.isArray(res.data?.data?.devices)) {
+        setSpotifyPlaybackDevices(res.data.data.devices);
+      } else {
+        setSpotifyPlaybackDevices([]);
+      }
+    } catch (error) {
+      console.warn('Failed to fetch Spotify playback devices:', error);
+      setSpotifyPlaybackDevices([]);
+    } finally {
+      setLoadingSpotifyDevices(false);
     }
-  }, [fetchDevices, fetchSpotifyAppConfig, showDevices, showFallbackPlaylist]);
+  }, [token]);
+
+  const assignSpotifyPlaybackTarget = async (
+    kioskId: string,
+    spotifyDeviceId: string | null,
+    spotifyPlayerName?: string | null
+  ) => {
+    try {
+      setUpdatingKioskTargetId(kioskId);
+      const payload = buildSpotifyPlaybackTargetPayload(spotifyDeviceId, spotifyPlayerName);
+      const res = await axios.put<{ data: { device: DeviceSummary } }>(
+        `${API_URL}/api/v1/jukebox/admin/devices/${kioskId}/spotify-playback-target`,
+        payload,
+        { headers: authHeaders(token) }
+      );
+
+      if (res.data?.data?.device) {
+        const updated = res.data.data.device;
+        setDevices((prev) =>
+          prev.map((d) => (d.id === kioskId ? { ...d, ...updated } : d))
+        );
+      }
+      setStatus(spotifyDeviceId ? `Çıkış '${spotifyPlayerName || spotifyDeviceId}' olarak ayarlandı` : 'Çıkış seçimi kaldırıldı');
+    } catch (error) {
+      setStatus(`Hata: ${errorMessage(error)}`);
+    } finally {
+      setUpdatingKioskTargetId(null);
+      window.setTimeout(() => setStatus(''), 3500);
+    }
+  };
+
+  useEffect(() => {
+    void fetchDevices();
+  }, [fetchDevices]);
+
+  useEffect(() => {
+    if (activeTab === 'spotify-players') {
+      void fetchSpotifyPlaybackDevices();
+    } else if (activeTab === 'devices') {
+      void fetchSpotifyAppConfig();
+    } else if (activeTab === 'songs') {
+      void fetchSongs();
+    }
+  }, [activeTab, fetchSpotifyPlaybackDevices, fetchSpotifyAppConfig, fetchSongs]);
 
   useEffect(() => {
     const handleSpotifyMessage = (event: MessageEvent) => {
       if (!isSpotifyDeviceAuthSuccessMessage(event.data)) return;
       setStatus('Spotify cihaz bağlantısı güncellendi');
       void fetchDevices();
+      void fetchSpotifyPlaybackDevices();
     };
 
     window.addEventListener('message', handleSpotifyMessage);
     return () => window.removeEventListener('message', handleSpotifyMessage);
-  }, [fetchDevices]);
-
-  useEffect(() => {
-    if (showSongs) void fetchSongs();
-  }, [fetchSongs, showSongs]);
+  }, [fetchDevices, fetchSpotifyPlaybackDevices]);
 
   const skipSong = async () => {
     if (!window.confirm('Şu an çalan şarkıyı geçmek istediğine emin misin?')) return;
@@ -643,85 +716,107 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
   };
 
   return (
-    <section className="admin-console">
-      <header className="admin-head">
-        <div>
-          <p className="eyebrow amber">Admin deck</p>
-          <h2>
-            <Shield size={16} /> Jukebox kontrol
-          </h2>
+    <section className="admin-console-fullscreen">
+      <header className="admin-top-bar">
+        <div className="admin-title-group">
+          <div className="admin-shield-icon">
+            <Shield size={22} />
+          </div>
+          <div>
+            <div className="admin-title-row">
+              <h2>RadioTEDU Jukebox Yönetici Konsolu</h2>
+              <span className="admin-badge-red">Yönetici</span>
+            </div>
+            <div className="admin-sub-info">
+              <span>Aktif Kiosk: <strong>{device.name}</strong> ({device.device_code})</span>
+              {device.location && <span className="admin-sub-sep">· {device.location}</span>}
+            </div>
+          </div>
         </div>
-        <div className="admin-head-meta">
-          <span className="admin-brand">RadioTEDU</span>
-          {status && <span className="admin-status">{status}</span>}
+
+        <div className="admin-top-actions">
+          {status && <span className="admin-status-pill">{status}</span>}
+          <button className="arcade-button quick-action-btn" onClick={skipSong} disabled={loading} title="Şu an çalan şarkıyı atla">
+            <SkipForward size={14} /> <span>Şarkıyı Atla</span>
+          </button>
+          <button className="arcade-button quick-action-btn" onClick={processSong} disabled={loading} title="Şarkı ses dosyası işleme">
+            <Activity size={14} /> <span>Sesi Onar</span>
+          </button>
+          <button className="arcade-button quick-action-btn" onClick={syncMetadata} disabled={loading} title="Tüm kütüphane metadatalarını iTunes ile senkronize et">
+            <RefreshCw size={14} /> <span>Sync</span>
+          </button>
+          {onClose && (
+            <button className="admin-modal-close-btn" onClick={onClose} aria-label="Yönetici panelini kapat" title="Kapat">
+              <X size={20} />
+            </button>
+          )}
         </div>
       </header>
 
-      <div className="admin-actions">
-        <button onClick={skipSong} disabled={loading}>
-          <SkipForward size={16} /> Atla
-        </button>
-        <button onClick={processSong} disabled={loading}>
-          <Activity size={16} /> Düzelt
-        </button>
-        <button onClick={syncMetadata} disabled={loading}>
-          <RefreshCw size={16} /> Sync
-        </button>
+      <nav className="admin-tabs-nav" role="tablist">
         <button
-          className={showFallbackPlaylist ? 'active' : ''}
-          onClick={() => {
-            setShowFallbackPlaylist((value) => !value);
-            if (!showFallbackPlaylist) {
-              setShowDevices(false);
-              setShowSongs(false);
-              setShowModeration(false);
-            }
-          }}
+          type="button"
+          className={`admin-tab-btn ${activeTab === 'spotify-players' ? 'active' : ''}`}
+          onClick={() => setActiveTab('spotify-players')}
+          role="tab"
+          aria-selected={activeTab === 'spotify-players'}
         >
-          <ListMusic size={16} /> Yedek Liste
+          <Speaker size={16} />
+          <span>Spotify Çıkışları</span>
+          <span className="tab-pill-badge">{spotifyPlaybackDevices.length}</span>
         </button>
-        <button
-          className={showModeration ? 'active' : ''}
-          onClick={() => {
-            setShowModeration((value) => !value);
-            if (!showModeration) {
-              setShowFallbackPlaylist(false);
-              setShowDevices(false);
-              setShowSongs(false);
-            }
-          }}
-        >
-          <ShieldAlert size={16} /> Filtre & Kara Liste
-        </button>
-        <button
-          className={showDevices ? 'active' : ''}
-          onClick={() => {
-            setShowDevices((value) => !value);
-            if (!showDevices) {
-              setShowFallbackPlaylist(false);
-              setShowSongs(false);
-              setShowModeration(false);
-            }
-          }}
-        >
-          <Monitor size={16} /> Cihazlar
-        </button>
-        <button
-          className={showSongs ? 'active' : ''}
-          onClick={() => {
-            setShowSongs((value) => !value);
-            if (!showSongs) {
-              setShowFallbackPlaylist(false);
-              setShowDevices(false);
-              setShowModeration(false);
-            }
-          }}
-        >
-          <Music size={16} /> Şarkılar
-        </button>
-      </div>
 
-      {showFallbackPlaylist && (
+        <button
+          type="button"
+          className={`admin-tab-btn ${activeTab === 'fallback' ? 'active' : ''}`}
+          onClick={() => setActiveTab('fallback')}
+          role="tab"
+          aria-selected={activeTab === 'fallback'}
+        >
+          <ListMusic size={16} />
+          <span>Yedek Çalma Listesi</span>
+        </button>
+
+        <button
+          type="button"
+          className={`admin-tab-btn ${activeTab === 'moderation' ? 'active' : ''}`}
+          onClick={() => setActiveTab('moderation')}
+          role="tab"
+          aria-selected={activeTab === 'moderation'}
+        >
+          <ShieldAlert size={16} />
+          <span>İçerik & Küfür Filtresi</span>
+          {blockedKeywords.length > 0 && <span className="tab-pill-badge">{blockedKeywords.length}</span>}
+        </button>
+
+        <button
+          type="button"
+          className={`admin-tab-btn ${activeTab === 'devices' ? 'active' : ''}`}
+          onClick={() => setActiveTab('devices')}
+          role="tab"
+          aria-selected={activeTab === 'devices'}
+        >
+          <Monitor size={16} />
+          <span>Kiosk Cihazları</span>
+          <span className="tab-pill-badge">{devices.length}</span>
+        </button>
+
+        <button
+          type="button"
+          className={`admin-tab-btn ${activeTab === 'songs' ? 'active' : ''}`}
+          onClick={() => setActiveTab('songs')}
+          role="tab"
+          aria-selected={activeTab === 'songs'}
+        >
+          <Music size={16} />
+          <span>Şarkı Kütüphanesi</span>
+          {songs.length > 0 && <span className="tab-pill-badge">{songs.length}</span>}
+        </button>
+      </nav>
+
+      <div className="admin-content-viewport custom-scrollbar">
+
+      {activeTab === 'fallback' && (
         <div className="admin-section fallback-playlist-section">
           <div className="section-heading">
             <span>
@@ -891,7 +986,7 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
         </div>
       )}
 
-      {showModeration && (
+      {activeTab === 'moderation' && (
         <div className="admin-section moderation-section">
           <div className="section-heading">
             <span>
@@ -1116,7 +1211,7 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
         </div>
       )}
 
-      {showDevices && (
+      {activeTab === 'devices' && (
         <div className="admin-section">
           <div className="section-heading">
             <span>Cihaz yönetimi</span>
@@ -1276,7 +1371,7 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
         </div>
       )}
 
-      {showSongs && (
+      {activeTab === 'songs' && (
         <div className="admin-section">
           <div className="section-heading">
             <span>Şarkı kütüphanesi ({songs.length})</span>
@@ -1296,29 +1391,236 @@ export function AdminDashboard({ token, device, onSelectDevice }: AdminDashboard
           </p>
 
           <div className="admin-list custom-scrollbar">
-            {songs.map((song) => (
-              <article className="song-row" key={song.id}>
-                <Music size={16} />
-                <div className="row-main">
-                  <strong>{song.title}</strong>
-                  <span>{song.artist}</span>
-                  <small>ID: {song.id}</small>
-                </div>
-                <div className="song-meta">
-                  <span>
-                    {Math.floor(song.duration_seconds / 60)}:{(song.duration_seconds % 60).toString().padStart(2, '0')}
-                  </span>
-                  <span>{song.total_plays || 0} çalma</span>
-                  <button className="danger ghost" onClick={() => void deleteSong(song.id)} title="Sil">
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </article>
-            ))}
+            {songs.map((song) => {
+              const durSec = song.duration_seconds ?? (song.duration_ms ? Math.floor(song.duration_ms / 1000) : 0);
+              return (
+                <article className="song-row" key={song.id}>
+                  {song.cover_url ? (
+                    <img
+                      src={song.cover_url}
+                      alt=""
+                      className="admin-song-thumb"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLElement).style.display = 'none';
+                        const fallback = (e.currentTarget as HTMLElement).parentElement?.querySelector('.admin-song-cover-fallback') as HTMLElement;
+                        if (fallback) fallback.style.display = 'flex';
+                      }}
+                    />
+                  ) : null}
+                  <div
+                    className="admin-song-cover-fallback"
+                    style={{ display: song.cover_url ? 'none' : 'flex' }}
+                  >
+                    <Music size={16} />
+                  </div>
+                  <div className="row-main">
+                    <strong>{song.title}</strong>
+                    <span>{song.artist}</span>
+                    <small>ID: {song.id}</small>
+                  </div>
+                  <div className="song-meta">
+                    <span>
+                      {Math.floor(durSec / 60)}:{(durSec % 60).toString().padStart(2, '0')}
+                    </span>
+                    <span>{song.total_plays || 0} çalma</span>
+                    <button className="danger ghost" onClick={() => void deleteSong(song.id)} title="Sil">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
             {songs.length === 0 && <div className="empty-panel slim">Henüz şarkı yok. Klasör tarayarak ekleyin.</div>}
           </div>
         </div>
       )}
+
+      {activeTab === 'spotify-players' && (
+        <div className="admin-section-full spotify-players-section">
+          <div className="admin-section-header">
+            <div className="admin-section-title-wrap">
+              <Speaker size={18} className="text-accent-red" />
+              <h3>Spotify Connect Çıkış Hoparlörleri & Kiosk Eşleştirmesi</h3>
+            </div>
+            <button
+              type="button"
+              className="arcade-button"
+              onClick={() => void fetchSpotifyPlaybackDevices()}
+              disabled={loadingSpotifyDevices}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px' }}
+            >
+              <RefreshCw size={13} className={loadingSpotifyDevices ? 'spin' : ''} />
+              <span>Cihazları Tara</span>
+            </button>
+          </div>
+
+          <p className="hint-strip" style={{ marginBottom: 12 }}>
+            Aynı Spotify hesabına bağlı birden fazla hoparlör, stüdyo amfisi veya bilgisayar arasında geçiş yapın. Aşağıdan her bir kioskun şarkılarını hangi Spotify hoparlöründen çalacağını tek tıkla seçebilirsiniz.
+          </p>
+
+          {/* Kesintisiz Çalışma Bilgi Kartı */}
+          <div className="spotify-guarantee-banner">
+            <CheckCircle2 size={18} className="guarantee-icon" />
+            <div className="guarantee-text">
+              <strong>Kesintisiz Sistem Çalışma Garantisi:</strong> Hiçbir Spotify Connect
+              hoparlörü aktif veya seçili olmasa dahi RadioTEDU Jukebox kuyruğu, şarkı geçişleri, oylama ve kiosk ekranları
+              tam kapasiteyle kesintisiz çalışmaya devam eder.
+            </div>
+          </div>
+
+          <div className="spotify-players-split-grid">
+            {/* 1. Algılanan Aktif Spotify Connect Cihazları */}
+            <div className="admin-card-panel">
+              <div className="panel-title-bar">
+                <h4>
+                  <Volume2 size={15} style={{ color: '#38bdf8' }} />
+                  Ağda Algılanan Spotify Çalarlar ({spotifyPlaybackDevices.length})
+                </h4>
+                {loadingSpotifyDevices && <span className="panel-loading-badge">Taranıyor...</span>}
+              </div>
+
+              {spotifyPlaybackDevices.length === 0 ? (
+                <div className="empty-panel-dashed">
+                  <p className="empty-title">Şu anda algılanan aktif Spotify Connect cihazı yok.</p>
+                  <p className="empty-desc">
+                    Bilgisayarınızda veya stüdyo hoparlörünüzde Spotify açık olduğunda burada otomatik olarak görünecektir. Sistem bu esnada kesintisiz aktif kalmaya devam eder.
+                  </p>
+                </div>
+              ) : (
+                <div className="spotify-devices-grid">
+                  {spotifyPlaybackDevices.map((dev) => {
+                    const typeLower = (dev.type || '').toLowerCase();
+                    const TypeIcon = typeLower === 'computer' ? Laptop : typeLower === 'smartphone' ? Smartphone : typeLower.includes('cast') ? Tv : Speaker;
+                    return (
+                      <div
+                        key={dev.id}
+                        className={`spotify-dev-card ${dev.is_active ? 'is-playing' : ''}`}
+                      >
+                        <div className="spotify-dev-top">
+                          <span className="spotify-dev-name">
+                            <TypeIcon size={16} className={dev.is_active ? 'icon-green' : 'icon-muted'} />
+                            {dev.name}
+                          </span>
+                          <span className={`state-badge ${dev.is_active ? 'playing' : 'ready'}`}>
+                            {dev.is_active ? 'Çalıyor / Aktif' : 'Hazır'}
+                          </span>
+                        </div>
+                        <div className="spotify-dev-meta">
+                          <span>{formatSpotifyPlaybackDeviceType(dev.type)}</span>
+                          {typeof dev.volume_percent === 'number' && <span>Ses: %{dev.volume_percent}</span>}
+                        </div>
+                        <div className="spotify-dev-id">
+                          ID: {dev.id.substring(0, 16)}...
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* 2. Kiosk Çıkış Eşleştirmesi */}
+            <div className="admin-card-panel">
+              <div className="panel-title-bar">
+                <h4>
+                  <Sliders size={15} style={{ color: 'var(--accent-red)' }} />
+                  Kiosk Çıkış Eşleştirmesi (Hangi Kiosk Nereden Çalacak?)
+                </h4>
+              </div>
+              <p className="panel-subtext">
+                Aşağıdaki kiosklardan bir hoparlör seçtiğinizde, o kiosktan çalınan Spotify şarkıları doğrudan seçtiğiniz cihazdan ses verir.
+              </p>
+
+              <div className="kiosk-mapping-list">
+                {devices.map((kiosk) => {
+                  const assignedInfo = resolveAssignedSpotifyDeviceLabel(
+                    kiosk.spotify_playback_device_id,
+                    kiosk.spotify_player_name,
+                    spotifyPlaybackDevices
+                  );
+                  const isCurrentActiveKiosk = kiosk.id === device.id;
+                  const isUpdating = updatingKioskTargetId === kiosk.id;
+
+                  return (
+                    <div
+                      key={kiosk.id}
+                      className={`kiosk-mapping-row ${isCurrentActiveKiosk ? 'active-kiosk' : ''}`}
+                    >
+                      <div className="kiosk-mapping-top">
+                        <div className="kiosk-name-block">
+                          <strong className="kiosk-name">{kiosk.name}</strong>
+                          <span className="kiosk-code">[{kiosk.device_code}]</span>
+                          {isCurrentActiveKiosk && (
+                            <span className="current-kiosk-badge">Bu Ekran</span>
+                          )}
+                          {kiosk.location && <span className="kiosk-loc">· {kiosk.location}</span>}
+                        </div>
+                        <div className="kiosk-target-status">
+                          <span
+                            className={`kiosk-output-pill ${
+                              kiosk.spotify_playback_device_id
+                                ? (assignedInfo.isDetected ? 'online' : 'offline')
+                                : 'default'
+                            }`}
+                          >
+                            Çıkış: {assignedInfo.label}
+                          </span>
+                          {kiosk.spotify_playback_device_id && (
+                            <button
+                              type="button"
+                              className="arcade-button danger ghost mini-btn"
+                              onClick={() => void assignSpotifyPlaybackTarget(kiosk.id, null)}
+                              disabled={isUpdating}
+                              title="Çalar seçimini kaldır (Varsayılana dön)"
+                            >
+                              <X size={12} /> Kaldır
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Çalar Seçimi Butonları */}
+                      <div className="kiosk-target-buttons-wrap">
+                        <div className="target-select-label">
+                          Çıkış Hoparlörü Seç (Tıkla ve Ata):
+                        </div>
+                        {spotifyPlaybackDevices.length > 0 ? (
+                          <div className="target-btn-group">
+                            {spotifyPlaybackDevices.map((spDev) => {
+                              const isCurrent = kiosk.spotify_playback_device_id === spDev.id;
+                              return (
+                                <button
+                                  key={spDev.id}
+                                  type="button"
+                                  className={`playback-target-btn ${isCurrent ? 'selected' : ''}`}
+                                  onClick={() => void assignSpotifyPlaybackTarget(kiosk.id, spDev.id, spDev.name)}
+                                  disabled={isUpdating}
+                                >
+                                  {isCurrent ? <Check size={13} className="btn-icon-check" /> : <Speaker size={13} />}
+                                  <span className="btn-dev-name">{spDev.name}</span>
+                                  <span className="btn-dev-type">({formatSpotifyPlaybackDeviceType(spDev.type)})</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="no-devices-note">
+                            Aktif Spotify Connect cihazı algılandığında seçim butonları burada belirecektir.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+                {devices.length === 0 && (
+                  <div className="empty-panel slim">Henüz kayıtlı kiosk yok</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      </div>
     </section>
   );
 }

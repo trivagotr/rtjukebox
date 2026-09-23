@@ -32,12 +32,23 @@ async function applySchemaSql(client, schemaSql) {
     }
 }
 
-async function runSchemaMigration(options = {}) {
-    const ownsPool = !options.pool;
-    const pool = options.pool || new Pool({
-        connectionString: process.env.DATABASE_URL,
+function createMigrationPool() {
+    const connectionString = process.env.DATABASE_URL || '';
+    if (connectionString.includes('neon.tech')) {
+        const { Pool: NeonPool, neonConfig } = require('@neondatabase/serverless');
+        const ws = require('ws');
+        neonConfig.webSocketConstructor = globalThis.WebSocket || ws;
+        return new NeonPool({ connectionString });
+    }
+    return new Pool({
+        connectionString,
         ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
     });
+}
+
+async function runSchemaMigration(options = {}) {
+    const ownsPool = !options.pool;
+    const pool = options.pool || createMigrationPool();
     const logger = options.logger || console;
     const schemaPath = resolveSchemaSqlPath(options.schemaPath);
 

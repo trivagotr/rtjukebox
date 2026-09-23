@@ -17,10 +17,10 @@ export class MetadataService {
     static async syncSongMetadata(songId: string): Promise<any> {
         try {
             // Get current song info
-            const songRes = await db.query('SELECT title, artist FROM songs WHERE id = $1', [songId]);
+            const songRes = await db.query('SELECT title, artist, spotify_id, cover_url FROM songs WHERE id = $1', [songId]);
             if (songRes.rows.length === 0) return null;
 
-            const { title, artist } = songRes.rows[0];
+            const { title, artist, spotify_id, cover_url: currentCoverUrl } = songRes.rows[0];
             const cleanTitle = title
                 .replace(/[\(\[].*?[\)\]]/g, '') // Remove (Official Video), [Lyrics] etc.
                 .replace(/\s+(official|music|video|audio|lyrics|lyric|hq|hd|4k|remastered|version|original|mix|edit|clip|full|hd)\b/gi, '') // Remove bare suffixes
@@ -51,6 +51,18 @@ export class MetadataService {
                 response = await axios.get(fallbackUrl);
             }
 
+            let spotifyCoverUrl: string | null = null;
+            if (spotify_id && (!currentCoverUrl || currentCoverUrl.trim() === '')) {
+                try {
+                    const oembed = await axios.get(`https://open.spotify.com/oembed?url=https://open.spotify.com/track/${spotify_id}`, { timeout: 2500 });
+                    if (oembed.data?.thumbnail_url) {
+                        spotifyCoverUrl = oembed.data.thumbnail_url;
+                    }
+                } catch {
+                    // Ignore oembed failure
+                }
+            }
+
             if (response.data.resultCount > 0) {
                 const result = response.data.results[0];
                 const normalizedMetadata = normalizeItunesSongMetadata({
@@ -59,14 +71,20 @@ export class MetadataService {
                     album: result.collectionName || null
                 });
                 const durationMs = result.trackTimeMillis || null;
-                const artworkUrl = result.artworkUrl100 ? result.artworkUrl100.replace('100x100bb', '600x600bb') : null;
+                const artworkUrl = result.artworkUrl100
+                    ? result.artworkUrl100.replace('100x100bb', '600x600bb')
+                    : (spotifyCoverUrl || null);
 
                 const updateQuery = `
                     UPDATE songs
                     SET title = $1,
                         artist = $2,
                         album = $3,
-                        cover_url = COALESCE($4, cover_url),
+                        cover_url = CASE
+                            WHEN $4 IS NOT NULL AND $4 != '' THEN $4
+                            WHEN cover_url IS NOT NULL AND cover_url != '' THEN cover_url
+                            ELSE NULL
+                        END,
                         duration_ms = COALESCE($5, duration_ms)
                     WHERE id = $6
                     RETURNING *
@@ -82,6 +100,14 @@ export class MetadataService {
                     songId
                 ]);
 
+                return updated.rows[0];
+            }
+
+            if (spotifyCoverUrl) {
+                const updated = await db.query(
+                    `UPDATE songs SET cover_url = $1 WHERE id = $2 RETURNING *`,
+                    [spotifyCoverUrl, songId]
+                );
                 return updated.rows[0];
             }
 

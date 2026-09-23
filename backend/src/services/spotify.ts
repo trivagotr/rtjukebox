@@ -942,7 +942,9 @@ export class SpotifyService {
         const match = embedRes.data.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]+?)<\/script>/);
         if (match) {
           const nextData = JSON.parse(match[1]);
-          const trackList = nextData.props?.pageProps?.state?.data?.entity?.trackList;
+          const entity = nextData.props?.pageProps?.state?.data?.entity;
+          const playlistCoverUrl = entity?.coverArt?.sources?.[0]?.url || entity?.visualIdentity?.image?.[0]?.url || '';
+          const trackList = entity?.trackList;
           if (Array.isArray(trackList) && trackList.length > 0) {
             return trackList.slice(0, limit).map((t: any) => ({
               spotify_uri: t.uri || `spotify:track:${t.id || t.uid}`,
@@ -951,6 +953,7 @@ export class SpotifyService {
               artist: t.subtitle || (Array.isArray(t.artists) ? t.artists.map((a: any) => a.name).join(', ') : 'Unknown'),
               artist_id: t.artists?.[0]?.id || '',
               album: t.album?.name || t.title || 'Single',
+              // Never use playlistCoverUrl as individual track cover.
               cover_url: t.audioPreview?.coverUrl || '',
               duration_ms: Number(t.duration || 0),
               explicit: Boolean(t.isExplicit || t.contentRatings?.labels?.includes('EXPLICIT')),
@@ -1076,14 +1079,43 @@ export class SpotifyService {
   async playTrack(deviceId: string, spotifyUri: string, accessTokenOverride?: string): Promise<void> {
     const token = await this.resolvePlaybackAccessToken(accessTokenOverride);
 
-    await axios.put(
-      `${SPOTIFY_API_URL}/me/player/play`,
-      { uris: [spotifyUri] },
-      {
-        headers: { Authorization: `Bearer ${token}` },
-        params: { device_id: deviceId },
+    let playedWithContext = false;
+    const trackId = spotifyUri.startsWith('spotify:track:') ? spotifyUri.replace('spotify:track:', '') : null;
+    if (trackId) {
+      try {
+        const trackRes = await axios.get(`${SPOTIFY_API_URL}/tracks/${trackId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const albumUri = trackRes.data?.album?.uri;
+        if (albumUri) {
+          await axios.put(
+            `${SPOTIFY_API_URL}/me/player/play`,
+            {
+              context_uri: albumUri,
+              offset: { uri: spotifyUri },
+            },
+            {
+              headers: { Authorization: `Bearer ${token}` },
+              params: { device_id: deviceId },
+            }
+          );
+          playedWithContext = true;
+        }
+      } catch (contextErr: any) {
+        console.warn('[SpotifyService] Play with album context failed, falling back to uris:', contextErr?.message);
       }
-    );
+    }
+
+    if (!playedWithContext) {
+      await axios.put(
+        `${SPOTIFY_API_URL}/me/player/play`,
+        { uris: [spotifyUri] },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          params: { device_id: deviceId },
+        }
+      );
+    }
   }
 
   async transferPlayback(deviceId: string, play = true, accessTokenOverride?: string): Promise<void> {
@@ -1189,20 +1221,74 @@ export class SpotifyService {
     };
   }
 
-  async getAvailableDevices(accessTokenOverride?: string): Promise<{ id: string; name: string; is_active: boolean }[]> {
-    const token = await this.resolvePlaybackAccessToken(accessTokenOverride);
-    try {
-      const response = await axios.get(`${SPOTIFY_API_URL}/me/player/devices`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      return (response.data?.devices || []).map((d: any) => ({
-        id: d.id,
-        name: d.name,
-        is_active: Boolean(d.is_active),
-      }));
-    } catch {
-      return [];
+  async getAvailableDevices(accessTokenOverride?: string): Promise<{
+    id: string;
+    name: string;
+    is_active: boolean;
+    type?: string;
+    volume_percent?: number | null;
+  }[]> {
+    const devicesMap = new Map<string, {
+      id: string;
+      name: string;
+      is_active: boolean;
+      type?: string;
+      volume_percent?: number | null;
+    }>();
+
+    const fetchDevicesForToken = async (token: string) => {
+      try {
+        const response = await axios.get(`${SPOTIFY_API_URL}/me/player/devices`, {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 4000,
+        });
+        for (const d of response.data?.devices || []) {
+          if (d?.id) {
+            devicesMap.set(d.id, {
+              id: d.id,
+              name: d.name || 'Spotify Connect',
+              is_active: Boolean(d.is_active),
+              type: d.type || 'Speaker',
+              volume_percent: typeof d.volume_percent === 'number' ? d.volume_percent : null,
+            });
+          }
+        }
+      } catch {
+        // Token might not have user-read-playback-state scope or be invalid
+      }
+    };
+
+    if (accessTokenOverride) {
+      await fetchDevicesForToken(accessTokenOverride);
+      return Array.from(devicesMap.values());
     }
+
+    try {
+      const globalToken = await this.getAccessToken();
+      if (globalToken) {
+        await fetchDevicesForToken(globalToken);
+      }
+    } catch {
+      // Global token may not be configured
+    }
+
+    try {
+      const authRows = await db.query('SELECT device_id FROM spotify_device_auth');
+      for (const row of authRows.rows) {
+        try {
+          const kioskToken = await this.getKioskPlaybackToken(row.device_id);
+          if (kioskToken?.accessToken) {
+            await fetchDevicesForToken(kioskToken.accessToken);
+          }
+        } catch {
+          // Ignore individual kiosk token errors
+        }
+      }
+    } catch {
+      // Ignore DB error
+    }
+
+    return Array.from(devicesMap.values());
   }
 
   async getKioskPlaybackToken(deviceId: string): Promise<{
@@ -1324,6 +1410,24 @@ export function toCatalogSongSearchItem(track: ContentFilterTrack): CatalogSongS
  * Returns the song's UUID from our DB.
  */
 export async function upsertSpotifyTrack(track: ContentFilterTrack): Promise<string> {
+  let resolvedCoverUrl = (track.cover_url || '').trim();
+  // If the cover URL is a mosaic collage (which is a playlist cover, not a song cover), discard it so track oEmbed resolves the actual track cover
+  if (resolvedCoverUrl.includes('mosaic.scdn.co')) {
+    resolvedCoverUrl = '';
+  }
+  const trackSpotifyId = track.spotify_id || (track.spotify_uri?.startsWith('spotify:track:') ? track.spotify_uri.replace('spotify:track:', '') : null);
+
+  if (!resolvedCoverUrl && trackSpotifyId) {
+    try {
+      const oembedRes = await axios.get(`https://open.spotify.com/oembed?url=https://open.spotify.com/track/${trackSpotifyId}`, { timeout: 2500 });
+      if (oembedRes.data?.thumbnail_url) {
+        resolvedCoverUrl = oembedRes.data.thumbnail_url;
+      }
+    } catch {
+      // Ignore oembed failure, fallback to null
+    }
+  }
+
   const result = await db.query(
     `INSERT INTO songs (
        source_type, visibility, asset_role, spotify_uri, spotify_id, title, artist, artist_id, album, cover_url, duration_ms, is_explicit
@@ -1337,7 +1441,11 @@ export async function upsertSpotifyTrack(track: ContentFilterTrack): Promise<str
        artist = EXCLUDED.artist,
        artist_id = EXCLUDED.artist_id,
        album = EXCLUDED.album,
-       cover_url = EXCLUDED.cover_url,
+       cover_url = CASE 
+         WHEN EXCLUDED.cover_url IS NOT NULL AND EXCLUDED.cover_url != '' AND EXCLUDED.cover_url NOT LIKE '%mosaic.scdn.co%' THEN EXCLUDED.cover_url 
+         WHEN songs.cover_url IS NOT NULL AND songs.cover_url != '' AND songs.cover_url NOT LIKE '%mosaic.scdn.co%' THEN songs.cover_url 
+         ELSE EXCLUDED.cover_url 
+       END,
        duration_ms = EXCLUDED.duration_ms,
        is_explicit = EXCLUDED.is_explicit
      RETURNING id`,
@@ -1348,7 +1456,7 @@ export async function upsertSpotifyTrack(track: ContentFilterTrack): Promise<str
       track.artist,
       track.artist_id,
       track.album,
-      track.cover_url,
+      resolvedCoverUrl || null,
       track.duration_ms,
       track.explicit,
     ]

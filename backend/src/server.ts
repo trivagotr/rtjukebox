@@ -11,7 +11,7 @@ import authRoutes from './routes/auth';
 import podcastRoutes from './routes/podcasts';
 import podcastFeedRoutes from './routes/podcastFeeds';
 import radioRoutes from './routes/radio';
-import jukeboxRoutes from './routes/jukebox';
+import jukeboxRoutes, { reconcileStoppedSpotifyPlaybackForDevice } from './routes/jukebox';
 import radioProfilesRoutes from './routes/radioProfiles';
 import usersRoutes from './routes/users';
 import spotifyRoutes from './routes/spotify';
@@ -43,6 +43,7 @@ if (!IS_TEST_ENV) {
 }
 
 const app = express();
+app.set('trust proxy', 1);
 const corsOrigin = resolveCorsOrigins(process.env.CORS_ORIGINS, {
     isProduction: process.env.NODE_ENV === 'production' && !IS_TEST_ENV,
 });
@@ -95,7 +96,7 @@ app.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
     next();
 });
-app.use(rateLimit({ windowMs: 60000, max: 500 }));
+app.use(rateLimit({ windowMs: 60000, max: 500, validate: { xForwardedForHeader: false } }));
 registerUtilityRoutes(app);
 
 // Static: Kiosk Web App
@@ -200,15 +201,42 @@ function startBackgroundTasks() {
     if (typeof podcastSyncTimer.unref === 'function') {
         podcastSyncTimer.unref();
     }
+
+    // Periodic Spotify playback reconciliation for active jukebox devices (every 5 seconds)
+    const spotifyReconciliationIntervalMs = 5000;
+    let isReconcilingSpotify = false;
+    const spotifyReconcileTimer = setInterval(async () => {
+        if (isReconcilingSpotify) return;
+        isReconcilingSpotify = true;
+        try {
+            const activeDevicesResult = await db.query(
+                `SELECT id FROM devices WHERE is_active = true AND spotify_playback_device_id IS NOT NULL`
+            );
+            for (const row of activeDevicesResult.rows) {
+                try {
+                    await reconcileStoppedSpotifyPlaybackForDevice({ deviceId: row.id });
+                } catch (recErr: any) {
+                    // Suppress transient noise
+                }
+            }
+        } catch (dbErr: any) {
+            // DB query error
+        } finally {
+            isReconcilingSpotify = false;
+        }
+    }, spotifyReconciliationIntervalMs);
+    if (typeof spotifyReconcileTimer.unref === 'function') {
+        spotifyReconcileTimer.unref();
+    }
 }
 
 const PORT = process.env.PORT || 3000;
-httpServer.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
-
 if (!IS_TEST_ENV) {
+    httpServer.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+    });
     startBackgroundTasks();
 }
 
+export { app, httpServer };
 // io is now accessed via getIO() in other modules

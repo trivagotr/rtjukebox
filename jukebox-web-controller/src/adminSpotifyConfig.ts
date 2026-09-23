@@ -186,3 +186,85 @@ export function isSpotifyDeviceAuthSuccessMessage(data: unknown): data is Spotif
   return message.type === 'SPOTIFY_DEVICE_AUTH_SUCCESS' &&
     (message.deviceId === undefined || typeof message.deviceId === 'string');
 }
+
+export interface SpotifyPlaybackDevice {
+  id: string;
+  name: string;
+  is_active: boolean;
+  type?: string;
+  volume_percent?: number | null;
+}
+
+export interface SpotifyPlaybackDevicesResponse {
+  devices: SpotifyPlaybackDevice[];
+}
+
+export function formatSpotifyPlaybackDeviceType(type?: string): string {
+  switch ((type || '').toLowerCase()) {
+    case 'computer':
+      return 'Bilgisayar';
+    case 'smartphone':
+      return 'Telefon';
+    case 'speaker':
+      return 'Hoparlör';
+    case 'cast_video':
+    case 'cast_audio':
+      return 'Cast / TV';
+    case 'automobile':
+      return 'Otomobil';
+    default:
+      return type || 'Ses Aygıtı';
+  }
+}
+
+export function resolveAssignedSpotifyDeviceLabel(
+  targetId: string | null | undefined,
+  targetName: string | null | undefined,
+  activeDevices: SpotifyPlaybackDevice[]
+): {
+  label: string;
+  isDetected: boolean;
+} {
+  const trimmedId = targetId?.trim();
+  if (!trimmedId) {
+    return {
+      label: 'Atanmış cihaz yok (Sistem varsayılanı)',
+      isDetected: false,
+    };
+  }
+
+  const detected = activeDevices.find((d) => d.id === trimmedId);
+  if (detected) {
+    return {
+      label: `${detected.name} (${formatSpotifyPlaybackDeviceType(detected.type)})`,
+      isDetected: true,
+    };
+  }
+
+  return {
+    label: targetName?.trim() || trimmedId,
+    isDetected: false,
+  };
+}
+
+export function buildSpotifyPlaybackTargetPayload(
+  deviceId: string | null | undefined,
+  playerName?: string | null | undefined
+): {
+  spotify_playback_device_id: string | null;
+  spotify_player_name: string | null;
+} {
+  const trimmedId = deviceId?.trim();
+  if (!trimmedId) {
+    return {
+      spotify_playback_device_id: null,
+      spotify_player_name: null,
+    };
+  }
+
+  return {
+    spotify_playback_device_id: trimmedId,
+    spotify_player_name: playerName?.trim() || null,
+  };
+}
+

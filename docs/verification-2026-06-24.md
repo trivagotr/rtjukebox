@@ -94,3 +94,18 @@ After the v1.0 push, the broader mobile-backend-jukebox goal was rechecked and e
 - Source-level security checks passed for Helmet, rate limiting, production CORS allowlist, JWT secret fail-fast, sanitized auth responses, auth-protected gamification routes, admin-only podcast feed routes, RSS dependency replacement, and default podcast feed seeding.
 
 Remaining product limitation: native in-app camera scanning is not included; QR rewards use OS-level QR deep links or manual code entry.
+
+## 2026-09-23 Test and Security Automation
+
+The CI/security automation task added package lint and test gates, backend Testcontainers integration coverage, MSW component/integration tests, a Playwright critical-flow suite, CodeQL, weekly Dependabot updates, and nightly Trivy, OSV-Scanner, and ZAP scans. ZAP targets the built controller at `/jukebox/controller/`.
+
+Locally verified commands and results:
+
+- Backend `npm run lint`, `npm run build`, and `npm run test:coverage`: passed. Coverage ran 35 test files (292 passed, 3 skipped); the configured 70% line threshold applies to the selected CORS, JWT auth, and RBAC modules, which measured 80% combined.
+- Web controller `npm run lint`, `npm run build`, and `npm test -- --reporter=dot`: passed (8 files, 29 tests).
+- Kiosk `npm run lint` and `npm test -- --reporter=dot`: passed (5 files, 39 tests).
+- Mobile `npm run lint` and `npm test -- --runInBand`: passed (lint has 69 existing warnings; 14 suites and 35 tests passed).
+- `npx playwright test --list`: passed and discovered the critical-flow test. The full Playwright run and backend Testcontainers suite were not run locally because Docker is unavailable.
+- `npm audit --json`: zero findings in backend, web controller, kiosk, and E2E. Mobile reports 7 moderate and 7 high findings; available npm fixes require major React Native/Metro and React Navigation upgrades. The CI audit gate reports this until those upgrades are made.
+
+The GitHub workflows were configured but were not run on GitHub during this local verification.

@@ -1,0 +1,250 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Node 20)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run Tests & Coverage
+        run: npm run test:coverage
+        env:
+          NODE_ENV: test
+          JWT_SECRET: ci-test-jwt-secret
+          JWT_REFRESH_SECRET: ci-test-jwt-refresh-secret
+
+      - name: Run container-backed API tests
+        run: npm run test:integration
+        env:
+          NODE_ENV: test
+          JWT_SECRET: ci-test-jwt-secret
+          JWT_REFRESH_SECRET: ci-test-jwt-refresh-secret
+
+      - name: Dependency audit
+        run: npm audit --audit-level=low
+
+  web-controller:
+    name: Web Controller (React)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: jukebox-web-controller
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: jukebox-web-controller/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run Tests
+        run: npm test
+
+      - name: Build SPA
+        run: npm run build
+
+      - name: Dependency audit
+        run: npm audit --audit-level=low
+
+  kiosk-web:
+    name: Kiosk Web (Vanilla JS)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kiosk-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: kiosk-web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run Tests
+        run: npm test
+
+      - name: Dependency audit
+        run: npm audit --audit-level=low
+
+  mobile:
+    name: Mobile (React Native)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run Tests
+        run: npm test -- --runInBand
+
+      - name: Dependency audit
+        run: npm audit --audit-level=low
+
+  end-to-end:
+    name: Cross-client Jukebox E2E
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: radiotedu_e2e
+          POSTGRES_USER: radiotedu_e2e
+          POSTGRES_PASSWORD: radiotedu_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U radiotedu_e2e -d radiotedu_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgres://radiotedu_e2e:radiotedu_e2e@localhost:5432/radiotedu_e2e
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: e2e-test-access-secret
+      JWT_REFRESH_SECRET: e2e-test-refresh-secret
+      DEFAULT_PODCAST_FEEDS: '[]'
+      PODCAST_SYNC_INTERVAL_HOURS: '24'
+      CORS_ORIGINS: http://127.0.0.1:5173,http://localhost:5173
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            e2e/package-lock.json
+            jukebox-web-controller/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Install controller dependencies
+        working-directory: jukebox-web-controller
+        run: npm ci
+
+      - name: Install E2E dependencies
+        working-directory: e2e
+        run: npm ci
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+      - name: Apply database schema
+        working-directory: backend
+        run: npm run db:migrate
+
+      - name: Start backend
+        working-directory: backend
+        run: node dist/server.js > "$RUNNER_TEMP/backend.log" 2>&1 &
+
+      - name: Wait for backend health endpoint
+        run: node scripts/wait-for-http.mjs http://127.0.0.1:3000/health
+
+      - name: Install Playwright Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run cross-client E2E suite
+        working-directory: e2e
+        run: npm test
+
+  security-scan:
+    name: Security & Secret Scan (SAST)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Semgrep SAST
+        run: |
+          python3 -m pip install semgrep
+          semgrep scan \
+            --config p/typescript \
+            --config p/express \
+            --config p/react \
+            --config p/jwt \
+            --config p/secrets \
+            --config p/owasp-top-ten \
+            --error .

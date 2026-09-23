@@ -15,6 +15,7 @@ import {
   Radio,
   RefreshCw,
   Search,
+  Shield,
   Sparkles,
   Star,
   Trophy,
@@ -147,6 +148,7 @@ interface LoginViewProps {
   loading: boolean;
   showLoginModal: boolean;
   setShowLoginModal: (value: boolean) => void;
+  loginError: string | null;
   email: string;
   setEmail: (value: string) => void;
   password: string;
@@ -167,6 +169,7 @@ const LoginView = ({
   loading,
   showLoginModal,
   setShowLoginModal,
+  loginError,
   email,
   setEmail,
   password,
@@ -259,13 +262,26 @@ const LoginView = ({
           </button>
           <p className="eyebrow amber">RadioTEDU hesabı</p>
           <h2>Üye girişi</h2>
-          <div className="form-grid">
+          {loginError && (
+            <div className="modal-error-banner" role="alert">
+              <AlertCircle size={16} />
+              <span>{loginError}</span>
+            </div>
+          )}
+          <form
+            className="form-grid"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleLogin();
+            }}
+          >
             <label>
               Kullanıcı adı / email
               <input
                 className="arcade-input"
                 placeholder="admin@radiotedu.com"
                 value={email}
+                autoFocus
                 onChange={(event) => setEmail(event.target.value)}
               />
             </label>
@@ -279,10 +295,10 @@ const LoginView = ({
                 onChange={(event) => setPassword(event.target.value)}
               />
             </label>
-            <button className="arcade-button primary" onClick={handleLogin} disabled={loading}>
+            <button type="submit" className="arcade-button primary" disabled={loading}>
               {loading ? 'Giriş yapılıyor...' : 'Giriş yap'}
             </button>
-          </div>
+          </form>
         </section>
       </div>
     )}
@@ -350,6 +366,39 @@ const LeaderboardView = ({ leaderboard, period, onPeriodChange, onClose }: Leade
   </div>
 );
 
+const SongCover = ({
+  src,
+  alt,
+  className = 'song-thumb',
+  fallbackIconSize = 20,
+}: {
+  src?: string | null;
+  alt?: string;
+  className?: string;
+  fallbackIconSize?: number;
+}) => {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const hasError = Boolean(src && failedSrc === src);
+
+  if (!src || hasError) {
+    return (
+      <div className={`song-cover-fallback ${className}`} aria-label={alt || 'Şarkı kapağı'}>
+        <Disc3 size={fallbackIconSize} />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      className={className}
+      alt={alt || ''}
+      onError={() => setFailedSrc(src ?? null)}
+      loading="lazy"
+    />
+  );
+};
+
 interface QueueItemProps {
   item: QueueSong;
   idx: number;
@@ -365,7 +414,7 @@ const QueueItem = ({ item, idx, myVotes, handleVote, user }: QueueItemProps) => 
   return (
     <article className="queue-item">
       <div className="queue-index">{idx + 1}</div>
-      <img src={item.cover_url ?? ''} className="song-thumb" alt="" />
+      <SongCover src={item.cover_url} className="song-thumb" alt={item.title} fallbackIconSize={20} />
       <div className="row-main">
         <strong>{item.title}</strong>
         <span>{item.artist}</span>
@@ -426,24 +475,22 @@ const SyncedLyricsCard = ({
   nowPlaying: QueueSong | null;
   interpolatedProgress: number;
 }) => {
-  const [lyrics, setLyrics] = useState<LyricsData | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [lyricsResult, setLyricsResult] = useState<{ trackKey: string; lyrics: LyricsData | null } | null>(null);
   const activeLineRef = useRef<HTMLDivElement | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   const title = nowPlaying?.title || '';
   const artist = nowPlaying?.artist || '';
   const durationMs = nowPlaying?.duration_ms ?? (nowPlaying?.duration_seconds ? nowPlaying.duration_seconds * 1000 : null);
+  const trackKey = title && artist ? JSON.stringify([title, artist, durationMs]) : null;
+  const currentLyricsResult = trackKey && lyricsResult?.trackKey === trackKey ? lyricsResult : null;
+  const lyrics = currentLyricsResult?.lyrics ?? null;
+  const loading = trackKey !== null && currentLyricsResult === null;
 
   useEffect(() => {
-    if (!title || !artist) {
-      setLyrics(null);
-      setLoading(false);
-      return;
-    }
+    if (!trackKey) return;
 
     let isMounted = true;
-    setLoading(true);
 
     const durationSec = durationMs ? Math.round(durationMs / 1000) : undefined;
     const params = new URLSearchParams({
@@ -459,21 +506,18 @@ const SyncedLyricsCard = ({
       .get<{ data: LyricsData | null }>(`${API_URL}/api/v1/jukebox/lyrics?${params.toString()}`, { headers })
       .then((res) => {
         if (!isMounted) return;
-        setLyrics(res.data.data || null);
+        setLyricsResult({ trackKey, lyrics: res.data.data || null });
       })
       .catch((err) => {
         console.warn('Lyrics fetch error:', err);
         if (!isMounted) return;
-        setLyrics(null);
-      })
-      .finally(() => {
-        if (isMounted) setLoading(false);
+        setLyricsResult({ trackKey, lyrics: null });
       });
 
     return () => {
       isMounted = false;
     };
-  }, [title, artist, durationMs]);
+  }, [title, artist, durationMs, trackKey]);
 
   // Find active line
   let activeIndex = -1;
@@ -557,10 +601,10 @@ interface JukeboxViewProps {
   queue: QueueSong[];
   fetchCurrentQueue: (deviceId: string) => void;
   progress: ProgressState | null;
-  setDevice: (device: DeviceSummary) => void;
   interpolatedProgress: number;
   handleVote: (queueItemId: string, voteType: number, isSuper?: boolean) => void;
   onShowLeaderboard: () => void;
+  onOpenAdmin?: () => void;
   myVotes: Record<string, number>;
 }
 
@@ -577,10 +621,10 @@ const JukeboxView = ({
   queue,
   fetchCurrentQueue,
   progress,
-  setDevice,
   interpolatedProgress,
   handleVote,
   onShowLeaderboard,
+  onOpenAdmin,
   myVotes,
 }: JukeboxViewProps) => {
   const nowPlayingCurrentVote = nowPlaying ? resolveDisplayedVote(nowPlaying, myVotes) : undefined;
@@ -631,7 +675,7 @@ const JukeboxView = ({
               </div>
               {results.map((song, index) => (
                 <button className="search-result" key={getSearchResultKey(song, index)} onClick={() => addToQueue(song)}>
-                  <img src={song.cover_url ?? ''} alt="" />
+                  <SongCover src={song.cover_url} className="song-thumb" alt={song.title} fallbackIconSize={18} />
                   <span>
                     <strong>{song.title}</strong>
                     <small>{song.artist}</small>
@@ -652,7 +696,17 @@ const JukeboxView = ({
         </div>
 
         <div className="rail-footer">
-          {user.role === 'admin' && <AdminDashboard token={localStorage.getItem('token') || ''} device={device} onSelectDevice={setDevice} />}
+          {user.role === 'admin' && (
+            <button
+              type="button"
+              className="arcade-button primary admin-open-btn"
+              onClick={onOpenAdmin}
+              title="Yönetici Paneli"
+            >
+              <Shield size={16} />
+              <span>YÖNETİCİ PANELİ</span>
+            </button>
+          )}
 
           <div className="user-console-card">
             <div className="avatar-chip">{getInitial(user.display_name)}</div>
@@ -672,7 +726,7 @@ const JukeboxView = ({
           {nowPlaying ? (
             <div className="record-display">
               <div className="record-art">
-                <img src={nowPlaying.cover_url ?? ''} alt="" />
+                <SongCover src={nowPlaying.cover_url} className="" alt={nowPlaying.title} fallbackIconSize={64} />
                 <span className="record-ring"></span>
               </div>
               <div className="track-copy">
@@ -797,11 +851,13 @@ function App() {
   const [msg, setMsg] = useState<ToastState | null>(null);
   const [myVotes, setMyVotes] = useState<Record<string, number>>({});
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [leaderboard, setLeaderboard] = useState<LeaderboardUser[]>([]);
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<'total' | 'monthly'>('total');
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showAdminModal, setShowAdminModal] = useState(false);
   const deviceRef = useRef<DeviceSummary | null>(null);
   const leaderboardRequestSeqRef = useRef(0);
   const leaderboardPeriodRef = useRef<'total' | 'monthly'>('total');
@@ -1067,9 +1123,13 @@ function App() {
   };
 
   const handleLogin = async () => {
-    if (!email || !password) return;
+    if (!email || !password) {
+      setLoginError('Lütfen e-posta / kullanıcı adı ve şifrenizi girin.');
+      return;
+    }
     try {
       setLoading(true);
+      setLoginError(null);
       const res = await axios.post<{ data: { user: AppUser; access_token: string } }>(`${API_URL}/api/v1/auth/login`, {
         email,
         password,
@@ -1079,11 +1139,14 @@ function App() {
       localStorage.setItem('user', JSON.stringify(res.data.data.user));
       setGuestName('');
       setShowLoginModal(false);
+      setLoginError(null);
 
       const currentCode = deviceCode || deviceCodeInput;
       if (currentCode) void connectToDevice(currentCode);
     } catch (error) {
-      setMsg({ type: 'error', text: getErrorMessage(error, 'Giriş yapılamadı.') });
+      const errText = getErrorMessage(error, 'Giriş yapılamadı. Bilgilerinizi kontrol edin.');
+      setLoginError(errText);
+      setMsg({ type: 'error', text: errText });
     } finally {
       setLoading(false);
     }
@@ -1208,7 +1271,11 @@ function App() {
           handleGuestLogin={handleGuestLogin}
           loading={loading}
           showLoginModal={showLoginModal}
-          setShowLoginModal={setShowLoginModal}
+          setShowLoginModal={(val) => {
+            setShowLoginModal(val);
+            if (!val) setLoginError(null);
+          }}
+          loginError={loginError}
           email={email}
           setEmail={setEmail}
           password={password}
@@ -1230,13 +1297,13 @@ function App() {
           queue={queue}
           fetchCurrentQueue={fetchCurrentQueue}
           progress={progress}
-          setDevice={setDevice}
           interpolatedProgress={interpolatedProgress}
           handleVote={handleVote}
           onShowLeaderboard={() => {
             void fetchLeaderboard();
             setShowLeaderboard(true);
           }}
+          onOpenAdmin={() => setShowAdminModal(true)}
           myVotes={myVotes}
         />
       )}
@@ -1248,6 +1315,19 @@ function App() {
           onPeriodChange={(period) => void fetchLeaderboard(period)}
           onClose={() => setShowLeaderboard(false)}
         />
+      )}
+
+      {showAdminModal && device && (
+        <div className="modal-screen admin-modal-screen" role="dialog" aria-modal="true" aria-label="Yönetici Paneli">
+          <div className="modal-card admin-modal-card">
+            <AdminDashboard
+              token={localStorage.getItem('token') || ''}
+              device={device}
+              onSelectDevice={setDevice}
+              onClose={() => setShowAdminModal(false)}
+            />
+          </div>
+        </div>
       )}
 
       {msg && (

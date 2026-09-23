@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /backend
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /jukebox-web-controller
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /kiosk-web
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /mobile
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /e2e
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

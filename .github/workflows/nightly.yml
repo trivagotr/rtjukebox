@@ -1,0 +1,140 @@
+name: Nightly Security & Vulnerability Scan
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # Every night at 02:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trivy-config:
+    name: Trivy Dockerfile Configuration Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan backend Dockerfile
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: backend/Dockerfile
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+
+  trivy-image:
+    name: Trivy Backend Image Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: docker build -f backend/Dockerfile -t rtjukebox/backend:nightly backend
+
+      - name: Scan backend image
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: image
+          image-ref: rtjukebox/backend:nightly
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+
+  osv-scanner:
+    name: OSV Scanner Lockfile Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run OSV-Scanner
+        uses: google/osv-scanner-action/osv-scanner-action@v1.9.0
+        with:
+          scan-args: |-
+            --recursive
+            ./
+
+  zap-dast:
+    name: OWASP ZAP Baseline DAST
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: radiotedu_nightly
+          POSTGRES_USER: radiotedu_nightly
+          POSTGRES_PASSWORD: radiotedu_nightly
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U radiotedu_nightly -d radiotedu_nightly"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgres://radiotedu_nightly:radiotedu_nightly@localhost:5432/radiotedu_nightly
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: nightly-test-access-secret
+      JWT_REFRESH_SECRET: nightly-test-refresh-secret
+      DEFAULT_PODCAST_FEEDS: '[]'
+      PODCAST_SYNC_INTERVAL_HOURS: '24'
+      CORS_ORIGINS: http://localhost:4173
+      PUBLIC_BASE_PATH: /jukebox
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            jukebox-web-controller/package-lock.json
+
+      - name: Install web controller dependencies
+        working-directory: jukebox-web-controller
+        run: npm ci
+
+      - name: Build web controller
+        working-directory: jukebox-web-controller
+        env:
+          VITE_APP_BASE_PATH: /jukebox/controller/
+          VITE_PUBLIC_BASE_PATH: /jukebox
+        run: npm run build
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+      - name: Apply database schema
+        working-directory: backend
+        run: npm run db:migrate
+
+      - name: Start backend
+        working-directory: backend
+        run: node dist/server.js > "$RUNNER_TEMP/backend.log" 2>&1 &
+
+      - name: Wait for backend health endpoint
+        working-directory: backend
+        run: node ../scripts/wait-for-http.mjs http://127.0.0.1:3000/health
+
+      - name: Run ZAP baseline scan
+        run: >-
+          docker run --rm --network host ghcr.io/zaproxy/zaproxy:stable
+          zap-baseline.py -t http://127.0.0.1:3000/jukebox/controller/ -m 3 -I

@@ -139,21 +139,19 @@ class KioskApp {
     }
 
     isSpotifyDeviceAuthConnected() {
-        if (this.spotifyDeviceAuthStatus?.connected === true) {
-            this.clearSpotifyDeviceAuthSetupState();
-            return true;
+        if (!this.spotifyDeviceAuthController) {
+            return this.spotifyDeviceAuthReady === true && !this.spotifyDeviceAuthSetupState?.required;
         }
 
         if (this.spotifyDeviceAuthStatus?.connected === false) {
             return false;
         }
 
-        if (this.spotifyDeviceAuthReady === true) {
-            this.clearSpotifyDeviceAuthSetupState();
-            return true;
+        if (this.spotifyDeviceAuthSetupState?.required) {
+            return false;
         }
 
-        return !this.spotifyDeviceAuthSetupState?.required;
+        return true;
     }
 
     async setupSpotifyDeviceAuthFlow() {
@@ -175,7 +173,7 @@ class KioskApp {
             deviceId: this.device?.id,
             devicePassword: localStorage.getItem('device_pwd') || CONFIG.DEVICE_PWD || '',
             document,
-            fetch: window.fetch.bind(window),
+            fetch,
             window,
             onMissing: (status) => {
                 this.spotifyDeviceAuthStatus = status;
@@ -700,24 +698,11 @@ class KioskApp {
 
             const connected = await this.spotifyController.connect();
             if (connected === false) {
-                console.warn('ℹ️ Spotify Web Playback SDK bağlantısı kurulamadı, Spotify Connect kullanılıyor.');
-                this.spotifyController = null;
-                this.spotifyReadyPromise = null;
-                this.spotifyReadyResolve = null;
-                return null;
+                throw new Error('Spotify player failed to connect');
             }
             this.clearSpotifyDeviceAuthSetupState();
             return this.spotifyController;
         } catch (error) {
-            const message = error?.message || String(error || '');
-            if (message.includes('No supported keysystem') || message.includes('Failed to initialize player') || message.includes('failed to connect') || message.includes('initialization_error') || message.includes('EMEError')) {
-                console.warn('ℹ️ Spotify Web Playback SDK başlatılamadı, Spotify Connect üzerinden yürütülüyor.');
-                this.spotifyController = null;
-                this.spotifyReadyPromise = null;
-                this.spotifyReadyResolve = null;
-                return null;
-            }
-
             const authRequiredMessage = this.getSpotifyDeviceAuthRequiredMessage(error);
             if (authRequiredMessage) {
                 this.saveSpotifyDeviceAuthSetupState(authRequiredMessage);
@@ -733,24 +718,29 @@ class KioskApp {
     }
 
     async ensureSpotifyPlaybackReady() {
-        if (!this.spotifyController && window.KioskSpotifyPlayer) {
-            try {
-                await this.initializeSpotifyPlayback();
-            } catch (initError) {
-                console.warn('⚠️ Local Spotify Web Playback SDK init skipped:', initError);
-            }
+        if (!this.spotifyController) {
+            await this.initializeSpotifyPlayback();
         }
 
         if (this.spotifyReadyPromise) {
             try {
                 await Promise.race([
                     this.spotifyReadyPromise,
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Spotify player readiness timeout')), 3000)),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Spotify player readiness timeout')), 10000)),
                 ]);
             } catch (error) {
-                console.warn('⚠️ Spotify Web SDK timeout, falling back to Spotify Connect on Kiosk machine:', error);
+                const controller = this.spotifyController;
+                this.spotifyController = null;
                 this.spotifyReadyPromise = null;
                 this.spotifyReadyResolve = null;
+                this.spotifyDeviceId = null;
+                this.spotifyPlayerState = null;
+                try {
+                    controller?.disconnect?.();
+                } catch (disconnectError) {
+                    this.log(`⚠️ Spotify player kapatılamadı: ${disconnectError.message}`, 'error');
+                }
+                throw error;
             }
         }
 
@@ -844,6 +834,20 @@ class KioskApp {
     }
 
     syncNowPlayingUi() {
+        if (window.KioskPlayback?.shouldSyncNowPlayingView) {
+            const shouldSync = window.KioskPlayback.shouldSyncNowPlayingView({
+                nowPlaying: this.queueData?.now_playing,
+                isPlaying: this.isPlaying,
+                spotifyTrackUri: this.spotifyPlayerState?.track_uri || null,
+                startupBlocked: Boolean(document.getElementById('startupOverlay')),
+            });
+
+            if (shouldSync) {
+                this.showPlayingState(this.queueData.now_playing);
+            }
+            return;
+        }
+
         const nextNowPlaying = this.queueData?.now_playing || null;
         if (!nextNowPlaying) {
             if (this.currentPlayingSong && !this.audioPlayer.src) {
@@ -868,8 +872,6 @@ class KioskApp {
             this.autoplayTriggered = false;
             this.showPlayingState(nextNowPlaying);
             this.startProgressUpdate();
-        } else if (this.isPlaying) {
-            this.showPlayingState(nextNowPlaying);
         }
     }
 
@@ -1438,6 +1440,7 @@ class KioskApp {
 
             if (data && typeof data.progressMs === 'number') {
                 if (currentSong?.spotify_uri && data.itemUri && data.itemUri !== currentSong.spotify_uri) {
+                    this.liveSpotifyState = null;
                     return; // Ignore snapshot from previous song
                 }
                 this.liveSpotifyState = {
@@ -1485,7 +1488,8 @@ class KioskApp {
         const percent = total > 0 ? (current / total) * 100 : 0;
 
         // Auto transition to next song when duration expires
-        if (total > 0 && current >= total && this.isPlaying && !this.trackTransitioning) {
+        const elapsedPlayback = this.playbackStartedAt ? (Date.now() - this.playbackStartedAt) : 0;
+        if (total > 0 && current >= total && this.isPlaying && !this.trackTransitioning && elapsedPlayback > 4000) {
             this.trackTransitioning = true;
             console.log('🎵 Şarkı süresi tamamlandı, sonraki şarkıya geçiliyor...');
             setTimeout(() => {
@@ -1551,9 +1555,18 @@ class KioskApp {
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     }
 
-    // ===== UI Updates =====
     transitionVisualState(showElement, hideElement) {
-        if (!showElement) {
+        if (!showElement || !showElement.classList) {
+            return;
+        }
+
+        // Avoid re-triggering entering animation and flickering if already visible and not currently exiting
+        const isAlreadyVisible = typeof showElement.classList.contains === 'function'
+            ? (!showElement.classList.contains('hidden') && !showElement.classList.contains('state-exiting'))
+            : false;
+        const isHideHidden = !hideElement || typeof hideElement.classList?.contains !== 'function' || hideElement.classList.contains('hidden');
+
+        if (isAlreadyVisible && isHideHidden) {
             return;
         }
 
@@ -1565,7 +1578,7 @@ class KioskApp {
         showElement.classList.remove('hidden', 'state-exiting');
         showElement.classList.add('state-entering');
 
-        if (hideElement && !hideElement.classList.contains('hidden')) {
+        if (hideElement && hideElement.classList && !isHideHidden) {
             hideElement.classList.remove('state-entering');
             hideElement.classList.add('state-exiting');
         }
@@ -1726,16 +1739,22 @@ class KioskApp {
         }
 
         const domLines = scroller.querySelectorAll('.lyric-line');
+        let activeEl = null;
         domLines.forEach((el, idx) => {
             if (idx === activeIdx) {
                 el.className = 'lyric-line active';
-                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                activeEl = el;
             } else if (idx < activeIdx) {
                 el.className = 'lyric-line past';
             } else {
                 el.className = 'lyric-line future';
             }
         });
+
+        if (activeEl && typeof scroller.scrollTo === 'function') {
+            const targetScrollTop = Math.max(0, activeEl.offsetTop - (scroller.clientHeight / 2) + (activeEl.clientHeight / 2));
+            scroller.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
+        }
     }
 
     showIdleState() {

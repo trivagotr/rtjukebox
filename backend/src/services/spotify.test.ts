@@ -26,6 +26,7 @@ import {
   deriveSpotifyDeviceAuthRedirectUri,
   SPOTIFY_REQUIRED_SCOPES,
   SpotifyService,
+  upsertSpotifyTrack,
 } from './spotify';
 
 describe('SpotifyService', () => {
@@ -863,3 +864,83 @@ describe('SpotifyService', () => {
     expect(config.redirectUriReadOnly).toBe(true);
   });
 });
+
+describe('upsertSpotifyTrack', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockDbQuery.mockResolvedValue({ rows: [{ id: 'song-uuid-1' }] });
+  });
+
+  it('preserves existing cover_url when provided in track', async () => {
+    await upsertSpotifyTrack({
+      spotify_uri: 'spotify:track:abc12345',
+      spotify_id: 'abc12345',
+      title: 'Test Song',
+      artist: 'Test Artist',
+      cover_url: 'https://example.com/cover.jpg',
+      duration_ms: 180000,
+      explicit: false,
+    });
+
+    expect(mockAxiosGet).not.toHaveBeenCalled();
+    expect(mockDbQuery).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO songs'),
+      expect.arrayContaining(['https://example.com/cover.jpg'])
+    );
+  });
+
+  it('fetches thumbnail from Spotify oEmbed when cover_url is missing', async () => {
+    mockAxiosGet.mockResolvedValueOnce({
+      data: {
+        thumbnail_url: 'https://image-cdn.spotifycdn.com/image/test-cover-123',
+      },
+    });
+
+    await upsertSpotifyTrack({
+      spotify_uri: 'spotify:track:xyz789',
+      spotify_id: 'xyz789',
+      title: 'Missing Cover Song',
+      artist: 'Artist',
+      cover_url: '',
+      duration_ms: 200000,
+      explicit: false,
+    });
+
+    expect(mockAxiosGet).toHaveBeenCalledWith(
+      'https://open.spotify.com/oembed?url=https://open.spotify.com/track/xyz789',
+      expect.objectContaining({ timeout: 2500 })
+    );
+    expect(mockDbQuery).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO songs'),
+      expect.arrayContaining(['https://image-cdn.spotifycdn.com/image/test-cover-123'])
+    );
+  });
+
+  it('discards mosaic playlist cover URLs and resolves track oEmbed cover', async () => {
+    mockAxiosGet.mockResolvedValueOnce({
+      data: {
+        thumbnail_url: 'https://image-cdn.spotifycdn.com/image/actual-song-cover',
+      },
+    });
+
+    await upsertSpotifyTrack({
+      spotify_uri: 'spotify:track:mosaic123',
+      spotify_id: 'mosaic123',
+      title: 'Song with Playlist Collage Cover',
+      artist: 'Artist',
+      cover_url: 'https://mosaic.scdn.co/640/ab67616d00001e0225a647ace83ba32770ab5d0f',
+      duration_ms: 210000,
+      explicit: false,
+    });
+
+    expect(mockAxiosGet).toHaveBeenCalledWith(
+      'https://open.spotify.com/oembed?url=https://open.spotify.com/track/mosaic123',
+      expect.objectContaining({ timeout: 2500 })
+    );
+    expect(mockDbQuery).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO songs'),
+      expect.arrayContaining(['https://image-cdn.spotifycdn.com/image/actual-song-cover'])
+    );
+  });
+});
+

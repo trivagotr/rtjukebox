@@ -157,10 +157,23 @@ router.post('/register', async (req: Request, res: Response) => {
 router.post('/login', async (req: Request, res: Response) => {
     try {
         const { email, password } = req.body;
-        const result = await db.query('SELECT * FROM users WHERE email = $1', [email]);
+        const inputIdentifier = typeof email === 'string' ? email.trim() : '';
+        if (!inputIdentifier || !password) {
+            return sendError(res, 'Invalid credentials', 401);
+        }
+
+        const normalizedIdentifier = inputIdentifier.toLowerCase();
+        const result = await db.query(
+            `SELECT * FROM users 
+             WHERE LOWER(TRIM(email)) = $1 
+                OR LOWER(TRIM(email)) = $1 || '@radiotedu.com'
+                OR LOWER(TRIM(display_name)) = $1
+             LIMIT 1`,
+            [normalizedIdentifier]
+        );
 
         if (!result.rows[0]) {
-            return res.status(401).json({ error: 'Invalid credentials' });
+            return sendError(res, 'Invalid credentials', 401);
         }
 
         const user = result.rows[0];
@@ -170,8 +183,14 @@ router.post('/login', async (req: Request, res: Response) => {
             return sendError(res, 'Invalid credentials', 401);
         }
 
-        // Update last IP and UA on login
-        await db.query('UPDATE users SET last_ip = $1, user_agent = $2 WHERE id = $3', [req.ip, req.headers['user-agent'], user.id]);
+        // Update last IP and UA on login (best-effort)
+        try {
+            const rawIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip;
+            const cleanIp = rawIp?.replace(/^::ffff:/, '').replace(/:\d+$/, '');
+            await db.query('UPDATE users SET last_ip = $1, user_agent = $2 WHERE id = $3', [cleanIp || null, req.headers['user-agent'] || null, user.id]);
+        } catch (ipErr) {
+            console.warn('Failed to update user last_ip/user_agent:', ipErr);
+        }
 
         const tokens = await createAuthSession(user.id, user.email, user.role);
         return sendSuccess(res, {
@@ -180,7 +199,7 @@ router.post('/login', async (req: Request, res: Response) => {
         }, 'Login successful');
     } catch (error) {
         console.error('Login failed:', error);
-        return sendError(res, 'Login failed', 500);
+        return sendError(res, (error as any)?.message || 'Login failed', 500);
     }
 });
 
