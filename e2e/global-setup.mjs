@@ -40,8 +40,8 @@ async function globalSetup() {
     await pool.query(
       `INSERT INTO songs (source_type, visibility, asset_role, spotify_uri, title, artist, album, duration_ms, is_active)
        VALUES
-         ('local', 'public', 'music', 'spotify:track:e2e-a', 'E2E Song Alpha', 'Test Artist', 'E2E Album', 180000, TRUE),
-         ('local', 'public', 'music', 'spotify:track:e2e-b', 'E2E Song Beta', 'Test Artist', 'E2E Album', 180000, TRUE)`,
+         ('local', 'public', 'e2e-test', 'spotify:track:e2e-a', 'E2E Song Alpha', 'Test Artist', 'E2E Album', 180000, TRUE),
+         ('local', 'public', 'e2e-test', 'spotify:track:e2e-b', 'E2E Song Beta', 'Test Artist', 'E2E Album', 180000, TRUE)`,
     );
   } finally {
     await pool.end();
