@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
+import rateLimit from 'express-rate-limit';
 import { db } from '../db';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { rbacMiddleware } from '../middleware/rbac';
@@ -450,6 +451,7 @@ router.post(
  */
 router.get(
   '/playback-devices',
+  rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false }),
   authMiddleware,
   rbacMiddleware(['admin']),
   async (req: AuthRequest, res: Response) => {
@@ -462,7 +464,7 @@ router.get(
           const tokenObj = await spotifyService.getKioskPlaybackToken(kioskDeviceId);
           accessTokenOverride = tokenObj.accessToken;
         } catch (tokenErr: any) {
-          console.warn(`[Spotify Devices] Could not get kiosk token for ${kioskDeviceId}:`, tokenErr.message);
+          console.warn('[Spotify Devices] Could not get kiosk token for the requested device');
         }
       }
 

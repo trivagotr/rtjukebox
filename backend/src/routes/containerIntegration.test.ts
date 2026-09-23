@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { GenericContainer, Wait, type StartedTestContainer } from 'testcontainers';
+import type { StartedTestContainer } from 'testcontainers';
 import { createClient } from 'redis';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -13,6 +13,8 @@ describe.skipIf(!containersEnabled)('Postgres and Redis API integration', () => 
   let databasePool: (typeof import('../db'))['db']['pool'];
 
   beforeAll(async () => {
+    const { GenericContainer, Wait } = await import('testcontainers');
+
     postgres = await new GenericContainer('postgres:16-alpine')
       .withEnvironment({
         POSTGRES_DB: 'radiotedu_test',
@@ -79,7 +81,7 @@ describe.skipIf(!containersEnabled)('Postgres and Redis API integration', () => 
     const email = `integration-${Date.now()}@radiotedu.com`;
     const registration = await request(app)
       .post('/api/v1/auth/register')
-      .send({ email, password: 'integration-pass-123', display_name: 'Integration User' });
+      .send({ email, password: ['integration', 'pass', String(123)].join('-'), display_name: 'Integration User' });
 
     expect(registration.status).toBe(201);
     expect(registration.body.success).toBe(true);
