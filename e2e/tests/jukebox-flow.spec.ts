@@ -49,7 +49,11 @@ test('kiosk QR joins a guest, enforces the guest queue limit, and lets a member 
   );
   await controllerPage.locator('.search-result').filter({ hasText: 'E2E Song Alpha' }).click();
   const alphaResult = await alphaQueueResponse;
-  expect(alphaResult.ok()).toBeTruthy();
+  const alphaBody = await alphaResult.json();
+  expect(
+    alphaResult.ok(),
+    `Alpha queue request returned ${alphaResult.status()}: ${JSON.stringify(alphaBody)}`,
+  ).toBeTruthy();
   expect(alphaResult.request().postDataJSON()).toMatchObject({ song_id: alpha.id });
   await expect(controllerPage.locator('.queue-item').filter({ hasText: 'E2E Song Alpha' })).toBeVisible();
 
