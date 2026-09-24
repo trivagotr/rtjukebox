@@ -10,10 +10,15 @@ const PUBLIC_BASE_PATH = getPublicBasePath();
 const IS_LOCAL_DEV = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const API_BASE = IS_LOCAL_DEV
     ? `${window.location.protocol}//${window.location.hostname}:3000`
-    : `${window.location.origin}${PUBLIC_BASE_PATH}`;
+    : window.location.origin;
 
 const getDeviceCode = () => {
     const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('pwd')) {
+        urlParams.delete('pwd');
+        const cleanUrl = `${window.location.pathname}${urlParams.toString() ? `?${urlParams}` : ''}${window.location.hash || ''}`;
+        window.history?.replaceState?.({}, '', cleanUrl);
+    }
     const codeFromURL = urlParams.get('code');
     if (codeFromURL) {
         localStorage.setItem('device_code', codeFromURL);
@@ -22,20 +27,9 @@ const getDeviceCode = () => {
     return localStorage.getItem('device_code') || '';
 };
 
-const getDevicePassword = () => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const pwdFromURL = urlParams.get('pwd');
-    if (pwdFromURL) {
-        localStorage.setItem('device_pwd', pwdFromURL);
-        return pwdFromURL;
-    }
-    return localStorage.getItem('device_pwd') || '';
-};
-
 const CONFIG = {
     // Cihaz kodu - dinamik olarak belirlenir
     DEVICE_CODE: getDeviceCode(),
-    DEVICE_PWD: getDevicePassword(),
 
     // Backend API URL
     API_URL: API_BASE,

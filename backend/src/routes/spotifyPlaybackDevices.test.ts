@@ -32,6 +32,14 @@ vi.mock('../middleware/auth', () => ({
   },
 }));
 
+vi.mock('../middleware/rbac', () => ({
+  ROLES: { GUEST: 'guest', USER: 'user', MODERATOR: 'moderator', ADMIN: 'admin' },
+  rbacMiddleware: (allowedRoles: string[]) => (req: any, res: any, next: any) => {
+    if (req.user && allowedRoles.includes(req.user.role)) return next();
+    return res.status(req.user ? 403 : 401).json({ success: false, error: 'Forbidden' });
+  },
+}));
+
 let jukeboxModule: typeof import('./jukebox');
 let spotifyRoutesModule: typeof import('./spotify');
 let spotifyServiceModule: typeof import('../services/spotify');

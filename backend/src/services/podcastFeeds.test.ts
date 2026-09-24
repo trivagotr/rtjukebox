@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockDbQuery, mockAxiosGet } = vi.hoisted(() => ({
+const { mockDbQuery, mockFetchPodcastFeedXml } = vi.hoisted(() => ({
   mockDbQuery: vi.fn(),
-  mockAxiosGet: vi.fn(),
+  mockFetchPodcastFeedXml: vi.fn(),
 }));
 
 vi.mock('../db', () => ({
@@ -12,18 +12,52 @@ vi.mock('../db', () => ({
   },
 }));
 
-vi.mock('axios', () => ({
-  default: {
-    get: mockAxiosGet,
-  },
-}));
-
-import { listPodcastEpisodes, syncPodcastFeed } from './podcastFeeds';
+import { fetchPodcastFeedXml, isPublicFeedAddress, listPodcastEpisodes, syncPodcastFeed, validatePodcastFeedTarget } from './podcastFeeds';
 
 describe('podcastFeeds service', () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockDbQuery.mockResolvedValue({ rows: [] });
+  });
+
+  it('allows only public unicast feed addresses', () => {
+    expect(isPublicFeedAddress('8.8.8.8')).toBe(true);
+    expect(isPublicFeedAddress('127.0.0.1')).toBe(false);
+    expect(isPublicFeedAddress('10.2.3.4')).toBe(false);
+    expect(isPublicFeedAddress('169.254.169.254')).toBe(false);
+    expect(isPublicFeedAddress('::1')).toBe(false);
+    expect(isPublicFeedAddress('::ffff:127.0.0.1')).toBe(false);
+    expect(isPublicFeedAddress('fd00::1')).toBe(false);
+  });
+
+  it('rejects feed schemes, embedded credentials, and nonstandard ports', () => {
+    expect(() => validatePodcastFeedTarget('file:///etc/passwd')).toThrow('HTTP or HTTPS');
+    expect(() => validatePodcastFeedTarget('https://user:pass@example.com/feed.xml')).toThrow('credentials');
+    expect(() => validatePodcastFeedTarget('http://example.com:8080/feed.xml')).toThrow('standard');
+    expect(validatePodcastFeedTarget('https://example.com/feed.xml').hostname).toBe('example.com');
+  });
+
+  it('revalidates every redirect and pins each request to its resolved public address', async () => {
+    const resolveAddress = vi.fn(async () => ({ address: '93.184.216.34', family: 4 }));
+    const requestOnce = vi.fn()
+      .mockResolvedValueOnce({ body: Buffer.alloc(0), location: '/redirected.xml' })
+      .mockResolvedValueOnce({ body: Buffer.from('<rss/>'), location: null });
+
+    await expect(fetchPodcastFeedXml('https://feeds.example.com/start.xml', { resolveAddress, requestOnce }))
+      .resolves.toBe('<rss/>');
+
+    expect(resolveAddress).toHaveBeenCalledTimes(2);
+    expect(requestOnce).toHaveBeenNthCalledWith(1, new URL('https://feeds.example.com/start.xml'), { address: '93.184.216.34', family: 4 });
+    expect(requestOnce).toHaveBeenNthCalledWith(2, new URL('https://feeds.example.com/redirected.xml'), { address: '93.184.216.34', family: 4 });
+  });
+
+  it('rejects a private address returned during feed DNS resolution before making a request', async () => {
+    const requestOnce = vi.fn();
+    await expect(fetchPodcastFeedXml('https://feeds.example.com/feed.xml', {
+      resolveAddress: async () => ({ address: '127.0.0.1', family: 4 }),
+      requestOnce,
+    })).rejects.toThrow('non-public IP');
+    expect(requestOnce).not.toHaveBeenCalled();
   });
 
   it('migrates an existing episode when a later sync adds a guid for a row matched by audio_url', async () => {
@@ -40,7 +74,7 @@ describe('podcastFeeds service', () => {
         </channel>
       </rss>`;
 
-    mockAxiosGet.mockResolvedValueOnce({ data: xml });
+    mockFetchPodcastFeedXml.mockResolvedValueOnce(xml);
     mockDbQuery.mockResolvedValueOnce({ rows: [] });
     mockDbQuery.mockResolvedValueOnce({
       rows: [
@@ -63,6 +97,7 @@ describe('podcastFeeds service', () => {
     const result = await syncPodcastFeed(
       { query: mockDbQuery },
       { id: 'feed-1', feedUrl: 'https://feeds.example.com/show.rss' },
+      mockFetchPodcastFeedXml,
     );
 
     expect(result).toEqual({ processed: 1, upserted: 1, skipped: 0 });
@@ -135,7 +170,7 @@ describe('podcastFeeds service', () => {
     const release = vi.fn();
     const connect = vi.fn(async () => ({ query: txQuery, release }));
 
-    mockAxiosGet.mockResolvedValueOnce({ data: xml });
+    mockFetchPodcastFeedXml.mockResolvedValueOnce(xml);
 
     const result = await syncPodcastFeed(
       {
@@ -143,6 +178,7 @@ describe('podcastFeeds service', () => {
         pool: { connect } as any,
       },
       { id: 'feed-1', feedUrl: 'https://feeds.example.com/show.rss' },
+      mockFetchPodcastFeedXml,
     );
 
     expect(result).toEqual({ processed: 1, upserted: 1, skipped: 0 });
@@ -182,13 +218,14 @@ describe('podcastFeeds service', () => {
         </channel>
       </rss>`;
 
-    mockAxiosGet.mockResolvedValueOnce({ data: xml });
+    mockFetchPodcastFeedXml.mockResolvedValueOnce(xml);
     mockDbQuery.mockResolvedValueOnce({ rows: [] });
     mockDbQuery.mockResolvedValue({ rows: [] });
 
     const result = await syncPodcastFeed(
       { query: mockDbQuery },
       { id: 'feed-1', feedUrl: 'https://feeds.example.com/show.rss' },
+      mockFetchPodcastFeedXml,
     );
 
     expect(result).toEqual({ processed: 2, upserted: 1, skipped: 1 });
@@ -226,12 +263,13 @@ describe('podcastFeeds service', () => {
 
   it('stores last_sync_error when sync fails', async () => {
     const failure = new Error('request timed out');
-    mockAxiosGet.mockRejectedValueOnce(failure);
+    mockFetchPodcastFeedXml.mockRejectedValueOnce(failure);
 
     await expect(
       syncPodcastFeed(
         { query: mockDbQuery },
         { id: 'feed-1', feedUrl: 'https://feeds.example.com/show.rss' },
+        mockFetchPodcastFeedXml,
       ),
     ).rejects.toThrow('request timed out');
 
@@ -268,7 +306,7 @@ describe('podcastFeeds service', () => {
     const release = vi.fn();
     const connect = vi.fn(async () => ({ query: txQuery, release }));
 
-    mockAxiosGet.mockResolvedValueOnce({ data: xml });
+    mockFetchPodcastFeedXml.mockResolvedValueOnce(xml);
 
     await expect(
       syncPodcastFeed(
@@ -277,6 +315,7 @@ describe('podcastFeeds service', () => {
           pool: { connect } as any,
         },
         { id: 'feed-1', feedUrl: 'https://feeds.example.com/show.rss' },
+        mockFetchPodcastFeedXml,
       ),
     ).rejects.toThrow('unique violation');
 

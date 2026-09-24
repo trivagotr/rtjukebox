@@ -37,9 +37,8 @@ const runtimeConfig = resolveWebRuntimeConfig({
   windowProtocol: window.location.protocol,
   windowHostname: window.location.hostname,
   isDev: import.meta.env.DEV,
-  // The static assets are served under the build base (/controller), but the
-  // backend API lives under its own reverse-proxy sub-path (/jukebox). Keep the
-  // two decoupled so changing where the SPA is served does not move the API.
+  // Static assets and Socket.IO keep their configured proxy base path. HTTP API
+  // calls use the canonical /api/v1 origin.
   baseUrl: import.meta.env.DEV ? '/' : (import.meta.env.VITE_PUBLIC_BASE_PATH || '/jukebox/'),
   apiOriginOverride: import.meta.env.VITE_API_ORIGIN,
 });
@@ -1100,6 +1099,7 @@ function App() {
 
     const newSocket = io(SOCKET_URL, {
       path: SOCKET_PATH,
+      auth: { token: localStorage.getItem('token') || '' },
       reconnectionAttempts: 10,
       reconnectionDelay: 2000,
       transports: ['websocket', 'polling'],

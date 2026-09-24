@@ -51,9 +51,10 @@ export function maskSpotifyAppConfigForResponse(config: SpotifyAppConfig): Spoti
 }
 
 function readSpotifyDeviceIdFromRequest(req: Request): string | null {
+  const bodyDeviceId = typeof req.body?.device_id === 'string' ? req.body.device_id : null;
   const queryDeviceId = typeof req.query?.device_id === 'string' ? req.query.device_id : null;
   const paramDeviceId = typeof req.params?.deviceId === 'string' ? req.params.deviceId : null;
-  return (queryDeviceId ?? paramDeviceId)?.trim() || null;
+  return (bodyDeviceId ?? queryDeviceId ?? paramDeviceId)?.trim() || null;
 }
 
 function readSpotifyDeviceIdFromPathParam(req: Request): string | null {
@@ -62,7 +63,9 @@ function readSpotifyDeviceIdFromPathParam(req: Request): string | null {
 
 function readSpotifyReturnOriginFromRequest(req: Request): string | null {
   return normalizeSpotifyReturnOrigin(
-    typeof req.query?.return_origin === 'string' ? req.query.return_origin : null
+    typeof req.body?.return_origin === 'string'
+      ? req.body.return_origin
+      : typeof req.query?.return_origin === 'string' ? req.query.return_origin : null
   );
 }
 
@@ -150,27 +153,7 @@ export async function handleSpotifyDeviceAuthStart(req: Request, res: Response) 
       deviceId,
       readSpotifyReturnOriginFromRequest(req)
     );
-    if (typeof req.query?.format === 'string' && req.query.format.toLowerCase() === 'json') {
-      return sendSuccess(res, { authUrl }, 'Spotify device auth start url fetched');
-    }
-    if (process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST)) {
-      return res.redirect(authUrl);
-    }
-    const safeUrl = escapeHtml(authUrl);
-    return res.send(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Spotify'a Aktarılıyor...</title>
-  <meta http-equiv="refresh" content="0;url=${safeUrl}">
-  <script>window.location.replace(${JSON.stringify(authUrl)});</script>
-</head>
-<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;text-align:center;padding:50px 20px;background:#121212;color:#fff;">
-  <h2 style="margin-bottom:10px;">Spotify Girişine Yönlendiriliyorsunuz...</h2>
-  <p style="color:#aaa;margin-bottom:20px;">Lütfen bekleyin, Spotify yetkilendirme ekranı açılıyor.</p>
-  <p><a href="${safeUrl}" style="color:#1db954;text-decoration:underline;">Otomatik yönlendirilmediyseniz buraya tıklayın</a></p>
-</body>
-</html>`);
+    return sendSuccess(res, { authUrl }, 'Spotify device auth start url fetched');
   } catch (error: any) {
     console.error('[Spotify Device Auth Start] Error:', error.message);
     return sendError(res, error.message || 'Failed to initiate device Spotify authorization', 500);
@@ -359,7 +342,7 @@ router.get(
   }
 );
 
-router.get(
+router.post(
   '/device-auth/start',
   authMiddleware,
   rbacMiddleware(['admin']),

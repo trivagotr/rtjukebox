@@ -52,8 +52,8 @@ const API_URL = resolveWebRuntimeConfig({
   windowProtocol: window.location.protocol,
   windowHostname: window.location.hostname,
   isDev: import.meta.env.DEV,
-  // Assets are served under the build base (/controller); the API stays under
-  // its own reverse-proxy sub-path (/jukebox). Keep them decoupled.
+  // Assets and Socket.IO keep their configured proxy base path; HTTP API calls
+  // use the canonical /api/v1 origin.
   baseUrl: import.meta.env.DEV ? '/' : (import.meta.env.VITE_PUBLIC_BASE_PATH || '/jukebox/'),
   apiOriginOverride: import.meta.env.VITE_API_ORIGIN,
 }).apiRoot;
@@ -68,7 +68,6 @@ export interface DeviceSummary {
   current_song_title?: string | null;
   current_song_artist?: string | null;
   last_heartbeat?: string | null;
-  password?: string | null;
   override_enabled?: boolean;
   override_autoplay_spotify_playlist_uri?: string | null;
   spotify_playback_device_id?: string | null;
@@ -142,6 +141,7 @@ export function AdminDashboard({ token, device, onSelectDevice, onClose }: Admin
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
   const [devices, setDevices] = useState<DeviceSummary[]>([]);
+  const [provisioningCodes, setProvisioningCodes] = useState<Record<string, { code: string; expiresAt: string }>>({});
   const [showNewDevice, setShowNewDevice] = useState(false);
   const [newDevice, setNewDevice] = useState<NewDeviceForm>({ device_code: '', name: '', location: '', password: '' });
   const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
@@ -539,8 +539,8 @@ export function AdminDashboard({ token, device, onSelectDevice, onClose }: Admin
   };
 
   const createDevice = async () => {
-    if (!newDevice.device_code || !newDevice.name) {
-      setStatus('Kod ve isim gerekli');
+    if (!newDevice.device_code || !newDevice.name || !newDevice.password.trim()) {
+      setStatus('Kod, isim ve cihaz kimlik bilgisi gerekli');
       return;
     }
 
@@ -602,7 +602,7 @@ export function AdminDashboard({ token, device, onSelectDevice, onClose }: Admin
     try {
       setLoading(true);
       const request = buildSpotifyDeviceAuthStartRequest(API_URL, token, deviceId, window.location.origin);
-      const res = await axios.get<{ data?: { authUrl?: string } }>(request.url, { headers: request.headers });
+      const res = await axios.post<{ data?: { authUrl?: string } }>(request.url, request.body, { headers: request.headers });
       const authUrl = res.data?.data?.authUrl;
       if (!authUrl) throw new Error('Spotify auth URL alınamadı');
 
@@ -649,10 +649,43 @@ export function AdminDashboard({ token, device, onSelectDevice, onClose }: Admin
     }
   };
 
+  const provisionKiosk = async (event: React.MouseEvent, deviceId: string) => {
+    event.stopPropagation();
+    try {
+      setLoading(true);
+      const response = await axios.post<{ data?: { provisioning_code?: string; expires_at?: string } }>(
+        `${API_URL}/api/v1/jukebox/admin/devices/${deviceId}/provision`,
+        {},
+        { headers: authHeaders(token) },
+      );
+      const code = response.data?.data?.provisioning_code;
+      if (!code) throw new Error('Provisioning code was not returned');
+      setProvisioningCodes((current) => ({
+        ...current,
+        [deviceId]: { code, expiresAt: response.data?.data?.expires_at || '' },
+      }));
+      setStatus('Tek kullanımlık kiosk kodu hazır; kodu kiosk kurulum ekranına 15 dakika içinde girin.');
+    } catch (error) {
+      setStatus(`Hata: ${errorMessage(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyProvisioningCode = async (event: React.MouseEvent, code: string) => {
+    event.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(code);
+      setStatus('Kurulum kodu panoya kopyalandı. Kod 15 dakika geçerli ve tek kez kullanılabilir.');
+    } catch {
+      setStatus('Kod kopyalanamadı; kodu seçip elle kopyalayın.');
+    }
+  };
+
   const startEditing = (event: React.MouseEvent, nextDevice: DeviceSummary) => {
     event.stopPropagation();
     setEditingDeviceId(nextDevice.id);
-    setEditValues({ name: nextDevice.name, location: nextDevice.location || '', password: nextDevice.password || '' });
+    setEditValues({ name: nextDevice.name, location: nextDevice.location || '', password: '' });
   };
 
   const scanFolder = async () => {
@@ -1237,13 +1270,15 @@ export function AdminDashboard({ token, device, onSelectDevice, onClose }: Admin
               <input
                 className="arcade-input"
                 placeholder="Konum (opsiyonel)"
+                maxLength={50}
                 value={newDevice.location}
                 onChange={(event) => setNewDevice({ ...newDevice, location: event.target.value })}
               />
               <input
                 className="arcade-input"
                 type="password"
-                placeholder="Giriş Şifresi (opsiyonel)"
+                placeholder="Cihaz giriş şifresi (gerekli)"
+                maxLength={50}
                 value={newDevice.password}
                 onChange={(event) => setNewDevice({ ...newDevice, password: event.target.value })}
               />
@@ -1304,7 +1339,9 @@ export function AdminDashboard({ token, device, onSelectDevice, onClose }: Admin
                           <input
                             className="arcade-input"
                             type="password"
-                            placeholder="Yeni Şifre"
+                            placeholder="New device credential (leave empty to keep current)"
+                            maxLength={50}
+                            autoComplete="new-password"
                             value={editValues.password}
                             onChange={(event) => setEditValues({ ...editValues, password: event.target.value })}
                           />
@@ -1342,6 +1379,9 @@ export function AdminDashboard({ token, device, onSelectDevice, onClose }: Admin
                   <div className="device-actions">
                     <span>Kuyruk: {nextDevice.queue_count ?? 0}</span>
                     <div>
+                      <button onClick={(event) => void provisionKiosk(event, nextDevice.id)} disabled={!nextDevice.is_active || loading}>
+                        Provision kiosk
+                      </button>
                       <button className="danger ghost" onClick={(event) => void logoutAllFromDevice(event, nextDevice.id)} title="Tüm girişleri kapat">
                         <LogOut size={13} />
                       </button>
@@ -1362,6 +1402,15 @@ export function AdminDashboard({ token, device, onSelectDevice, onClose }: Admin
                         </button>
                       )}
                     </div>
+                    {provisioningCodes[nextDevice.id] && (
+                      <div className="provisioning-code">
+                        <span>Tek kullanımlık kod (15 dakika):</span>
+                        <code>{provisioningCodes[nextDevice.id].code}</code>
+                        <button onClick={(event) => void copyProvisioningCode(event, provisioningCodes[nextDevice.id].code)}>
+                          Kopyala
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </article>
               );

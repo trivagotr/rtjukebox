@@ -19,7 +19,7 @@ describe('web runtime config', () => {
     });
   });
 
-  it('targets the jukebox subdirectory in production', () => {
+  it('targets the canonical API origin and keeps the subdirectory for sockets', () => {
     expect(
       resolveWebRuntimeConfig({
         windowOrigin: 'https://radiotedu.com',
@@ -29,7 +29,7 @@ describe('web runtime config', () => {
         baseUrl: '/jukebox/',
       }),
     ).toEqual({
-      apiRoot: 'https://radiotedu.com/jukebox',
+      apiRoot: 'https://radiotedu.com',
       socketUrl: 'https://radiotedu.com',
       socketPath: '/jukebox/socket.io',
       publicBasePath: '/jukebox',

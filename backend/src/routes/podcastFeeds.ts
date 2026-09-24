@@ -4,6 +4,7 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { rbacMiddleware, ROLES } from '../middleware/rbac';
 import { sendError, sendSuccess } from '../utils/response';
 import { syncPodcastFeed } from '../services/podcastFeeds';
+import { adminRateLimit } from '../middleware/rateLimits';
 
 const router = Router();
 
@@ -162,6 +163,7 @@ function buildSyncFailureResult(feed: PodcastFeedRow, error: unknown): PodcastFe
 
 router.use(authMiddleware);
 router.use(rbacMiddleware([ROLES.ADMIN]));
+router.use(adminRateLimit);
 
 router.get('/', async (_req: Request, res: Response) => {
   try {

@@ -4,10 +4,12 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { sendSuccess, sendError } from '../utils/response';
 import {
     awardUserPoints,
-    buildSpendablePointUpdate,
+    awardUserPointsInTransaction,
     getGameAwardedPoints,
+    withGamificationTransaction,
 } from '../services/gamification';
 import { getIstanbulDayKey } from '../services/jukeboxScoring';
+import { heartbeatRateLimit, writeRateLimit } from '../middleware/rateLimits';
 
 const router = Router();
 
@@ -36,6 +38,12 @@ function ensureRegisteredAccount(req: AuthRequest, res: Response) {
     }
 
     return true;
+}
+
+class GamificationWriteRejected extends Error {
+    constructor(readonly status: number, message: string) {
+        super(message);
+    }
 }
 
 export async function handleCurrentGamificationRequest(req: AuthRequest, res: Response) {
@@ -147,66 +155,58 @@ export async function handleMarketRedemptionRequest(req: AuthRequest, res: Respo
     }
 
     try {
-        const itemResult = await db.query(
-            `SELECT id, title, cost_points, stock_quantity, is_active
-             FROM market_items
-             WHERE id = $1 AND is_active = true`,
-            [req.params.itemId],
-        );
-        const item = itemResult.rows[0];
-
-        if (!item) {
-            return sendError(res, 'Market item not found', 404);
-        }
-
-        if (item.stock_quantity !== null && Number(item.stock_quantity) <= 0) {
-            return sendError(res, 'Market item is out of stock', 409);
-        }
-
-        const pointsResult = await db.query('SELECT spendable_points FROM user_points WHERE user_id = $1', [req.user?.id]);
-        const spendablePoints = toNumber(pointsResult.rows[0]?.spendable_points);
-        const costPoints = toNumber(item.cost_points);
-        const update = buildSpendablePointUpdate(spendablePoints, costPoints);
-
-        if (!update.canRedeem) {
-            return sendError(res, 'Not enough points', 400);
-        }
-
-        await db.query('BEGIN');
-        try {
-            await db.query(
-                'UPDATE user_points SET spendable_points = $1, updated_at = NOW() WHERE user_id = $2',
-                [update.nextSpendablePoints, req.user?.id],
+        const redemption = await withGamificationTransaction(async (client) => {
+            const itemResult = await client.query(
+                `SELECT id, cost_points
+                 FROM market_items
+                 WHERE id = $1 AND is_active = true
+                 FOR UPDATE`,
+                [req.params.itemId],
             );
-            if (item.stock_quantity !== null) {
-                await db.query(
-                    'UPDATE market_items SET stock_quantity = stock_quantity - 1, updated_at = NOW() WHERE id = $1',
-                    [item.id],
-                );
-            }
-            const redemptionResult = await db.query(
+            const item = itemResult.rows[0];
+            if (!item) throw new GamificationWriteRejected(404, 'Market item not found');
+
+            const costPoints = toNumber(item.cost_points);
+            if (costPoints <= 0) throw new GamificationWriteRejected(400, 'Market item cost is invalid');
+
+            const stockUpdate = await client.query(
+                `UPDATE market_items
+                 SET stock_quantity = CASE WHEN stock_quantity IS NULL THEN NULL ELSE stock_quantity - 1 END,
+                     updated_at = NOW()
+                 WHERE id = $1 AND is_active = true
+                   AND (stock_quantity IS NULL OR stock_quantity > 0)
+                 RETURNING stock_quantity`,
+                [item.id],
+            );
+            if (stockUpdate.rows.length === 0) throw new GamificationWriteRejected(409, 'Market item is out of stock');
+
+            const pointsUpdate = await client.query(
+                `UPDATE user_points
+                 SET spendable_points = spendable_points - $1, updated_at = NOW()
+                 WHERE user_id = $2 AND spendable_points >= $1
+                 RETURNING spendable_points`,
+                [costPoints, req.user?.id],
+            );
+            if (pointsUpdate.rows.length === 0) throw new GamificationWriteRejected(400, 'Not enough points');
+
+            const redemptionResult = await client.query(
                 `INSERT INTO market_redemptions (user_id, market_item_id, cost_points, status)
                  VALUES ($1, $2, $3, 'pending')
                  RETURNING *`,
-                [req.user?.id, item.id, costPoints],
+                [req.user!.id, item.id, costPoints],
             );
-            await db.query('COMMIT');
+            return {
+                redemption: redemptionResult.rows[0],
+                spendablePoints: toNumber(pointsUpdate.rows[0].spendable_points),
+            };
+        });
 
-            return sendSuccess(
-                res,
-                {
-                    redemption: redemptionResult.rows[0],
-                    spendable_points: update.nextSpendablePoints,
-                },
-                'Market item redeemed',
-                undefined,
-                201,
-            );
-        } catch (error) {
-            await db.query('ROLLBACK');
-            throw error;
-        }
+        return sendSuccess(res, {
+            redemption: redemption.redemption,
+            spendable_points: redemption.spendablePoints,
+        }, 'Market item redeemed', undefined, 201);
     } catch (error) {
+        if (error instanceof GamificationWriteRejected) return sendError(res, error.message, error.status);
         console.error('Market redemption error:', error);
         return sendError(res, 'Failed to redeem market item', 500);
     }
@@ -279,36 +279,38 @@ export async function handleQrClaimRequest(req: AuthRequest, res: Response) {
             return sendError(res, 'QR code required', 400);
         }
 
-        const rewardResult = await db.query(
-            `SELECT id, points
-             FROM qr_rewards
-             WHERE code = $1
-               AND is_active = true
-               AND (starts_at IS NULL OR starts_at <= NOW())
-               AND (ends_at IS NULL OR ends_at >= NOW())`,
-            [code],
-        );
-        const reward = rewardResult.rows[0];
+        const pointsAwarded = await withGamificationTransaction(async (client) => {
+            const rewardResult = await client.query(
+                `SELECT id, points
+                 FROM qr_rewards
+                 WHERE code = $1
+                   AND is_active = true
+                   AND (starts_at IS NULL OR starts_at <= NOW())
+                   AND (ends_at IS NULL OR ends_at >= NOW())
+                 FOR UPDATE`,
+                [code],
+            );
+            const reward = rewardResult.rows[0];
+            if (!reward) throw new GamificationWriteRejected(404, 'QR reward not found');
 
-        if (!reward) {
-            return sendError(res, 'QR reward not found', 404);
-        }
-
-        await db.query(
-            `INSERT INTO qr_reward_claims (qr_reward_id, user_id, points_awarded)
-             VALUES ($1, $2, $3)`,
-            [reward.id, req.user?.id, reward.points],
-        );
-        await awardUserPoints({
-            userId: req.user!.id,
-            amount: toNumber(reward.points),
-            category: 'events',
-            sourceType: 'qr_reward',
-            sourceId: reward.id,
+            await client.query(
+                `INSERT INTO qr_reward_claims (qr_reward_id, user_id, points_awarded)
+                 VALUES ($1, $2, $3)`,
+                [reward.id, req.user!.id, reward.points],
+            );
+            await awardUserPointsInTransaction(client, {
+                userId: req.user!.id,
+                amount: toNumber(reward.points),
+                category: 'events',
+                sourceType: 'qr_reward',
+                sourceId: reward.id,
+            });
+            return toNumber(reward.points);
         });
 
-        return sendSuccess(res, { points_awarded: toNumber(reward.points) }, 'QR reward claimed', undefined, 201);
+        return sendSuccess(res, { points_awarded: pointsAwarded }, 'QR reward claimed', undefined, 201);
     } catch (error: any) {
+        if (error instanceof GamificationWriteRejected) return sendError(res, error.message, error.status);
         if (error?.code === '23505') {
             return sendError(res, 'QR reward already claimed', 409);
         }
@@ -340,53 +342,60 @@ export async function handleGameScoreRequest(req: AuthRequest, res: Response) {
     }
 
     try {
-        const score = Math.max(0, Math.floor(toNumber(req.body?.score)));
-        const gameResult = await db.query(
-            `SELECT id, point_rate, daily_point_limit, is_active
-             FROM arcade_games
-             WHERE id = $1 AND is_active = true`,
-            [req.params.gameId],
-        );
-        const game = gameResult.rows[0];
-
-        if (!game) {
-            return sendError(res, 'Game not found', 404);
+        const scoreInput = req.body?.score;
+        if (typeof scoreInput !== 'number' || !Number.isSafeInteger(scoreInput) || scoreInput < 0 || scoreInput > 1_000_000) {
+            return sendError(res, 'score must be an integer between 0 and 1000000', 400);
         }
+        const score = scoreInput;
+        const userId = req.user!.id;
+        const dayKey = getIstanbulDayKey();
 
-        const dailyResult = await db.query(
-            `SELECT COALESCE(SUM(points_awarded), 0) AS awarded_today
-             FROM game_score_submissions
-             WHERE user_id = $1 AND game_id = $2 AND submitted_at::date = $3::date`,
-            [req.user?.id, game.id, getIstanbulDayKey()],
-        );
-        const awardedToday = toNumber(dailyResult.rows[0]?.awarded_today);
-        const dailyLimit = toNumber(game.daily_point_limit);
-        const remainingDailyLimit = Math.max(0, dailyLimit - awardedToday);
-        const calculatedAward = getGameAwardedPoints({
-            score,
-            pointRate: toNumber(game.point_rate),
-            dailyLimit,
+        const submission = await withGamificationTransaction(async (client) => {
+            await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`arcade-score:${userId}:${req.params.gameId}:${dayKey}`]);
+            const gameResult = await client.query(
+                `SELECT id, point_rate, daily_point_limit, is_active
+                 FROM arcade_games
+                 WHERE id = $1 AND is_active = true
+                 FOR UPDATE`,
+                [req.params.gameId],
+            );
+            const game = gameResult.rows[0];
+            if (!game) return null;
+
+            const dailyResult = await client.query(
+                `SELECT COALESCE(SUM(points_awarded), 0) AS awarded_today
+                 FROM game_score_submissions
+                 WHERE user_id = $1 AND game_id = $2 AND submitted_at::date = $3::date`,
+                [userId, game.id, dayKey],
+            );
+            const dailyLimit = toNumber(game.daily_point_limit);
+            const remainingDailyLimit = Math.max(0, dailyLimit - toNumber(dailyResult.rows[0]?.awarded_today));
+            const pointsAwarded = Math.min(
+                getGameAwardedPoints({ score, pointRate: toNumber(game.point_rate), dailyLimit }),
+                remainingDailyLimit,
+            );
+
+            if (pointsAwarded > 0) {
+                await awardUserPointsInTransaction(client, {
+                    userId,
+                    amount: pointsAwarded,
+                    category: 'games',
+                    sourceType: 'arcade_game',
+                    sourceId: game.id,
+                    metadata: { score },
+                });
+            }
+
+            await client.query(
+                `INSERT INTO game_score_submissions (game_id, user_id, score, points_awarded)
+                 VALUES ($1, $2, $3, $4)`,
+                [game.id, userId, score, pointsAwarded],
+            );
+            return { score, pointsAwarded };
         });
-        const pointsAwarded = Math.min(calculatedAward, remainingDailyLimit);
 
-        if (pointsAwarded > 0) {
-            await awardUserPoints({
-                userId: req.user!.id,
-                amount: pointsAwarded,
-                category: 'games',
-                sourceType: 'arcade_game',
-                sourceId: game.id,
-                metadata: { score },
-            });
-        }
-
-        await db.query(
-            `INSERT INTO game_score_submissions (game_id, user_id, score, points_awarded)
-             VALUES ($1, $2, $3, $4)`,
-            [game.id, req.user?.id, score, pointsAwarded],
-        );
-
-        return sendSuccess(res, { score, points_awarded: pointsAwarded }, 'Game score submitted', undefined, 201);
+        if (!submission) return sendError(res, 'Game not found', 404);
+        return sendSuccess(res, { score: submission.score, points_awarded: submission.pointsAwarded }, 'Game score submitted', undefined, 201);
     } catch (error) {
         console.error('Game score error:', error);
         return sendError(res, 'Failed to submit game score', 500);
@@ -442,13 +451,13 @@ router.use(authMiddleware);
 router.get('/me', handleCurrentGamificationRequest);
 router.get('/home', handleGamificationHomeRequest);
 router.get('/market', handleMarketRequest);
-router.post('/market/:itemId/redeem', handleMarketRedemptionRequest);
+router.post('/market/:itemId/redeem', writeRateLimit, handleMarketRedemptionRequest);
 router.get('/events', handleEventsRequest);
 router.get('/events/my-tickets', handleMyTicketsRequest);
-router.post('/events/:eventId/register', handleEventRegistrationRequest);
-router.post('/events/qr/claim', handleQrClaimRequest);
+router.post('/events/:eventId/register', writeRateLimit, handleEventRegistrationRequest);
+router.post('/events/qr/claim', writeRateLimit, handleQrClaimRequest);
 router.get('/games', handleGamesRequest);
-router.post('/games/:gameId/score', handleGameScoreRequest);
-router.post('/listening/heartbeat', handleListeningHeartbeatRequest);
+router.post('/games/:gameId/score', writeRateLimit, handleGameScoreRequest);
+router.post('/listening/heartbeat', heartbeatRateLimit, handleListeningHeartbeatRequest);
 
 export default router;

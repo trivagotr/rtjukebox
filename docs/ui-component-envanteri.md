@@ -1,6 +1,6 @@
-﻿# UI component envanteri
+# UI component envanteri
 
-Bu belge uygulama kaynaklarında tanımlı ekranları, yeniden kullanılan UI componentlerini ve kiosk arayüzünün ana DOM yüzeylerini listeler. UI üretmeyen servisler, yardımcı fonksiyonlar ve test dosyaları dahil edilmemiştir. Context provider bileşenleri ayrıca listelenmiştir.
+Bu belge `mobile/App.tsx`, `mobile/src`, `jukebox-web-controller/src` ve kiosk'un HTML/JS kaynaklarındaki React componentlerini, navigasyon ekranlarını, tekrar kullanılan yerel UI parçalarını ve ana DOM yüzeylerini listeler. UI üretmeyen servisler, yardımcı fonksiyonlar, test dosyaları ve React/React Native kütüphane primitive'leri dahil edilmemiştir. Context provider'lar ayrıca belirtilmiştir.
 
 ## Mobil uygulama
 
@@ -81,7 +81,7 @@ Bu iki ekran `RootNavigator`'a kayıtlı değildir; `App.tsx` içindeki `Consent
 | `QueueItem` | `jukebox-web-controller/src/App.tsx` | Kuyruk satırı ve oy verme kontrolleri. |
 | `SyncedLyricsCard` | `jukebox-web-controller/src/App.tsx` | Senkronize söz kartı. |
 | `JukeboxView` | `jukebox-web-controller/src/App.tsx` | Jukebox ana görünümü, katalog, çalan parça ve kuyruk. |
-| `AdminDashboard` | `jukebox-web-controller/src/AdminDashboard.tsx` | Cihaz, şarkı, Spotify ve moderasyon yönetim paneli. |
+| `AdminDashboard` | `jukebox-web-controller/src/AdminDashboard.tsx` | Cihaz, şarkı, Spotify ve moderasyon yönetimi; kiosk için tek kullanımlık provisioning kodu üretme ve kopyalama. |
 
 ## Kiosk web
 
@@ -89,21 +89,26 @@ Kiosk düz JavaScript ve HTML ile oluşturuluyor; React component ağacı yok. A
 
 | UI yüzeyi | Kaynak | Görev |
 |---|---|---|
-| Kiosk ana/oynatım görünümü | `kiosk-web/index.html`, `kiosk-web/app.js` | O an çalan parça, oynatma durumu ve kiosk ana ekranı. |
-| Cihaz kayıt/kurulum görünümü | `kiosk-web/index.html`, `kiosk-web/app.js` | Kiosk cihazını backend'e kaydetme ve kurulum durumu. |
+| Kiosk ana/oynatım görünümü | `kiosk-web/index.html`, `kiosk-web/app.js` | Status strip, boşta/çalan stage, albüm kapağı, parça ve istek sahibi, ilerleme, QR kartı ve kiosk çıkış kontrolü. |
+| Kuyruk paneli | `kiosk-web/index.html`, `kiosk-web/app.js` | Bekleyen parçalar, istek sahibi, oy göstergesi ve boş kuyruk durumu. |
+| Söz paneli | `kiosk-web/index.html`, `kiosk-web/app.js` | Söz yükleniyor, bulunamadı, boş ve senkronize satır durumları. Satırlar HTML'e eklenmeden escape edilir. |
+| Cihaz kayıt/kurulum overlay'i | `kiosk-web/app.js` | Cihaz kodu ve 15 dakikalık tek kullanımlık provisioning koduyla kiosk kaydını başlatır; dönen credential'ı yerel olarak saklar ve URL'ye eklemez. |
+| Spotify başlangıç overlay'i | `kiosk-web/app.js` | Eksik Spotify bağlantısı için kurulum prompt'u ve bağlantı eylemi sunar. |
 | Spotify cihaz yetkilendirme overlay'i | `kiosk-web/index.html`, `kiosk-web/device-spotify-auth.js` | Spotify cihaz bağlantısı, başlatma ve durum gösterimi. |
 | Oynatıcı kontrol/yönetimi | `kiosk-web/playback.js`, `kiosk-web/spotify-player.js` | Spotify web oynatıcı bağlantısı ve playback olaylarının UI'a yansıtılması. |
+| Debug paneli | `kiosk-web/app.js` | Geliştirme/teşhis metrikleri; kullanıcıya dönük ana akışın parçası değildir. |
 | Marka/tema adaptasyonu | `kiosk-web/branding.js`, `kiosk-web/style.css` | Marka ayarları ve görsel stil; bağımsız ekran componenti değildir. |
 
 ## Kapsam
 
-Envanter `mobile/src`, `jukebox-web-controller/src` ve kiosk'un HTML/JS kaynaklarını kapsar. Backend, test dosyaları ve UI üretmeyen servisler component listesine alınmamıştır. Context provider bileşenleri ortak componentler bölümünde listelenmiştir. Ekran dosyasının varlığı tek başına kullanıcının o ekrana erişebildiğini kanıtlamaz; navigasyon kaydı ayrıca belirtilmiştir.
+Envanter uygulama ve ekran dosyalarındaki component tanımlarını, `RootNavigator` kayıtlarını, controller JSX componentlerini ve `kiosk-web/index.html` ile DOM üreten kiosk kodunu kapsar. Backend, test dosyaları ve UI üretmeyen servisler component listesine alınmamıştır. Context provider bileşenleri ortak componentler bölümünde listelenmiştir. Ekran dosyasının varlığı tek başına kullanıcının o ekrana erişebildiğini kanıtlamaz; navigasyon kaydı ayrıca belirtilmiştir.
 
 ## Önceki ve güncel envanter ayrımı
 
 - **Önceden listelenen ve hâlâ mevcut olanlar:** Navigasyona kayıtlı ekranlar, ortak mobil bileşenler, controller bileşenleri ve kiosk DOM yüzeyleri yukarıdaki ana tablolardadır.
 - **Güncel envanterde ayrıca görünür kılınanlar:** `ConsentScreen` ve `SplashScreen` navigator ekranı olmadıkları için ayrı uygulama akışı tablosuna alındı; önceki tabloda yalnızca açıklama notu olarak geçiyorlardı.
 - Yinelenen `MainTabs` satırı tek kayda indirildi. Ekran/bileşenlerin “eski” veya “yeni” oluşu kaynak kontrol geçmişine göre değil, önceki envanterde bulunup bulunmamasına göre belirtilmiştir.
+- Kaynak taramasında kiosk kurulum/Spotify başlangıç overlay'leri, kuyruk ve söz panelleri ayrı DOM/UI yüzeyleri olarak görünür kılındı; önceki liste bunları ana kiosk görünümünde topluyordu.
 
 
 

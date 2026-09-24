@@ -4,7 +4,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { db } from '../db';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
-import { upload } from '../middleware/upload';
+import { upload, validateAvatarUpload } from '../middleware/upload';
+import { authRateLimit, guestRateLimit } from '../middleware/rateLimits';
 import { sendSuccess, sendError } from '../utils/response';
 import { ROLES } from '../middleware/rbac';
 import { normalizeText } from '../utils/textNormalization';
@@ -116,7 +117,7 @@ async function createAuthSession(userId: string, email: string, role: string) {
     };
 }
 
-router.post('/register', async (req: Request, res: Response) => {
+router.post('/register', authRateLimit, async (req: Request, res: Response) => {
     try {
         const { email, password, display_name } = registerSchema.parse(req.body);
         const normalizedEmail = email.trim().toLowerCase();
@@ -154,7 +155,7 @@ router.post('/register', async (req: Request, res: Response) => {
     }
 });
 
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', authRateLimit, async (req: Request, res: Response) => {
     try {
         const { email, password } = req.body;
         const inputIdentifier = typeof email === 'string' ? email.trim() : '';
@@ -203,7 +204,7 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 });
 
-router.post('/guest', async (req: Request, res: Response) => {
+router.post('/guest', guestRateLimit, async (req: Request, res: Response) => {
     try {
         const normalizedDisplayName = normalizeDisplayNameInput(req.body.display_name ?? '');
         if (!normalizedDisplayName || normalizedDisplayName.length < 2) {
@@ -233,7 +234,7 @@ router.post('/guest', async (req: Request, res: Response) => {
     }
 });
 
-router.post('/refresh', async (req: Request, res: Response) => {
+router.post('/refresh', authRateLimit, async (req: Request, res: Response) => {
     try {
         const { refresh_token } = req.body;
         if (!refresh_token) return res.status(400).json({ error: 'Refresh token required' });
@@ -306,7 +307,7 @@ export async function handleCurrentUserProfileRequest(req: AuthRequest, res: Res
 
 router.get('/me', authMiddleware, handleCurrentUserProfileRequest);
 
-router.post('/upload-avatar', authMiddleware, upload.single('avatar'), async (req: AuthRequest, res: Response) => {
+router.post('/upload-avatar', authMiddleware, upload.single('avatar'), validateAvatarUpload, async (req: AuthRequest, res: Response) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });

@@ -17,7 +17,6 @@ import usersRoutes from './routes/users';
 import spotifyRoutes from './routes/spotify';
 import gamificationRoutes from './routes/gamification';
 import profileRoutes from './routes/profile';
-import { authMiddleware } from './middleware/auth';
 import { setupSocketHandlers } from './sockets';
 import { registerUtilityRoutes } from './utilityRoutes';
 import { startRadioHistoryWatcher } from './services/radioHistory';
@@ -25,6 +24,8 @@ import { syncPodcastFeed } from './services/podcastFeeds';
 import { ensureDefaultPodcastFeeds, getDefaultPodcastFeeds } from './services/defaultPodcastFeeds';
 import { db } from './db';
 import { resolveCorsOrigins } from './config/cors';
+import { requestIdMiddleware } from './middleware/requestId';
+import { readRateLimit } from './middleware/rateLimits';
 
 const IS_TEST_ENV = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
 
@@ -79,6 +80,23 @@ function registerGetWithOptionalPublicBase(routePath: string, handler: express.R
 }
 
 // Middleware
+app.use(requestIdMiddleware);
+app.use((req, res, next) => {
+    const startedAt = Date.now();
+    res.on('finish', () => {
+        console.info(JSON.stringify({
+            level: 'info',
+            event: 'http_request',
+            requestId: req.requestId,
+            method: req.method,
+            path: req.path,
+            statusCode: res.statusCode,
+            durationMs: Date.now() - startedAt,
+        }));
+    });
+    next();
+});
+
 app.use(helmet({
     contentSecurityPolicy: false,
     crossOriginResourcePolicy: { policy: 'cross-origin' }
@@ -86,17 +104,12 @@ app.use(helmet({
 
 app.use(cors({
     origin: corsOrigin,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-guest-fingerprint']
 }));
-app.use(express.json());
-
-// Request logger
-app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-    next();
-});
+app.use(express.json({ limit: '1mb' }));
 app.use(rateLimit({ windowMs: 60000, max: 500, validate: { xForwardedForHeader: false } }));
+app.use('/api/v1', (req, res, next) => req.method === 'GET' ? readRateLimit(req, res, next) : next());
 registerUtilityRoutes(app);
 
 // Static: Kiosk Web App
@@ -107,7 +120,12 @@ mountWithOptionalPublicBase('/kiosk', express.static(path.join(__dirname, '../..
         res.setHeader('Expires', '0');
     }
 }));
-mountWithOptionalPublicBase('/uploads', express.static(path.join(__dirname, '../uploads')));
+mountWithOptionalPublicBase('/uploads', express.static(path.join(__dirname, '../uploads'), {
+    setHeaders: (res) => {
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'");
+    }
+}));
 
 // Static: Jukebox Web Controller (built SPA). Mounted at /controller to avoid
 // colliding with the /jukebox API routes. Safe to start even when dist/ is absent.
@@ -121,22 +139,25 @@ registerGetWithOptionalPublicBase('/controller/*', (req, res, next) => {
     return res.sendFile(controllerIndexPath);
 });
 
+// Legacy API alias kept only for kiosk endpoints during the client transition.
+// Static kiosk files are served above; API requests move to the canonical path.
+app.use('/jukebox/kiosk', (req, res) => {
+    return res.redirect(308, `/api/v1/jukebox/kiosk${req.url}`);
+});
+
 // Routes
-mountWithOptionalPublicBase('/api/v1/auth', authRoutes);
-mountWithOptionalPublicBase('/api/v1/podcasts', podcastRoutes);
-mountWithOptionalPublicBase('/api/v1/podcast-feeds', podcastFeedRoutes);
-mountWithOptionalPublicBase('/api/v1/radio', radioRoutes);
-mountWithOptionalPublicBase('/api/v1/radio-profiles', radioProfilesRoutes);
-
-// Jukebox: Kiosk endpoints (no auth required)
-app.use('/jukebox', jukeboxRoutes);
-
-// Jukebox: User endpoints (auth handled per-route in jukeboxRoutes)
-mountWithOptionalPublicBase('/api/v1/jukebox', jukeboxRoutes);
-mountWithOptionalPublicBase('/api/v1/users', usersRoutes);
-mountWithOptionalPublicBase('/api/v1/spotify', spotifyRoutes);
-mountWithOptionalPublicBase('/api/v1/gamification', gamificationRoutes);
-mountWithOptionalPublicBase('/api/v1/profile', profileRoutes);
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/podcasts', podcastRoutes);
+app.use('/api/v1/podcast-feeds', podcastFeedRoutes);
+app.use('/api/v1/radio', radioRoutes);
+if (process.env.RADIO_PROFILES_ENABLED === 'true') {
+    app.use('/api/v1/radio-profiles', radioProfilesRoutes);
+}
+app.use('/api/v1/jukebox', jukeboxRoutes);
+app.use('/api/v1/users', usersRoutes);
+app.use('/api/v1/spotify', spotifyRoutes);
+app.use('/api/v1/gamification', gamificationRoutes);
+app.use('/api/v1/profile', profileRoutes);
 
 // Health check
 registerGetWithOptionalPublicBase('/health', (req, res) => res.json({ status: 'ok' }));
@@ -146,11 +167,23 @@ setupSocketHandlers(io);
 
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.error('Global Error Handler:', err);
-    return res.status(err.status || 500).json({
+    const statusCode = Number(err?.statusCode ?? err?.status);
+    const isClientError = statusCode >= 400 && statusCode < 500;
+    const status = isClientError ? statusCode : 500;
+    console.error(JSON.stringify({
+        level: 'error',
+        event: 'request_error',
+        requestId: req.requestId,
+        method: req.method,
+        path: req.path,
+        statusCode: status,
+        errorName: typeof err?.name === 'string' ? err.name : 'Error',
+    }));
+    return res.status(status).json({
         success: false,
-        error: err.name || 'InternalServerError',
-        message: err.message || 'An unexpected error occurred'
+        code: status === 413 ? 'PAYLOAD_TOO_LARGE' : status === 400 ? 'BAD_REQUEST' : 'INTERNAL_ERROR',
+        message: status === 413 ? 'Request body is too large' : status === 400 ? 'Invalid request' : 'Internal server error',
+        requestId: req.requestId,
     });
 });
 

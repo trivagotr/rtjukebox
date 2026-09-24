@@ -33,7 +33,7 @@ export function resolveWebRuntimeConfig(input: WebRuntimeConfigInput): WebRuntim
       : input.windowOrigin);
 
   return {
-    apiRoot: `${apiOrigin}${publicBasePath}`,
+    apiRoot: apiOrigin,
     socketUrl: apiOrigin,
     socketPath: `${publicBasePath || ''}/socket.io`,
     publicBasePath,

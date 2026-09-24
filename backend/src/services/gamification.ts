@@ -50,55 +50,69 @@ export interface AwardUserPointsParams {
     metadata?: Record<string, unknown> | null;
 }
 
-export async function awardUserPoints(params: AwardUserPointsParams) {
-    const amount = Math.floor(params.amount);
-    if (!params.userId || amount <= 0) {
-        return { awarded: 0 };
+export type GamificationQueryClient = {
+    query: (text: string, params?: any[]) => Promise<any>;
+};
+
+export async function withGamificationTransaction<T>(work: (client: GamificationQueryClient) => Promise<T>): Promise<T> {
+    if (typeof db.transaction === 'function') {
+        return db.transaction(work);
     }
+
+    // Keeps isolated route unit tests using a query-only mock deterministic.
+    await db.query('BEGIN');
+    try {
+        const result = await work(db);
+        await db.query('COMMIT');
+        return result;
+    } catch (error) {
+        await db.query('ROLLBACK');
+        throw error;
+    }
+}
+
+export async function awardUserPointsInTransaction(client: GamificationQueryClient, params: AwardUserPointsParams) {
+    const amount = Math.floor(params.amount);
+    if (!params.userId || amount <= 0) return { awarded: 0 };
 
     const category = normalizeLedgerCategory(params.category);
     const categoryColumn = `${category}_points`;
     const yearMonth = getIstanbulYearMonth(new Date());
     const metadata = params.metadata ?? {};
 
-    await db.query('BEGIN');
-    try {
-        await db.query(
-            `INSERT INTO user_points (user_id, lifetime_points, spendable_points, monthly_points, ${categoryColumn}, updated_at)
-             VALUES ($1, $2, $2, $2, $2, NOW())
-             ON CONFLICT (user_id) DO UPDATE SET
-                lifetime_points = user_points.lifetime_points + EXCLUDED.lifetime_points,
-                spendable_points = user_points.spendable_points + EXCLUDED.spendable_points,
-                monthly_points = user_points.monthly_points + EXCLUDED.monthly_points,
-                ${categoryColumn} = user_points.${categoryColumn} + EXCLUDED.${categoryColumn},
-                updated_at = NOW()`,
-            [params.userId, amount],
-        );
+    await client.query(
+        `INSERT INTO user_points (user_id, lifetime_points, spendable_points, monthly_points, ${categoryColumn}, updated_at)
+         VALUES ($1, $2, $2, $2, $2, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+            lifetime_points = user_points.lifetime_points + EXCLUDED.lifetime_points,
+            spendable_points = user_points.spendable_points + EXCLUDED.spendable_points,
+            monthly_points = user_points.monthly_points + EXCLUDED.monthly_points,
+            ${categoryColumn} = user_points.${categoryColumn} + EXCLUDED.${categoryColumn},
+            updated_at = NOW()`,
+        [params.userId, amount],
+    );
+    await client.query(
+        `INSERT INTO points_ledger (user_id, amount, category, source_type, source_id, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [params.userId, amount, category, params.sourceType, params.sourceId ?? null, JSON.stringify(metadata)],
+    );
+    await client.query(
+        'UPDATE users SET rank_score = COALESCE(rank_score, 0) + $1, updated_at = NOW() WHERE id = $2 AND is_guest = false',
+        [amount, params.userId],
+    );
+    await client.query(
+        `INSERT INTO user_monthly_rank_scores (user_id, year_month, score, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (user_id, year_month) DO UPDATE SET
+            score = user_monthly_rank_scores.score + EXCLUDED.score,
+            updated_at = NOW()`,
+        [params.userId, yearMonth, amount],
+    );
+    return { awarded: amount };
+}
 
-        await db.query(
-            `INSERT INTO points_ledger (user_id, amount, category, source_type, source_id, metadata)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [params.userId, amount, category, params.sourceType, params.sourceId ?? null, JSON.stringify(metadata)],
-        );
-
-        await db.query(
-            'UPDATE users SET rank_score = COALESCE(rank_score, 0) + $1, updated_at = NOW() WHERE id = $2 AND is_guest = false',
-            [amount, params.userId],
-        );
-
-        await db.query(
-            `INSERT INTO user_monthly_rank_scores (user_id, year_month, score, updated_at)
-             VALUES ($1, $2, $3, NOW())
-             ON CONFLICT (user_id, year_month) DO UPDATE SET
-                score = user_monthly_rank_scores.score + EXCLUDED.score,
-                updated_at = NOW()`,
-            [params.userId, yearMonth, amount],
-        );
-
-        await db.query('COMMIT');
-        return { awarded: amount };
-    } catch (error) {
-        await db.query('ROLLBACK');
-        throw error;
-    }
+export async function awardUserPoints(params: AwardUserPointsParams) {
+    const amount = Math.floor(params.amount);
+    if (!params.userId || amount <= 0) return { awarded: 0 };
+    return withGamificationTransaction((client) => awardUserPointsInTransaction(client, params));
 }

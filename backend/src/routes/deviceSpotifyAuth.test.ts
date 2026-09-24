@@ -55,7 +55,7 @@ describe('device spotify auth routes', () => {
     });
   });
 
-  it('redirects device auth start only after validating the device', async () => {
+  it('returns the authorization url only after validating the device', async () => {
     const res = createMockRes();
     mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1' }] });
     vi.spyOn(spotifyServiceModule.spotifyService, 'getDeviceAuthStartUrl').mockResolvedValue(
@@ -63,12 +63,15 @@ describe('device spotify auth routes', () => {
     );
 
     await spotifyRoutes.handleSpotifyDeviceAuthStart(
-      { query: { device_id: 'device-1' } } as any,
+      { body: { device_id: 'device-1' } } as any,
       res,
     );
 
     expect(spotifyServiceModule.spotifyService.getDeviceAuthStartUrl).toHaveBeenCalledWith('device-1', null);
-    expect(res.redirect).toHaveBeenCalledWith('https://accounts.spotify.com/authorize?state=device-state');
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      success: true,
+      data: { authUrl: 'https://accounts.spotify.com/authorize?state=device-state' },
+    }));
   });
 
   it('returns a json auth url for authenticated frontend requests', async () => {
@@ -79,7 +82,7 @@ describe('device spotify auth routes', () => {
     );
 
     await spotifyRoutes.handleSpotifyDeviceAuthStart(
-      { query: { device_id: 'device-1', format: 'json' } } as any,
+      { body: { device_id: 'device-1' } } as any,
       res,
     );
 
@@ -103,9 +106,8 @@ describe('device spotify auth routes', () => {
 
     await spotifyRoutes.handleSpotifyDeviceAuthStart(
       {
-        query: {
+        body: {
           device_id: 'device-1',
-          format: 'json',
           return_origin: 'http://127.0.0.1:5173',
         },
       } as any,

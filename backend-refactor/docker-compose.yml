@@ -1,0 +1,53 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${HOST_PORT:-3100}:3000"
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-radiotedu}:${POSTGRES_PASSWORD:-radiotedu_local}@db:5432/${POSTGRES_DB:-radiotedu}?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-replace_with_a_random_secret_of_at_least_32_characters}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-replace_with_a_different_random_secret_of_at_least_32_characters}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    ports:
+      - "${POSTGRES_PORT:-5434}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-radiotedu}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-radiotedu_local}
+      POSTGRES_DB: ${POSTGRES_DB:-radiotedu}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-radiotedu} -d ${POSTGRES_DB:-radiotedu}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

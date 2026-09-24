@@ -12,6 +12,7 @@ describe('kiosk Spotify setup component and API', () => {
 
   it('renders the setup prompt from the API response and opens the connect flow', async () => {
     let requestBody;
+    let startRequestBody;
     server.use(
       http.post(/\/api\/v1\/jukebox\/kiosk\/spotify-device-auth\/status$/, async ({ request }) => {
         requestBody = await request.json();
@@ -20,9 +21,16 @@ describe('kiosk Spotify setup component and API', () => {
           data: { connected: false, reason: 'Spotify account is not linked' },
         });
       }),
+      http.post(/\/api\/v1\/jukebox\/kiosk\/spotify-device-auth\/start$/, async ({ request }) => {
+        startRequestBody = await request.json();
+        return HttpResponse.json({
+          success: true,
+          data: { authUrl: 'https://accounts.spotify.com/authorize?state=opaque' },
+        });
+      }),
     );
 
-    const popup = { location: { href: '' }, focus: vi.fn() };
+    const popup = { location: { href: '' }, focus: vi.fn(), close: vi.fn() };
     const windowScope = {
       location: { href: 'https://kiosk.test/', origin: 'https://kiosk.test' },
       open: vi.fn(() => popup),
@@ -45,9 +53,13 @@ describe('kiosk Spotify setup component and API', () => {
     expect(document.getElementById(SETUP_OVERLAY_ID)?.textContent).toContain('Spotify account is not linked');
 
     document.querySelector('[data-role="spotify-connect"]').click();
-    await vi.waitFor(() => expect(popup.location.href).toContain('/spotify-device-auth/start?'));
-    expect(popup.location.href).toContain('device_id=kiosk-01');
-    expect(popup.location.href).toContain('return_origin=https%3A%2F%2Fkiosk.test');
+    await vi.waitFor(() => expect(popup.location.href).toContain('accounts.spotify.com/authorize'));
+    expect(startRequestBody).toEqual({
+      device_id: 'kiosk-01',
+      device_pwd: 'test-device-password',
+      return_origin: 'https://kiosk.test',
+    });
+    expect(popup.location.href).not.toContain('test-device-password');
     expect(popup.focus).toHaveBeenCalledOnce();
     controller.destroy();
   });

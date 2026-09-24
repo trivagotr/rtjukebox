@@ -4,7 +4,6 @@ const {
   mockDbQuery,
   mockSendSuccess,
   mockSendError,
-  mockRecordNowPlaying,
   mockRouteHandlers,
   mockRouter,
 } = vi.hoisted(() => {
@@ -28,7 +27,6 @@ const {
     mockDbQuery: vi.fn(),
     mockSendSuccess: vi.fn(),
     mockSendError: vi.fn(),
-    mockRecordNowPlaying: vi.fn(),
     mockRouteHandlers: handlers,
     mockRouter: router,
   };
@@ -45,10 +43,6 @@ vi.mock('../utils/response', () => ({
   sendError: mockSendError,
 }));
 
-vi.mock('../services/radioHistory', () => ({
-  recordNowPlaying: mockRecordNowPlaying,
-}));
-
 vi.mock('express', () => ({
   Router: vi.fn(() => mockRouter),
 }));
@@ -60,7 +54,6 @@ describe('radio history routes', () => {
     mockDbQuery.mockReset();
     mockSendSuccess.mockReset();
     mockSendError.mockReset();
-    mockRecordNowPlaying.mockReset();
   });
 
   it('returns an empty array (not 404) when there is no recent history', async () => {
@@ -94,31 +87,7 @@ describe('radio history routes', () => {
     expect(mockSendSuccess).toHaveBeenCalledWith(res, rows);
   });
 
-  it('records a now-playing song via the service on POST', async () => {
-    const handler = mockRouteHandlers.post['/history/:channelId'];
-    expect(handler).toBeTypeOf('function');
-    mockRecordNowPlaying.mockResolvedValueOnce(true);
-
-    const res = {};
-    await handler(
-      { params: { channelId: 'main' }, body: { title: 'New Song', artist: 'New Artist', cover_url: 'http://x/cover.jpg' } },
-      res,
-    );
-
-    expect(mockRecordNowPlaying).toHaveBeenCalledWith('main', {
-      title: 'New Song',
-      artist: 'New Artist',
-      coverUrl: 'http://x/cover.jpg',
-    });
-    expect(mockSendSuccess).toHaveBeenCalledWith(res, { recorded: true }, 'Song recorded', null, 201);
-  });
-
-  it('rejects a POST without a title', async () => {
-    const handler = mockRouteHandlers.post['/history/:channelId'];
-    const res = {};
-    await handler({ params: { channelId: 'main' }, body: {} }, res);
-
-    expect(mockRecordNowPlaying).not.toHaveBeenCalled();
-    expect(mockSendError).toHaveBeenCalledWith(res, 'title is required', 400);
+  it('does not expose a client-writable now-playing history route', () => {
+    expect(mockRouteHandlers.post['/history/:channelId']).toBeUndefined();
   });
 });

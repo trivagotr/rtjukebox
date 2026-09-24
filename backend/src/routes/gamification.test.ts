@@ -7,6 +7,7 @@ const {
   mockAuthMiddleware,
   mockRouteHandlers,
   mockRouter,
+  mockDbTransaction,
 } = vi.hoisted(() => {
   const handlers: Record<string, Record<string, (...args: any[]) => any>> = {
     get: {},
@@ -19,13 +20,14 @@ const {
     handlers.get[path] = handler;
     return router;
   });
-  router.post = vi.fn((path: string, handler: (...args: any[]) => any) => {
-    handlers.post[path] = handler;
+  router.post = vi.fn((path: string, ...routeHandlers: ((...args: any[]) => any)[]) => {
+    handlers.post[path] = routeHandlers[routeHandlers.length - 1];
     return router;
   });
 
   return {
     mockDbQuery: vi.fn(),
+    mockDbTransaction: vi.fn(),
     mockSendSuccess: vi.fn(),
     mockSendError: vi.fn(),
     mockAuthMiddleware: vi.fn(),
@@ -37,6 +39,7 @@ const {
 vi.mock('../db', () => ({
   db: {
     query: mockDbQuery,
+    transaction: mockDbTransaction,
   },
 }));
 
@@ -58,6 +61,7 @@ import './gamification';
 describe('gamification router', () => {
   beforeEach(() => {
     mockDbQuery.mockReset();
+    mockDbTransaction.mockReset().mockImplementation(async (work: (client: { query: typeof mockDbQuery }) => Promise<unknown>) => work({ query: mockDbQuery }));
     mockSendSuccess.mockReset();
     mockSendError.mockReset();
   });
@@ -113,23 +117,21 @@ describe('gamification router', () => {
         ],
       })
       .mockResolvedValueOnce({
-        rows: [
-          {
-            spendable_points: 20,
-          },
-        ],
-      });
+        rows: [{ stock_quantity: null }],
+      })
+      .mockResolvedValueOnce({ rows: [] });
 
     await handler({ params: { itemId: 'item-1' }, user: { id: 'user-1', role: 'user' } }, {});
 
     expect(mockSendError).toHaveBeenCalledWith({}, 'Not enough points', 400);
-    expect(mockDbQuery).toHaveBeenCalledTimes(2);
+    expect(mockDbTransaction).toHaveBeenCalledTimes(1);
   });
 
   it('caps arcade game awards by the remaining daily limit', async () => {
     const handler = mockRouteHandlers.post['/games/:gameId/score'];
     expect(handler).toBeTypeOf('function');
     mockDbQuery
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({
         rows: [
           {

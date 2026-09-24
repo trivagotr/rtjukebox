@@ -1,7 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { sendSuccess, sendError } from '../utils/response';
 import { db } from '../db';
-import { recordNowPlaying } from '../services/radioHistory';
 
 const router = Router();
 
@@ -47,26 +46,6 @@ router.get('/history/:channelId', async (req: Request, res: Response) => {
         return sendSuccess(res, result.rows);
     } catch (error) {
         return sendError(res, 'Failed to fetch song history', 500);
-    }
-});
-
-// Record a now-playing song for a channel (watcher / trusted callers)
-router.post('/history/:channelId', async (req: Request, res: Response) => {
-    try {
-        const { title, artist, cover_url } = req.body ?? {};
-        if (!title || !String(title).trim()) {
-            return sendError(res, 'title is required', 400);
-        }
-
-        const recorded = await recordNowPlaying(req.params.channelId, {
-            title,
-            artist,
-            coverUrl: cover_url,
-        });
-
-        return sendSuccess(res, { recorded }, recorded ? 'Song recorded' : 'Duplicate skipped', null, 201);
-    } catch (error) {
-        return sendError(res, 'Failed to record song history', 500);
     }
 });
 

@@ -1,18 +1,22 @@
 // Jukebox Routes - Updated for Metadata Sync
 import { Router, Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import fs from 'fs';
 import { db } from '../db';
 import { getIO } from '../socket';
 import { MetadataService } from '../services/metadata';
 import { authMiddleware, optionalAuth, AuthRequest } from '../middleware/auth';
 import { sendSuccess, sendError } from '../utils/response';
-import { ROLES } from '../middleware/rbac';
+import { rbacMiddleware, ROLES } from '../middleware/rbac';
+import { adminRateLimit, writeRateLimit } from '../middleware/rateLimits';
 import { AudioService } from '../services/audio';
-import { songUpload, songUploadDir, normalizeUploadedSongFilename } from '../middleware/upload';
+import { songUpload, songUploadDir, normalizeUploadedSongFilename, validateSongUpload } from '../middleware/upload';
 import path from 'path';
 import { buildSongFileUrl, normalizeText } from '../utils/textNormalization';
 import { CatalogSongSearchItem, parseSpotifyPlaylistId, spotifyService, toCatalogSongSearchItem, toContentFilterTrack, upsertSpotifyTrack } from '../services/spotify';
 import { fetchLyrics } from '../services/lyrics';
+import { randomBytes } from 'crypto';
+import { generateKioskCredential, generateKioskProvisioningCode, hashKioskSecret, kioskSecretMatches } from '../services/kioskCredentials';
 import { buildAutoplaySelection, buildSystemQueueInsertions, loadEffectiveRadioProfileConfig } from '../services/radioProfiles';
 import { createDefaultFilterService, SpotifyTrack as ContentFilterTrack } from '../services/contentFilter';
 import {
@@ -33,6 +37,24 @@ import {
 
 const GUEST_QUEUE_FINGERPRINT_HEADER = 'x-guest-fingerprint';
 type QueueVoteKind = ReturnType<typeof normalizeVoteKind>;
+
+const queueAddBodySchema = z.object({
+    device_id: z.string().uuid(),
+    song_id: z.string().uuid().optional(),
+    spotify_uri: z.string().trim().min(1).max(255).optional(),
+}).strict().refine((body) => Boolean(body.song_id) !== Boolean(body.spotify_uri), {
+    message: 'Provide exactly one of song_id or spotify_uri',
+});
+
+const queueVoteBodySchema = z.object({
+    queue_item_id: z.string().uuid().nullable().optional(),
+    song_id: z.string().uuid().optional(),
+    vote: z.union([z.literal(-1), z.literal(1)]),
+    device_id: z.string().uuid(),
+    is_super: z.boolean().optional(),
+}).strict().refine((body) => Boolean(body.queue_item_id) || Boolean(body.song_id), {
+    message: 'A queue item or song is required',
+});
 
 export function normalizeDeviceAdminInput(input: { name: string; location?: string | null }) {
     const trimmedName = input.name.trim();
@@ -808,12 +830,11 @@ export async function reconcileStoppedSpotifyPlaybackForDevice(params: {
 }
 
 function readSpotifyKioskDeviceId(req: Request) {
-    const queryDeviceId = typeof req.query?.device_id === 'string' ? req.query.device_id : null;
     const bodyDeviceId = typeof (req.body as { device_id?: unknown } | undefined)?.device_id === 'string'
         ? ((req.body as { device_id?: string }).device_id || null)
         : null;
 
-    const raw = (queryDeviceId ?? bodyDeviceId)?.trim();
+    const raw = bodyDeviceId?.trim();
     if (!raw || raw === 'undefined' || raw === 'null') {
         return null;
     }
@@ -824,25 +845,28 @@ function readSpotifyKioskDevicePassword(req: Request) {
     const bodyPassword = typeof (req.body as { device_pwd?: unknown } | undefined)?.device_pwd === 'string'
         ? ((req.body as { device_pwd?: string }).device_pwd || null)
         : null;
-    const queryPassword = typeof req.query?.device_pwd === 'string' ? req.query.device_pwd : null;
-
-    return (bodyPassword ?? queryPassword ?? '').trim();
+    return (bodyPassword ?? '').trim();
 }
 
 async function loadValidatedSpotifyKioskDevice(deviceId: string, devicePassword: string) {
     try {
         const deviceResult = await db.query(
-            'SELECT id, password FROM devices WHERE id = $1',
+            `SELECT kc.credential_hash
+             FROM kiosk_credentials kc
+             JOIN devices d ON d.id = kc.device_id
+             WHERE kc.device_id = $1
+               AND d.is_active = true
+               AND kc.revoked_at IS NULL
+               AND kc.expires_at > NOW()`,
             [deviceId]
         );
 
         if (deviceResult.rows.length === 0) {
-            return { ok: false as const, statusCode: 404, error: 'Device not found' };
+            return { ok: false as const, statusCode: 403, error: 'Kiosk credential is missing, expired, or revoked' };
         }
 
-        const device = deviceResult.rows[0];
-        if (device.password && device.password !== devicePassword) {
-            return { ok: false as const, statusCode: 403, error: 'Invalid device password' };
+        if (!kioskSecretMatches(deviceResult.rows[0].credential_hash, devicePassword)) {
+            return { ok: false as const, statusCode: 403, error: 'Invalid kiosk credential' };
         }
 
         return { ok: true as const };
@@ -929,12 +953,16 @@ function getSpotifyKioskAuthSetupRequiredMessage(error: unknown): string | null 
 
 export async function handleSpotifyKioskTokenRequest(req: Request, res: Response) {
     try {
-        const deviceId = readSpotifyKioskDeviceId(req);
+        const deviceId = typeof (req.body as { device_id?: unknown } | undefined)?.device_id === 'string'
+            ? (req.body as { device_id: string }).device_id.trim()
+            : '';
         if (!deviceId) {
             return sendError(res, 'Missing device_id', 400);
         }
 
-        const devicePassword = readSpotifyKioskDevicePassword(req);
+        const devicePassword = typeof (req.body as { device_pwd?: unknown } | undefined)?.device_pwd === 'string'
+            ? (req.body as { device_pwd: string }).device_pwd.trim()
+            : '';
         const validation = await loadValidatedSpotifyKioskDevice(deviceId, devicePassword);
         if (!validation.ok) {
             return sendError(res, validation.error, validation.statusCode);
@@ -999,31 +1027,8 @@ export async function handleSpotifyKioskDeviceAuthStartRequest(req: Request, res
             return sendError(res, validation.error, validation.statusCode);
         }
 
-        const returnOrigin = typeof req.query?.return_origin === 'string' ? req.query.return_origin : null;
+        const returnOrigin = typeof req.body?.return_origin === 'string' ? req.body.return_origin : null;
         const authUrl = await spotifyService.getDeviceAuthStartUrl(deviceId, returnOrigin);
-        if (req.method === 'GET') {
-            if (req.headers?.accept?.includes('application/json') || req.query?.format === 'json') {
-                return sendSuccess(res, { deviceId, authUrl }, 'Spotify device auth url ready');
-            }
-            if (process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST)) {
-                return res.redirect(authUrl);
-            }
-            const safeUrl = String(authUrl).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-            return res.send(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Spotify'a Aktarılıyor...</title>
-  <meta http-equiv="refresh" content="0;url=${safeUrl}">
-  <script>window.location.replace(${JSON.stringify(authUrl)});</script>
-</head>
-<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;text-align:center;padding:50px 20px;background:#121212;color:#fff;">
-  <h2 style="margin-bottom:10px;">Spotify Girişine Yönlendiriliyorsunuz...</h2>
-  <p style="color:#aaa;margin-bottom:20px;">Lütfen bekleyin, Spotify yetkilendirme ekranı açılıyor.</p>
-  <p><a href="${safeUrl}" style="color:#1db954;text-decoration:underline;">Otomatik yönlendirilmediyseniz buraya tıklayın</a></p>
-</body>
-</html>`);
-        }
         return sendSuccess(res, { deviceId, authUrl }, 'Spotify device auth url ready');
     } catch (error) {
         console.error('Spotify kiosk device auth start error:', error);
@@ -2154,13 +2159,51 @@ async function checkDeviceSession(req: AuthRequest, res: Response, next: NextFun
 }
 
 const router = Router();
+router.use('/admin', authMiddleware, rbacMiddleware([ROLES.ADMIN]), adminRateLimit);
 
 // --- Admin Endpoints (High Priority) ---
 
 // Force logout all clients from a device
-router.post('/admin/devices/:id/logout-all', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.post('/admin/devices/:id/provision', async (req: AuthRequest, res: Response) => {
+    const { id: deviceId } = req.params;
+    const provisioningCode = generateKioskProvisioningCode();
+    const codeHash = hashKioskSecret(provisioningCode);
+
+    try {
+        const result = await db.transaction(async (client) => {
+            const device = await client.query('SELECT id, is_active FROM devices WHERE id = $1 FOR UPDATE', [deviceId]);
+            if (!device.rows[0]) return { error: 'not_found' as const };
+            if (!device.rows[0].is_active) return { error: 'inactive' as const };
+
+            await client.query(
+                `UPDATE kiosk_provisioning_codes
+                 SET used_at = COALESCE(used_at, NOW())
+                 WHERE device_id = $1 AND used_at IS NULL`,
+                [deviceId],
+            );
+            const createdCode = await client.query(
+                `INSERT INTO kiosk_provisioning_codes (device_id, code_hash, expires_at, created_by)
+                 VALUES ($1, $2, NOW() + INTERVAL '15 minutes', $3)
+                 RETURNING expires_at`,
+                [deviceId, codeHash, req.user?.id ?? null],
+            );
+            return { expiresAt: createdCode.rows[0].expires_at as Date };
+        });
+
+        if ('error' in result && result.error === 'not_found') return sendError(res, 'Device not found', 404);
+        if ('error' in result && result.error === 'inactive') return sendError(res, 'Activate this device before kiosk provisioning', 409);
+        return sendSuccess(res, {
+            provisioning_code: provisioningCode,
+            expires_at: result.expiresAt,
+            expires_in_seconds: 900,
+        }, 'One-time kiosk provisioning code created');
+    } catch (error) {
+        console.error('Kiosk provisioning code creation failed:', error);
+        return sendError(res, 'Failed to create kiosk provisioning code', 500);
+    }
+});
+
+router.post('/admin/devices/:id/logout-all', async (req: Request, res: Response) => {
 
     const { id } = req.params;
 
@@ -2169,8 +2212,18 @@ router.post('/admin/devices/:id/logout-all', authMiddleware, async (req: Request
 
         // Clear server-side sessions
         await db.query('DELETE FROM device_sessions WHERE device_id = $1', [id]);
+        await db.query('UPDATE kiosk_credentials SET revoked_at = NOW(), updated_at = NOW() WHERE device_id = $1', [id]);
+        await db.query(
+            `UPDATE kiosk_provisioning_codes SET used_at = COALESCE(used_at, NOW())
+             WHERE device_id = $1 AND used_at IS NULL`,
+            [id],
+        );
 
-        getIO()?.to(`device:${id}`).emit('force_logout');
+        const io = getIO();
+        io?.to(`device:${id}`).emit('force_logout');
+        io?.sockets.sockets.forEach((socket) => {
+            if (socket.data.role === 'kiosk' && socket.data.deviceId === id) socket.disconnect(true);
+        });
         return sendSuccess(res, null, 'Force logout signal sent and sessions cleared');
     } catch (error) {
         console.error('Logout all error:', error);
@@ -2318,9 +2371,11 @@ router.get('/songs', async (req: Request, res: Response) => {
 });
 
 // Add song to queue
-router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, res: Response) => {
+router.post('/queue', authMiddleware, writeRateLimit, checkDeviceSession, async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
-    const { device_id, song_id, spotify_uri } = req.body;
+    const parsedBody = queueAddBodySchema.safeParse(req.body);
+    if (!parsedBody.success) return sendError(res, 'Invalid queue request', 400, 'INVALID_QUEUE_REQUEST');
+    const { device_id, song_id, spotify_uri } = parsedBody.data;
     const userId = authReq.user?.id;
     const guestFingerprint = readGuestQueueFingerprint(req);
 
@@ -2334,45 +2389,6 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
         const dbUser = userResult.rows[0];
 
         if (!dbUser) return sendError(res, 'User not found', 404);
-
-        // Per-user queue limit (to ensure fairness)
-        const activeUserSongs = await db.query(
-            "SELECT COUNT(id) FROM queue_items WHERE device_id = $1 AND added_by = $2 AND status = 'pending'",
-            [device_id, userId]
-        );
-        const songCount = parseInt(activeUserSongs.rows[0].count);
-
-        if (dbUser.role === ROLES.ADMIN) {
-            // Admins have no limits
-        } else if (dbUser.role === ROLES.USER) {
-            const USER_LIMIT = 5;
-            if (songCount >= USER_LIMIT) {
-                return sendError(res, `Queue limit reached (${USER_LIMIT} songs)`, 403, `Kuyrukta en fazla ${USER_LIMIT} aktif şarkınız olabilir.`);
-            }
-        }
-
-        try {
-            await enforceGuestDailySongLimit({
-                dbClient: db,
-                isGuest: dbUser.is_guest,
-                guestFingerprint,
-            });
-        } catch (guestLimitError: any) {
-            if (guestLimitError.message === 'Guest fingerprint required') {
-                return sendError(res, 'Guest fingerprint required', 400, 'GUEST_FINGERPRINT_REQUIRED');
-            }
-
-            if (guestLimitError.message === 'Guest daily song limit reached') {
-                return sendError(
-                    res,
-                    'Guest daily limit reached. Hesap açarsan sınırsız şarkı ekleyebilirsin.',
-                    403,
-                    'GUEST_LIMIT_REACHED'
-                );
-            }
-
-            throw guestLimitError;
-        }
 
         let queueSelection;
         try {
@@ -2422,36 +2438,56 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
             throw selectionError;
         }
 
-        // Check if song is already in pending queue for this device
-        const existing = await db.query(
-            "SELECT id FROM queue_items WHERE device_id = $1 AND song_id = $2 AND status = 'pending'",
-            [device_id, queueSelection.songId]
-        );
-
-        if (existing.rows.length > 0 && dbUser.role !== ROLES.ADMIN) {
-            return sendError(res, 'Song is already in queue', 400);
-        }
-
-        // Repeat Protection (Anti-Loop)
-        // Check if song was played in the last 15 minutes
-        const recentlyPlayed = await db.query(
-            `SELECT id FROM queue_items 
-             WHERE device_id = $1 AND song_id = $2 AND status = 'played' 
-             AND played_at > NOW() - INTERVAL '15 minutes'`,
-            [device_id, queueSelection.songId]
-        );
-
-        if (recentlyPlayed.rows.length > 0 && dbUser.role !== ROLES.ADMIN) {
-            return sendError(res, 'Song played recently', 400, 'Bu şarkı yakın zamanda çaldı. Lütfen biraz bekleyin.');
-        }
-
         const priorityScore = getQueueInsertPriorityScore();
+        let result;
+        try {
+            result = await db.transaction(async (client) => {
+                const lockKeys = [`queue-user:${device_id}:${userId}`, `queue-song:${device_id}:${queueSelection.songId}`];
+                if (dbUser.is_guest && guestFingerprint) lockKeys.push(`guest-limit:${guestFingerprint.trim()}:${getIstanbulDayKey()}`);
+                for (const key of lockKeys.sort()) await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [key]);
 
-        const result = await db.query(
-            `INSERT INTO queue_items (device_id, song_id, added_by, priority_score, status, queue_reason)
-        VALUES ($1, $2, $3, $4, 'pending', $5) RETURNING *`,
-            [device_id, queueSelection.songId, userId, priorityScore, queueSelection.queueReason]
-        );
+                if (dbUser.role === ROLES.USER) {
+                    const activeUserSongs = await client.query(
+                        "SELECT COUNT(id) FROM queue_items WHERE device_id = $1 AND added_by = $2 AND status = 'pending'",
+                        [device_id, userId],
+                    );
+                    if (Number.parseInt(activeUserSongs.rows[0]?.count ?? '0', 10) >= 5) return { error: 'user_limit' as const };
+                }
+
+                await enforceGuestDailySongLimit({ dbClient: client, isGuest: dbUser.is_guest, guestFingerprint });
+                const existing = await client.query(
+                    "SELECT id FROM queue_items WHERE device_id = $1 AND song_id = $2 AND status = 'pending'",
+                    [device_id, queueSelection.songId],
+                );
+                if (existing.rows.length > 0 && dbUser.role !== ROLES.ADMIN) return { error: 'duplicate' as const };
+
+                const recentlyPlayed = await client.query(
+                    `SELECT id FROM queue_items WHERE device_id = $1 AND song_id = $2 AND status = 'played'
+                     AND played_at > NOW() - INTERVAL '15 minutes'`,
+                    [device_id, queueSelection.songId],
+                );
+                if (recentlyPlayed.rows.length > 0 && dbUser.role !== ROLES.ADMIN) return { error: 'recently_played' as const };
+
+                const inserted = await client.query(
+                    `INSERT INTO queue_items (device_id, song_id, added_by, priority_score, status, queue_reason)
+                     VALUES ($1, $2, $3, $4, 'pending', $5) RETURNING *`,
+                    [device_id, queueSelection.songId, userId, priorityScore, queueSelection.queueReason],
+                );
+                await applyQueueAddStats({ dbClient: client, userId, isGuest: dbUser.is_guest, guestFingerprint });
+                return { item: inserted.rows[0] };
+            });
+        } catch (limitError: any) {
+            if (limitError.message === 'Guest fingerprint required') return sendError(res, 'Guest fingerprint required', 400, 'GUEST_FINGERPRINT_REQUIRED');
+            if (limitError.message === 'Guest daily song limit reached') return sendError(res, 'Guest daily song limit reached', 403, 'GUEST_LIMIT_REACHED');
+            throw limitError;
+        }
+
+        if ('error' in result) {
+            if (result.error === 'user_limit') return sendError(res, 'Queue limit reached (5 songs)', 403, 'USER_QUEUE_LIMIT_REACHED');
+            if (result.error === 'duplicate') return sendError(res, 'Song is already in queue', 400);
+            return sendError(res, 'Song played recently', 400, 'SONG_PLAYED_RECENTLY');
+        }
+        const queueItem = result.item;
 
         let autoStarted = false;
         if (queueSelection.sourceType === 'spotify') {
@@ -2499,8 +2535,8 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
                         },
                     });
 
-                    await db.query("UPDATE queue_items SET status = 'playing' WHERE id = $1", [result.rows[0].id]);
-                    await recordAutoplayPlaybackStart({ queueItemId: result.rows[0].id });
+                    await db.query("UPDATE queue_items SET status = 'playing' WHERE id = $1", [queueItem.id]);
+                    await recordAutoplayPlaybackStart({ queueItemId: queueItem.id });
                     await db.query(
                         'UPDATE devices SET current_song_id = $2, last_heartbeat = NOW() WHERE id = $1',
                         [device_id, queueSelection.songId]
@@ -2512,21 +2548,14 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
             }
         }
 
-        await applyQueueAddStats({
-            dbClient: db,
-            userId,
-            isGuest: dbUser.is_guest,
-            guestFingerprint,
-        });
-
         // Broadcast to all connected clients
         getIO()?.to(`device:${device_id}`).emit('queue_updated', await getQueueForDevice(device_id));
 
         return sendSuccess(
             res,
             {
-                ...result.rows[0],
-                status: autoStarted ? 'playing' : result.rows[0].status,
+                ...queueItem,
+                status: autoStarted ? 'playing' : queueItem.status,
                 auto_started: autoStarted,
             },
             'Song added to queue',
@@ -2540,9 +2569,11 @@ router.post('/queue', authMiddleware, checkDeviceSession, async (req: Request, r
 });
 
 // Vote on queue item or active song
-router.post('/vote', authMiddleware, checkDeviceSession, async (req: Request, res: Response) => {
+router.post('/vote', authMiddleware, writeRateLimit, checkDeviceSession, async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
-    const { queue_item_id, song_id, vote } = req.body;
+    const parsedBody = queueVoteBodySchema.safeParse(req.body);
+    if (!parsedBody.success) return sendError(res, 'Invalid vote request', 400, 'INVALID_VOTE_REQUEST');
+    const { queue_item_id, song_id, vote } = parsedBody.data;
     const userId = authReq.user?.id;
 
     if (!userId) return res.status(401).json({ error: 'Authentication required to vote' });
@@ -2552,154 +2583,111 @@ router.post('/vote', authMiddleware, checkDeviceSession, async (req: Request, re
         const dbUser = userRes.rows[0];
         if (!dbUser) return sendError(res, 'User not found', 404);
 
-        const isSuper = req.body.is_super === true;
-        const supervoteAvailability = canUseDailySupervote({
-            isGuest: dbUser.is_guest,
-            lastSuperVoteAt: dbUser.last_super_vote_at,
-        });
+        const isSuper = parsedBody.data.is_super === true;
+        const supervoteAvailability = canUseDailySupervote({ isGuest: dbUser.is_guest, lastSuperVoteAt: dbUser.last_super_vote_at });
         if (isSuper && !supervoteAvailability.allowed) {
-            if (supervoteAvailability.reason === 'guest') {
-                return sendError(res, 'Süper oy için giriş yapmalısın.', 403);
+            if (supervoteAvailability.reason === 'guest') return sendError(res, 'Supervote requires a registered account', 403);
+            return sendError(res, 'Daily supervote already used', 403, 'SUPER_VOTE_COOLDOWN');
+        }
+
+        const targetQueueId = typeof queue_item_id === 'string' ? queue_item_id : '';
+        const voteResult = await db.transaction(async (client) => {
+            const claimSupervote = async () => {
+                if (!isSuper) return true;
+                const claimed = await client.query(
+                    `UPDATE users SET last_super_vote_at = NOW()
+                     WHERE id = $1 AND is_guest = false
+                       AND (last_super_vote_at IS NULL OR
+                         (last_super_vote_at AT TIME ZONE 'Europe/Istanbul')::date < (NOW() AT TIME ZONE 'Europe/Istanbul')::date)
+                     RETURNING id`,
+                    [userId],
+                );
+                return claimed.rows.length > 0;
+            };
+
+            if (!targetQueueId && typeof song_id === 'string' && song_id) {
+                const song = await client.query('SELECT id FROM songs WHERE id = $1 FOR UPDATE', [song_id]);
+                if (!song.rows.length) return { error: 'song_missing' as const };
+                if (!await claimSupervote()) return { error: 'supervote_used' as const };
+                const kind = resolveFinalQueueVoteKind({ previousVote: 0, requestedVote: vote, isSuper });
+                const update = buildQueueVoteScoreUpdate({ previousVote: 0, nextVote: kind });
+                await client.query('UPDATE songs SET score = score + $1 WHERE id = $2', [update.songDelta, song_id]);
+                return { kind: 'direct' as const, songDelta: update.songDelta };
+            }
+            if (!targetQueueId) return { error: 'target_missing' as const };
+
+            const queueResult = await client.query('SELECT * FROM queue_items WHERE id = $1 FOR UPDATE', [targetQueueId]);
+            const queueItem = queueResult.rows[0];
+            if (!queueItem) return { error: 'item_missing' as const };
+
+            const existing = await client.query('SELECT vote_type FROM votes WHERE queue_item_id = $1 AND user_id = $2 FOR UPDATE', [targetQueueId, userId]);
+            const oldVote = existing.rows[0]?.vote_type ?? 0;
+            if (!await claimSupervote()) return { error: 'supervote_used' as const };
+            const kind = resolveFinalQueueVoteKind({ previousVote: oldVote, requestedVote: vote, isSuper });
+            const update = buildQueueVoteScoreUpdate({ previousVote: oldVote, nextVote: kind });
+            if (kind === 'none') {
+                await client.query('DELETE FROM votes WHERE queue_item_id = $1 AND user_id = $2', [targetQueueId, userId]);
+            } else {
+                await client.query(
+                    `INSERT INTO votes (queue_item_id, user_id, vote_type) VALUES ($1, $2, $3)
+                     ON CONFLICT (queue_item_id, user_id) DO UPDATE SET vote_type = EXCLUDED.vote_type`,
+                    [targetQueueId, userId, update.storedVoteValue],
+                );
             }
 
-            return sendError(res, 'Bugün süper oy hakkını zaten kullandın!', 403, 'SUPER_VOTE_COOLDOWN');
-        }
+            const totals = await client.query(
+                `SELECT COALESCE(SUM(CASE WHEN vote_type > 0 THEN vote_type ELSE 0 END), 0) AS upvotes,
+                        COALESCE(SUM(CASE WHEN vote_type < 0 THEN ABS(vote_type) ELSE 0 END), 0) AS downvotes
+                 FROM votes WHERE queue_item_id = $1`,
+                [targetQueueId],
+            );
+            const upvotes = Number(totals.rows[0]?.upvotes ?? 0);
+            const downvotes = Number(totals.rows[0]?.downvotes ?? 0);
+            const score = upvotes - downvotes;
+            await client.query('UPDATE songs SET score = score + $1 WHERE id = $2', [update.songDelta, queueItem.song_id]);
+            await applyRequesterVoteRankDelta({ dbClient: client, requesterId: queueItem.added_by, requesterRankDelta: update.requesterRankDelta });
 
-        const targetQueueId = queue_item_id;
-
-        if (!targetQueueId && song_id) {
-            const directVoteKind = resolveFinalQueueVoteKind({
-                previousVote: 0,
-                requestedVote: vote,
-                isSuper,
-            });
-            const directVoteUpdate = buildQueueVoteScoreUpdate({
-                previousVote: 0,
-                nextVote: directVoteKind,
-            });
-
-            if (isSuper) {
-                await db.query('UPDATE users SET last_super_vote_at = NOW() WHERE id = $1', [userId]);
+            const skipDecision = buildQueueVoteSkipDecision({ status: queueItem.status, songScore: score });
+            if (skipDecision) {
+                await client.query(
+                    `UPDATE queue_items SET status = 'skipped', priority_score = $1, upvotes = $2, downvotes = $3 WHERE id = $4`,
+                    [score, upvotes, downvotes, targetQueueId],
+                );
+                if (skipDecision.clearCurrentSong) await client.query('UPDATE devices SET current_song_id = NULL WHERE id = $1', [queueItem.device_id]);
+            } else {
+                await client.query('UPDATE queue_items SET priority_score = $1, upvotes = $2, downvotes = $3 WHERE id = $4', [score, upvotes, downvotes, targetQueueId]);
             }
-
-            await db.query('UPDATE songs SET score = score + $1 WHERE id = $2', [directVoteUpdate.songDelta, song_id]);
-            return sendSuccess(
-                res,
-                { score_updated: true, song_score_delta: directVoteUpdate.songDelta },
-                'Vote cast on song'
-            );
-        }
-
-        const existingVote = await db.query(
-            'SELECT vote_type FROM votes WHERE queue_item_id = $1 AND user_id = $2',
-            [targetQueueId, userId]
-        );
-        const oldVote = existingVote.rows[0]?.vote_type ?? 0;
-        const finalVoteKind = resolveFinalQueueVoteKind({
-            previousVote: oldVote,
-            requestedVote: vote,
-            isSuper,
-        });
-        const voteScoreUpdate = buildQueueVoteScoreUpdate({
-            previousVote: oldVote,
-            nextVote: finalVoteKind,
-        });
-
-        if (isSuper) {
-            await db.query('UPDATE users SET last_super_vote_at = NOW() WHERE id = $1', [userId]);
-        }
-
-        if (finalVoteKind === 'none') {
-            await db.query('DELETE FROM votes WHERE queue_item_id = $1 AND user_id = $2', [targetQueueId, userId]);
-        } else {
-            await db.query(
-                `INSERT INTO votes (queue_item_id, user_id, vote_type) VALUES ($1, $2, $3)
-                 ON CONFLICT (queue_item_id, user_id) DO UPDATE SET vote_type = $3`,
-                [targetQueueId, userId, voteScoreUpdate.storedVoteValue]
-            );
-        }
-
-        const votesRes = await db.query(
-            `SELECT 
-                COALESCE(SUM(CASE WHEN vote_type > 0 THEN vote_type ELSE 0 END), 0) as upvotes,
-                COALESCE(SUM(CASE WHEN vote_type < 0 THEN ABS(vote_type) ELSE 0 END), 0) as downvotes
-             FROM votes WHERE queue_item_id = $1`,
-            [targetQueueId]
-        );
-
-        const upvotes = Number(votesRes.rows[0]?.upvotes ?? 0);
-        const downvotes = Number(votesRes.rows[0]?.downvotes ?? 0);
-
-        const queueItemRes = await db.query('SELECT * FROM queue_items WHERE id = $1', [targetQueueId]);
-        const queueItem = queueItemRes.rows[0];
-        if (!queueItem) return sendError(res, 'Item not found', 404);
-
-        await db.query('UPDATE songs SET score = score + $1 WHERE id = $2', [voteScoreUpdate.songDelta, queueItem.song_id]);
-        await applyRequesterVoteRankDelta({
-            dbClient: db,
-            requesterId: queueItem.added_by,
-            requesterRankDelta: voteScoreUpdate.requesterRankDelta,
+            return { kind: 'queue' as const, deviceId: queueItem.device_id, upvotes, downvotes, score, update, skipDecision };
         });
 
-        const nextSongScore = upvotes - downvotes;
-        const skipDecision = buildQueueVoteSkipDecision({
-            status: queueItem.status,
-            songScore: nextSongScore,
-        });
-
-        if (skipDecision) {
-            await db.query(
-                `UPDATE queue_items
-                 SET status = 'skipped',
-                     priority_score = $1,
-                     upvotes = $2,
-                     downvotes = $3
-                 WHERE id = $4`,
-                [nextSongScore, upvotes, downvotes, targetQueueId]
-            );
-
-            if (skipDecision.clearCurrentSong) {
-                await db.query('UPDATE devices SET current_song_id = NULL WHERE id = $1', [queueItem.device_id]);
-            }
-
-            const io = getIO();
-            if (skipDecision.emitSongRejected) {
-                io?.to(`device:${queueItem.device_id}`).emit('song_rejected');
-            }
-            if (skipDecision.emitSongSkipped) {
-                io?.to(`device:${queueItem.device_id}`).emit('song_skipped');
-            }
-            io?.to(`device:${queueItem.device_id}`).emit('queue_updated', await getQueueForDevice(queueItem.device_id));
-
-            return sendSuccess(
-                res,
-                {
-                    skipped: true,
-                    upvotes,
-                    downvotes,
-                    song_score: nextSongScore,
-                    user_vote: voteScoreUpdate.storedVoteValue,
-                },
-                'Song skipped by score threshold'
-            );
+        if ('error' in voteResult) {
+            if (voteResult.error === 'supervote_used') return sendError(res, 'Daily supervote already used', 403, 'SUPER_VOTE_COOLDOWN');
+            if (voteResult.error === 'song_missing' || voteResult.error === 'item_missing') return sendError(res, 'Item not found', 404);
+            return sendError(res, 'A song or queue item is required', 400);
+        }
+        if (voteResult.kind === 'direct') {
+            return sendSuccess(res, { score_updated: true, song_score_delta: voteResult.songDelta }, 'Vote cast on song');
         }
 
-        await db.query(
-            'UPDATE queue_items SET priority_score = $1, upvotes = $2, downvotes = $3 WHERE id = $4',
-            [nextSongScore, upvotes, downvotes, targetQueueId]
-        );
-
-        getIO()?.to(`device:${queueItem.device_id}`).emit('queue_updated', await getQueueForDevice(queueItem.device_id));
-        return sendSuccess(
-            res,
-            {
-                upvotes,
-                downvotes,
-                song_score: nextSongScore,
-                user_vote: voteScoreUpdate.storedVoteValue,
-            },
-            'Vote cast successfully'
-        );
+        const io = getIO();
+        if (voteResult.skipDecision?.emitSongRejected) io?.to(`device:${voteResult.deviceId}`).emit('song_rejected');
+        if (voteResult.skipDecision?.emitSongSkipped) io?.to(`device:${voteResult.deviceId}`).emit('song_skipped');
+        io?.to(`device:${voteResult.deviceId}`).emit('queue_updated', await getQueueForDevice(voteResult.deviceId));
+        if (voteResult.skipDecision) {
+            return sendSuccess(res, {
+                skipped: true,
+                upvotes: voteResult.upvotes,
+                downvotes: voteResult.downvotes,
+                song_score: voteResult.score,
+                user_vote: voteResult.update.storedVoteValue,
+            }, 'Song skipped by score threshold');
+        }
+        return sendSuccess(res, {
+            upvotes: voteResult.upvotes,
+            downvotes: voteResult.downvotes,
+            song_score: voteResult.score,
+            user_vote: voteResult.update.storedVoteValue,
+        }, 'Vote cast successfully');
     } catch (error) {
         console.error('Vote error:', error);
         return sendError(res, 'Vote failed', 500);
@@ -2728,9 +2716,7 @@ router.get('/queue/:deviceId', optionalAuth, async (req: Request, res: Response)
 
 
 // Force Skip Song
-router.post('/admin/skip', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.post('/admin/skip', async (req: Request, res: Response) => {
 
     const { device_id } = req.body;
     if (!device_id) return sendError(res, 'Missing device_id', 400);
@@ -2765,9 +2751,7 @@ router.post('/admin/skip', authMiddleware, async (req: Request, res: Response) =
 });
 
 // Sync Song Metadata
-router.post('/admin/sync-metadata', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.post('/admin/sync-metadata', async (req: Request, res: Response) => {
 
     const { song_id } = req.body;
 
@@ -2787,9 +2771,7 @@ router.post('/admin/sync-metadata', authMiddleware, async (req: Request, res: Re
 });
 
 // Get all songs for admin
-router.get('/admin/songs', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.get('/admin/songs', async (req: Request, res: Response) => {
 
     try {
         const songs = await db.query(`
@@ -2808,9 +2790,7 @@ router.get('/admin/songs', authMiddleware, async (req: Request, res: Response) =
     }
 });
 
-router.patch('/admin/songs/:id/classification', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.patch('/admin/songs/:id/classification', async (req: Request, res: Response) => {
 
     try {
         const input = normalizeAdminSongClassificationInput(req.body ?? {});
@@ -2855,9 +2835,7 @@ router.patch('/admin/songs/:id/classification', authMiddleware, async (req: Requ
 });
 
 // Scan uploads folder for new songs
-router.post('/admin/scan-folder', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.post('/admin/scan-folder', async (req: Request, res: Response) => {
 
     const uploadsPath = path.join(__dirname, '../../uploads/songs');
 
@@ -2866,9 +2844,9 @@ router.post('/admin/scan-folder', authMiddleware, async (req: Request, res: Resp
             fs.mkdirSync(uploadsPath, { recursive: true });
         }
 
-        const files = fs.readdirSync(uploadsPath).filter((f: string) =>
-            shouldScanFolderProcessFile(f)
-        );
+        const files = fs.readdirSync(uploadsPath, { withFileTypes: true })
+            .filter((entry) => entry.isFile() && shouldScanFolderProcessFile(entry.name))
+            .map((entry) => entry.name);
 
         let added = 0;
         let skipped = 0;
@@ -2909,9 +2887,7 @@ router.post('/admin/scan-folder', authMiddleware, async (req: Request, res: Resp
 });
 
 // Upload song file
-router.post('/admin/upload-song', authMiddleware, songUpload.single('song'), async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.post('/admin/upload-song', songUpload.single('song'), validateSongUpload, async (req: Request, res: Response) => {
 
     const file = req.file;
     if (!file) {
@@ -2943,9 +2919,7 @@ router.post('/admin/upload-song', authMiddleware, songUpload.single('song'), asy
 });
 
 // Block/unblock song (Spotify-backed catalog - no file deletion needed)
-router.delete('/admin/songs/:id', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.delete('/admin/songs/:id', async (req: Request, res: Response) => {
 
     const { id } = req.params;
 
@@ -2968,13 +2942,13 @@ router.delete('/admin/songs/:id', authMiddleware, async (req: Request, res: Resp
 // --- Device Management ---
 
 // Get all devices
-router.get('/admin/devices', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.get('/admin/devices', async (req: Request, res: Response) => {
 
     try {
         const devices = await db.query(`
-            SELECT d.*, 
+            SELECT d.id, d.device_code, d.name, d.location, d.is_active, d.current_song_id,
+                   d.last_heartbeat, d.created_at, d.override_autoplay_spotify_playlist_uri,
+                   d.override_enabled,
                    (SELECT COUNT(*) FROM queue_items WHERE device_id = d.id AND status = 'pending') as queue_count,
                    s.title as current_song_title, s.artist as current_song_artist
             FROM devices d
@@ -2989,14 +2963,13 @@ router.get('/admin/devices', authMiddleware, async (req: Request, res: Response)
 });
 
 // Create new device
-router.post('/admin/devices', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.post('/admin/devices', async (req: Request, res: Response) => {
 
     const { device_code, name, location, password } = req.body;
 
-    if (!device_code || !name) {
-        return sendError(res, 'device_code and name are required', 400);
+    if (typeof device_code !== 'string' || !device_code.trim() || !name
+        || typeof password !== 'string' || !password.trim() || password.trim().length > 50) {
+        return sendError(res, 'device_code, name, and password are required', 400);
     }
 
     try {
@@ -3013,8 +2986,10 @@ router.post('/admin/devices', authMiddleware, async (req: Request, res: Response
         }
 
         const result = await db.query(
-            'INSERT INTO devices (device_code, name, location, password) VALUES ($1, $2, $3, $4) RETURNING *',
-            [device_code.toUpperCase(), normalizedDevice.name, normalizedDevice.location, password || null]
+            `INSERT INTO devices (device_code, name, location, password)
+             VALUES ($1, $2, $3, $4)
+             RETURNING id, device_code, name, location, is_active, current_song_id, last_heartbeat, created_at`,
+            [device_code.trim().toUpperCase(), normalizedDevice.name, normalizedDevice.location, password.trim()]
         );
         return sendSuccess(res, { device: result.rows[0] }, 'Device created');
     } catch (error) {
@@ -3026,9 +3001,7 @@ router.post('/admin/devices', authMiddleware, async (req: Request, res: Response
 
 
 // Update device
-router.put('/admin/devices/:id', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.put('/admin/devices/:id', async (req: Request, res: Response) => {
 
     const { id } = req.params;
     const {
@@ -3040,6 +3013,7 @@ router.put('/admin/devices/:id', authMiddleware, async (req: Request, res: Respo
         fallback_playlist_url,
         override_enabled
     } = req.body;
+    const nextPassword = typeof password === 'string' && password.trim() ? password.trim() : null;
 
     try {
         let normalizedDevice;
@@ -3071,12 +3045,14 @@ router.put('/admin/devices/:id', authMiddleware, async (req: Request, res: Respo
                 password = COALESCE($4, password),
                 override_autoplay_spotify_playlist_uri = CASE WHEN $5::boolean THEN $6 ELSE override_autoplay_spotify_playlist_uri END,
                 override_enabled = CASE WHEN $7::boolean THEN $8 ELSE override_enabled END
-             WHERE id = $9 RETURNING *`,
+             WHERE id = $9
+             RETURNING id, device_code, name, location, is_active, current_song_id, last_heartbeat, created_at,
+                       override_autoplay_spotify_playlist_uri, override_enabled`,
             [
                 normalizedDevice.name,
                 normalizedDevice.location,
                 is_active,
-                password,
+                nextPassword,
                 normalizedPlaylistUri !== undefined,
                 normalizedPlaylistUri ?? null,
                 override_enabled !== undefined,
@@ -3112,9 +3088,7 @@ router.put('/admin/devices/:id', authMiddleware, async (req: Request, res: Respo
 });
 
 // Get all available Spotify Connect playback devices
-router.get('/admin/spotify-devices', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.get('/admin/spotify-devices', async (req: Request, res: Response) => {
 
     try {
         const kioskDeviceId = typeof req.query?.kiosk_device_id === 'string' ? req.query.kiosk_device_id.trim() : null;
@@ -3136,9 +3110,7 @@ router.get('/admin/spotify-devices', authMiddleware, async (req: Request, res: R
 });
 
 // Update kiosk Spotify playback target device
-router.put('/admin/devices/:id/spotify-playback-target', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.put('/admin/devices/:id/spotify-playback-target', async (req: Request, res: Response) => {
 
     const { id } = req.params;
     const { spotify_playback_device_id, spotify_player_name } = req.body;
@@ -3190,9 +3162,7 @@ router.put('/admin/devices/:id/spotify-playback-target', authMiddleware, async (
 });
 
 // Preview Spotify playlist metadata
-router.get('/admin/playlist-preview', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.get('/admin/playlist-preview', async (req: Request, res: Response) => {
 
     const url = typeof req.query?.url === 'string' ? req.query.url.trim() : '';
     if (!url) {
@@ -3212,23 +3182,45 @@ router.get('/admin/playlist-preview', authMiddleware, async (req: Request, res: 
 
 
 // Manually trigger audio processing (e.g. after upload)
-router.post('/admin/process-song', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.post('/admin/process-song', async (req: Request, res: Response) => {
 
     const { song_id } = req.body;
 
     try {
-        const song = await db.query('SELECT * FROM songs WHERE id = $1', [song_id]);
+        if (typeof song_id !== 'string' || !song_id.trim()) {
+            return sendError(res, 'song_id is required', 400);
+        }
+
+        const song = await db.query('SELECT id, file_url FROM songs WHERE id = $1', [song_id]);
         if (!song.rows[0]) return sendError(res, 'Song not found', 404);
 
-        const absolutePath = path.join('/app', song.rows[0].file_url); // Docker path
+        const uploadsRoot = await fs.promises.realpath(path.resolve(__dirname, '../../uploads/songs'));
+        const fileUrl = song.rows[0].file_url;
+        const relativeFilename = typeof fileUrl === 'string' && fileUrl.startsWith('/uploads/songs/')
+            ? fileUrl.slice('/uploads/songs/'.length)
+            : '';
+        if (!relativeFilename || /[\\/]/.test(relativeFilename) || relativeFilename === '.' || relativeFilename === '..') {
+            return sendError(res, 'Song file path is invalid', 400);
+        }
 
-        let targetPath = path.join(__dirname, '../../', song.rows[0].file_url);
+        const candidatePath = path.resolve(uploadsRoot, relativeFilename);
+        if (!candidatePath.startsWith(`${uploadsRoot}${path.sep}`)) {
+            return sendError(res, 'Song file path is invalid', 400);
+        }
 
-        const newPath = await AudioService.processTrack(targetPath);
+        const targetPath = await fs.promises.realpath(candidatePath);
+        if (!targetPath.startsWith(`${uploadsRoot}${path.sep}`) || !(await fs.promises.stat(targetPath)).isFile()) {
+            return sendError(res, 'Song file not found', 404);
+        }
 
-        const webPath = song.rows[0].file_url.replace(/(\.[\w\d]+)$/, '_trimmed$1');
+        const processedPath = await AudioService.processTrack(targetPath);
+        const resolvedProcessedPath = await fs.promises.realpath(processedPath);
+        if (!resolvedProcessedPath.startsWith(`${uploadsRoot}${path.sep}`)) {
+            return sendError(res, 'Processed file path is invalid', 500);
+        }
+
+        const processedFilename = path.relative(uploadsRoot, resolvedProcessedPath).split(path.sep).join('/');
+        const webPath = `/uploads/songs/${processedFilename}`;
 
         await db.query('UPDATE songs SET file_url = $1 WHERE id = $2', [webPath, song_id]);
 
@@ -3244,39 +3236,96 @@ router.post('/admin/process-song', authMiddleware, async (req: Request, res: Res
 
 router.post('/kiosk/register', async (req: Request, res: Response) => {
     try {
-        const { device_code, password } = req.body;
+        const deviceCode = typeof req.body?.device_code === 'string' ? req.body.device_code.trim().toUpperCase() : '';
+        const suppliedCredential = typeof req.body?.credential === 'string' ? req.body.credential.trim() : '';
+        const provisioningCode = typeof req.body?.provisioning_code === 'string' ? req.body.provisioning_code.trim() : '';
+        if (!deviceCode || (!suppliedCredential && !provisioningCode)) {
+            return sendError(res, 'device_code and a kiosk credential or provisioning code are required', 400);
+        }
 
-        const deviceCheck = await db.query('SELECT password FROM devices WHERE device_code = $1', [device_code]);
+        const deviceCheck = await db.query(
+            'SELECT id, device_code, name, location, is_active FROM devices WHERE device_code = $1',
+            [deviceCode],
+        );
         if (deviceCheck.rows.length === 0) {
-            console.log(`[KIOSK REGISTER] Device not found: ${device_code}`);
             return sendError(res, 'Device code invalid', 404);
         }
-
         const device = deviceCheck.rows[0];
-
-        if (device.password && device.password !== password) {
-            console.log(`[KIOSK REGISTER] Password mismatch for device_code="${device_code}"`);
-            return sendError(res, 'Invalid device password for registration', 403, 'INVALID_PASSWORD');
+        if (!device.is_active) {
+            return sendError(res, 'Device is inactive; an administrator must activate it', 403, 'DEVICE_INACTIVE');
         }
 
-        const updatedDevice = await db.query(
-            'UPDATE devices SET is_active = true, last_heartbeat = NOW() WHERE device_code = $1 RETURNING *',
-            [device_code]
-        );
+        const credential = suppliedCredential || generateKioskCredential();
+        const credentialHash = hashKioskSecret(credential);
+        const registration = await db.transaction(async (client) => {
+            if (suppliedCredential) {
+                const activeCredential = await client.query(
+                    `SELECT credential_hash FROM kiosk_credentials
+                     WHERE device_id = $1 AND revoked_at IS NULL AND expires_at > NOW()
+                     FOR UPDATE`,
+                    [device.id],
+                );
+                if (!kioskSecretMatches(activeCredential.rows[0]?.credential_hash, suppliedCredential)) {
+                    return { error: 'invalid_credential' as const };
+                }
+                await client.query(
+                    `UPDATE kiosk_credentials SET expires_at = NOW() + INTERVAL '24 hours', updated_at = NOW()
+                     WHERE device_id = $1`,
+                    [device.id],
+                );
+            } else {
+                const codeHash = hashKioskSecret(provisioningCode);
+                const code = await client.query(
+                    `SELECT id FROM kiosk_provisioning_codes
+                     WHERE device_id = $1 AND code_hash = $2 AND used_at IS NULL AND expires_at > NOW()
+                     FOR UPDATE`,
+                    [device.id, codeHash],
+                );
+                if (!code.rows[0]) return { error: 'invalid_provisioning_code' as const };
 
-        return sendSuccess(res, { device: updatedDevice.rows[0] }, 'Kiosk registered');
+                await client.query('UPDATE kiosk_provisioning_codes SET used_at = NOW() WHERE id = $1', [code.rows[0].id]);
+                await client.query(
+                    `INSERT INTO kiosk_credentials (device_id, credential_hash, expires_at, revoked_at, created_at, updated_at)
+                     VALUES ($1, $2, NOW() + INTERVAL '24 hours', NULL, NOW(), NOW())
+                     ON CONFLICT (device_id) DO UPDATE
+                       SET credential_hash = EXCLUDED.credential_hash,
+                           expires_at = EXCLUDED.expires_at,
+                           revoked_at = NULL,
+                           created_at = NOW(),
+                           updated_at = NOW()`,
+                    [device.id, credentialHash],
+                );
+            }
+
+            const updatedDevice = await client.query(
+                `UPDATE devices SET last_heartbeat = NOW()
+                 WHERE id = $1 AND is_active = true
+                 RETURNING id, device_code, name, location, is_active, current_song_id, last_heartbeat, created_at`,
+                [device.id],
+            );
+            return { device: updatedDevice.rows[0] };
+        });
+
+        if ('error' in registration) {
+            const isCredential = registration.error === 'invalid_credential';
+            return sendError(
+                res,
+                isCredential ? 'Kiosk credential is invalid, expired, or revoked' : 'Provisioning code is invalid, expired, or already used',
+                403,
+                isCredential ? 'INVALID_CREDENTIAL' : 'INVALID_PROVISIONING_CODE',
+            );
+        }
+
+        return sendSuccess(res, { device: registration.device, credential }, 'Kiosk registered');
     } catch (error) {
         console.error('Kiosk registration error:', error);
-        return sendError(res, 'Internal server error during registration', 500);
+        return sendError(res, 'Kiosk registration failed', 500);
     }
 });
 
-router.get('/kiosk/spotify-token', handleSpotifyKioskTokenRequest);
 router.post('/kiosk/spotify-token', handleSpotifyKioskTokenRequest);
 
 router.post('/kiosk/spotify-device-auth/status', handleSpotifyKioskDeviceAuthStatusRequest);
-
-router.get('/kiosk/spotify-device-auth/start', handleSpotifyKioskDeviceAuthStartRequest);
 
 router.post('/kiosk/spotify-device-auth/start', handleSpotifyKioskDeviceAuthStartRequest);
 
@@ -3478,9 +3527,7 @@ router.post('/autoplay/trigger', async (req: Request, res: Response) => {
 // ----------------------------------------------
 
 // POST /admin/songs/:id/block - block a specific song
-router.post('/admin/songs/:id/block', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.post('/admin/songs/:id/block', async (req: Request, res: Response) => {
 
     const { id } = req.params;
     try {
@@ -3499,9 +3546,7 @@ router.post('/admin/songs/:id/block', authMiddleware, async (req: Request, res: 
 });
 
 // DELETE /admin/songs/:id/block - unblock a song
-router.delete('/admin/songs/:id/block', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.delete('/admin/songs/:id/block', async (req: Request, res: Response) => {
 
     const { id } = req.params;
     try {
@@ -3520,9 +3565,8 @@ router.delete('/admin/songs/:id/block', authMiddleware, async (req: Request, res
 });
 
 // POST /admin/artists/block - block an artist
-router.post('/admin/artists/block', authMiddleware, async (req: Request, res: Response) => {
+router.post('/admin/artists/block', async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
 
     const { artist_name, spotify_artist_id, reason } = req.body;
     if (!artist_name) {
@@ -3555,9 +3599,7 @@ router.post('/admin/artists/block', authMiddleware, async (req: Request, res: Re
 });
 
 // DELETE /admin/artists/:id/block - unblock an artist
-router.delete('/admin/artists/:id/block', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.delete('/admin/artists/:id/block', async (req: Request, res: Response) => {
 
     const { id } = req.params;
     try {
@@ -3576,9 +3618,7 @@ router.delete('/admin/artists/:id/block', authMiddleware, async (req: Request, r
 });
 
 // GET /admin/blocked - list all blocked songs and artists
-router.get('/admin/blocked', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.get('/admin/blocked', async (req: Request, res: Response) => {
 
     try {
         const blockedSongs = await db.query(
@@ -3603,9 +3643,7 @@ router.get('/admin/blocked', authMiddleware, async (req: Request, res: Response)
 });
 
 // GET /admin/moderation/settings - get content filter settings
-router.get('/admin/moderation/settings', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.get('/admin/moderation/settings', async (req: Request, res: Response) => {
 
     try {
         const settings = await getContentFilterSettings();
@@ -3617,9 +3655,7 @@ router.get('/admin/moderation/settings', authMiddleware, async (req: Request, re
 });
 
 // PUT /admin/moderation/settings - update content filter settings
-router.put('/admin/moderation/settings', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.put('/admin/moderation/settings', async (req: Request, res: Response) => {
 
     const { lyrics_filter_enabled, block_unverified_obscure_tracks, min_popularity_without_lyrics } = req.body;
 
@@ -3650,9 +3686,7 @@ router.put('/admin/moderation/settings', authMiddleware, async (req: Request, re
 });
 
 // GET /admin/moderation/keywords - list custom blocked keywords
-router.get('/admin/moderation/keywords', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.get('/admin/moderation/keywords', async (req: Request, res: Response) => {
 
     try {
         const result = await db.query('SELECT * FROM blocked_keywords ORDER BY created_at DESC');
@@ -3664,9 +3698,7 @@ router.get('/admin/moderation/keywords', authMiddleware, async (req: Request, re
 });
 
 // POST /admin/moderation/keywords - add custom blocked keyword
-router.post('/admin/moderation/keywords', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.post('/admin/moderation/keywords', async (req: Request, res: Response) => {
 
     const { word, category } = req.body;
     if (!word || typeof word !== 'string' || !word.trim()) {
@@ -3697,9 +3729,7 @@ router.post('/admin/moderation/keywords', authMiddleware, async (req: Request, r
 });
 
 // DELETE /admin/moderation/keywords/:id - delete custom blocked keyword
-router.delete('/admin/moderation/keywords/:id', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.delete('/admin/moderation/keywords/:id', async (req: Request, res: Response) => {
 
     const { id } = req.params;
     try {
@@ -3718,9 +3748,7 @@ router.delete('/admin/moderation/keywords/:id', authMiddleware, async (req: Requ
 });
 
 // POST /admin/moderation/test - test lyrics or text for profanity
-router.post('/admin/moderation/test', authMiddleware, async (req: Request, res: Response) => {
-    const authReq = req as AuthRequest;
-    if (authReq.user?.role !== ROLES.ADMIN) return sendError(res, 'Unauthorized', 403);
+router.post('/admin/moderation/test', async (req: Request, res: Response) => {
 
     const { text, title, artist } = req.body;
 

@@ -46,10 +46,14 @@ export interface SpotifyDeviceAuthEndpoints {
 }
 
 export interface SpotifyDeviceAuthStartRequest {
-  method: 'GET';
+  method: 'POST';
   url: string;
   headers: {
     Authorization: string;
+  };
+  body: {
+    device_id: string;
+    return_origin?: string;
   };
 }
 
@@ -144,19 +148,15 @@ export function buildSpotifyDeviceAuthStartRequest(
   deviceId: string,
   returnOrigin?: string
 ): SpotifyDeviceAuthStartRequest {
-  const params = new URLSearchParams({
-    device_id: deviceId,
-    format: 'json',
-  });
-  if (returnOrigin) {
-    params.set('return_origin', returnOrigin);
-  }
-
   return {
-    method: 'GET',
-    url: `${baseUrl}/api/v1/spotify/device-auth/start?${params.toString()}`,
+    method: 'POST',
+    url: `${baseUrl}/api/v1/spotify/device-auth/start`,
     headers: {
       Authorization: `Bearer ${token}`,
+    },
+    body: {
+      device_id: deviceId,
+      return_origin: returnOrigin,
     },
   };
 }

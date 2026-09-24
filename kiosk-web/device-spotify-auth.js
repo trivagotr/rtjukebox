@@ -18,19 +18,8 @@
         };
     }
 
-    function buildSpotifyDeviceAuthStartUrl(baseUrl, deviceId, devicePassword, returnOrigin) {
-        const url = new URL(
-            `${baseUrl}/api/v1/jukebox/kiosk/spotify-device-auth/start`,
-            typeof globalThis?.location?.href === 'string' ? globalThis.location.href : undefined
-        );
-        url.searchParams.set('device_id', deviceId);
-        if (devicePassword) {
-            url.searchParams.set('device_pwd', devicePassword);
-        }
-        if (returnOrigin) {
-            url.searchParams.set('return_origin', returnOrigin);
-        }
-        return url.toString();
+    function buildSpotifyDeviceAuthStartUrl(baseUrl) {
+        return `${baseUrl}/api/v1/jukebox/kiosk/spotify-device-auth/start`;
     }
 
     function removeSpotifyDeviceAuthSetup(documentScope) {
@@ -206,19 +195,32 @@
                         ? new URL(windowScope.location.href).origin
                         : null
                 );
-            const authUrl = buildSpotifyDeviceAuthStartUrl(apiBaseUrl, deviceId, devicePassword, returnOrigin);
+            const startUrl = buildSpotifyDeviceAuthStartUrl(apiBaseUrl);
             const popup = windowScope?.open?.('', '_blank');
 
-            if (popup) {
-                popup.location.href = authUrl;
-                if (typeof popup.focus === 'function') {
-                    popup.focus();
-                }
-            } else if (windowScope?.location) {
-                windowScope.location.href = authUrl;
-            }
+            try {
+                const response = await fetchJson(startUrl, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        device_id: deviceId,
+                        device_pwd: devicePassword,
+                        return_origin: returnOrigin,
+                    }),
+                });
+                const authUrl = response?.data?.authUrl;
+                if (typeof authUrl !== 'string') throw new Error('Spotify authorization URL was not returned');
 
-            return authUrl;
+                if (popup) {
+                    popup.location.href = authUrl;
+                    if (typeof popup.focus === 'function') popup.focus();
+                } else if (windowScope?.location) {
+                    windowScope.location.href = authUrl;
+                }
+                return authUrl;
+            } catch (error) {
+                popup?.close?.();
+                throw error;
+            }
         }
 
         ensureMessageListener();

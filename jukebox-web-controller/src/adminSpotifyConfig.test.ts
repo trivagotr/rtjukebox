@@ -98,10 +98,14 @@ test('builds authenticated spotify device auth start requests', () => {
   );
 
   assert.deepEqual(request, {
-    method: 'GET',
-    url: 'http://127.0.0.1:3000/api/v1/spotify/device-auth/start?device_id=device-123&format=json&return_origin=http%3A%2F%2F127.0.0.1%3A5173',
+    method: 'POST',
+    url: 'http://127.0.0.1:3000/api/v1/spotify/device-auth/start',
     headers: {
       Authorization: 'Bearer admin-token-123',
+    },
+    body: {
+      device_id: 'device-123',
+      return_origin: 'http://127.0.0.1:5173',
     },
   });
 });

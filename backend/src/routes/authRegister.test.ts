@@ -50,6 +50,7 @@ vi.mock('../middleware/upload', () => ({
   upload: {
     single: vi.fn(() => vi.fn()),
   },
+  validateAvatarUpload: vi.fn(),
 }));
 
 vi.mock('../utils/response', () => ({

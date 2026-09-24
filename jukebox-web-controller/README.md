@@ -30,9 +30,9 @@ In production the backend serves the built `dist/` as static files under the
 `https://<host>/controller`. The asset base path is set to `/controller/` so the
 hashed JS/CSS/asset URLs resolve correctly behind that sub-path.
 
-The backend API itself lives under its own reverse-proxy sub-path
-(`/jukebox` by default); the SPA serving path (`/controller`) and the API path
-(`/jukebox`) are independent.
+The HTTP API uses the canonical `/api/v1` prefix at the origin root. The SPA
+serving path (`/controller`) and the API path are independent. Socket.IO may
+still use the configured public sub-path when the deployment requires it.
 
 ## Environment knobs
 
@@ -41,6 +41,6 @@ The backend API itself lives under its own reverse-proxy sub-path
   production.
 - `VITE_APP_BASE_PATH` — overrides the Vite build base path (where the assets are
   served from). Defaults to `/controller/`. Used by `vite build` / `vite preview`.
-- `VITE_PUBLIC_BASE_PATH` — overrides the API reverse-proxy sub-path used to build
-  the API root and socket path in production. Defaults to `/jukebox/`. In dev this
-  is forced to `/` to match the local backend.
+- `VITE_PUBLIC_BASE_PATH` — overrides the Socket.IO path prefix in production.
+  Defaults to `/jukebox/`. HTTP requests always use the canonical API origin and
+  `/api/v1` routes. In dev the socket prefix is forced to `/`.

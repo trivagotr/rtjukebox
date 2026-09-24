@@ -1,5 +1,9 @@
-import axios from 'axios';
 import crypto from 'crypto';
+import * as http from 'http';
+import * as https from 'https';
+import type { LookupAddress } from 'dns';
+import { lookup } from 'dns/promises';
+import ipaddr from 'ipaddr.js';
 import { XMLParser } from 'fast-xml-parser';
 import { db } from '../db';
 
@@ -56,13 +60,163 @@ type NormalizedPodcastEpisode = {
 type EpisodeIdentityColumn = 'guid' | 'audio_url' | 'episode_url';
 
 const EPISODE_IDENTITY_COLUMNS: EpisodeIdentityColumn[] = ['guid', 'audio_url', 'episode_url'];
-const RSS_REQUEST_TIMEOUT_MS = 15_000;
+const RSS_REQUEST_TIMEOUT_MS = 10_000;
+const RSS_MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
+const RSS_CONTENT_TYPES = new Set([
+  'application/rss+xml',
+  'application/atom+xml',
+  'application/xml',
+  'text/xml',
+  'text/plain',
+]);
 
 const RSS_PARSER = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '',
   trimValues: true,
+  processEntities: false,
 });
+
+export function isPublicFeedAddress(address: string): boolean {
+  try {
+    return ipaddr.process(address).range() === 'unicast';
+  } catch {
+    return false;
+  }
+}
+
+export function validatePodcastFeedTarget(input: string): URL {
+  const url = new URL(input);
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('Podcast feed URL must use HTTP or HTTPS');
+  }
+  if (url.username || url.password) {
+    throw new Error('Podcast feed URL credentials are not allowed');
+  }
+  const expectedPort = url.protocol === 'https:' ? '443' : '80';
+  if (url.port && url.port !== expectedPort) {
+    throw new Error('Podcast feed URL must use the standard HTTP or HTTPS port');
+  }
+  return url;
+}
+
+async function resolvePublicFeedAddress(hostname: string): Promise<LookupAddress> {
+  const addresses = await lookup(hostname, { all: true, verbatim: true });
+  if (addresses.length === 0 || addresses.some(({ address }) => !isPublicFeedAddress(address))) {
+    throw new Error('Podcast feed host resolves to a non-public IP address');
+  }
+  return addresses[0];
+}
+
+function requestPodcastFeedOnce(url: URL, pinnedAddress: LookupAddress): Promise<{ body: Buffer; location: string | null }> {
+  return new Promise((resolve, reject) => {
+    const client = url.protocol === 'https:' ? https : http;
+    const pinnedLookup = ((_hostname: string, _options: unknown, callback: (error: NodeJS.ErrnoException | null, address: string, family: number) => void) => {
+      callback(null, pinnedAddress.address, pinnedAddress.family);
+    }) as never;
+    const agent = url.protocol === 'https:'
+      ? new https.Agent({ keepAlive: false, lookup: pinnedLookup })
+      : new http.Agent({ keepAlive: false, lookup: pinnedLookup });
+    let settled = false;
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      agent.destroy();
+      reject(error);
+    };
+
+    const request = client.request(url, {
+      method: 'GET',
+      agent,
+      headers: { Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml, text/plain' },
+    }, (response) => {
+      const statusCode = response.statusCode ?? 0;
+      const location = response.headers.location ?? null;
+      response.on('error', fail);
+      if ([301, 302, 303, 307, 308].includes(statusCode)) {
+        if (!location) {
+          fail(new Error('Podcast feed redirect did not include a location'));
+          response.resume();
+          return;
+        }
+        response.resume();
+        settled = true;
+        agent.destroy();
+        resolve({ body: Buffer.alloc(0), location });
+        return;
+      }
+      if (statusCode !== 200) {
+        response.resume();
+        fail(new Error(`Podcast feed returned HTTP ${statusCode}`));
+        return;
+      }
+
+      const contentType = (response.headers['content-type'] ?? '').split(';', 1)[0].trim().toLowerCase();
+      if (!RSS_CONTENT_TYPES.has(contentType)) {
+        response.resume();
+        fail(new Error('Podcast feed returned an unsupported content type'));
+        return;
+      }
+      const contentLength = Number(response.headers['content-length'] ?? 0);
+      if (contentLength > RSS_MAX_RESPONSE_BYTES) {
+        response.resume();
+        fail(new Error('Podcast feed response exceeds the 5 MB limit'));
+        return;
+      }
+
+      const chunks: Buffer[] = [];
+      let totalBytes = 0;
+      response.on('data', (chunk: Buffer) => {
+        totalBytes += chunk.length;
+        if (totalBytes > RSS_MAX_RESPONSE_BYTES) {
+          response.destroy(new Error('Podcast feed response exceeds the 5 MB limit'));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      response.on('end', () => {
+        if (settled) return;
+        settled = true;
+        agent.destroy();
+        resolve({ body: Buffer.concat(chunks), location: null });
+      });
+    });
+
+    request.setTimeout(RSS_REQUEST_TIMEOUT_MS, () => request.destroy(new Error('Podcast feed request timed out')));
+    request.on('error', fail);
+    request.end();
+  });
+}
+
+export async function fetchPodcastFeedXml(
+  input: string,
+  dependencies: {
+    resolveAddress?: (hostname: string) => Promise<LookupAddress>;
+    requestOnce?: (url: URL, pinnedAddress: LookupAddress) => Promise<{ body: Buffer; location: string | null }>;
+  } = {},
+): Promise<string> {
+  let url = validatePodcastFeedTarget(input);
+  const requireHttps = url.protocol === 'https:';
+  const resolveAddress = dependencies.resolveAddress ?? resolvePublicFeedAddress;
+  const requestOnce = dependencies.requestOnce ?? requestPodcastFeedOnce;
+
+  for (let redirectCount = 0; redirectCount <= 3; redirectCount += 1) {
+    const pinnedAddress = await resolveAddress(url.hostname);
+    if (!isPublicFeedAddress(pinnedAddress.address)) {
+      throw new Error('Podcast feed host resolves to a non-public IP address');
+    }
+    const response = await requestOnce(url, pinnedAddress);
+    if (!response.location) return response.body.toString('utf8');
+    if (redirectCount === 3) throw new Error('Podcast feed exceeded the 3 redirect limit');
+
+    url = validatePodcastFeedTarget(new URL(response.location, url).toString());
+    if (requireHttps && url.protocol !== 'https:') {
+      throw new Error('Podcast feed redirects may not downgrade HTTPS to HTTP');
+    }
+  }
+
+  throw new Error('Podcast feed redirect handling failed');
+}
 
 function asArray<T>(value: T | T[] | null | undefined): T[] {
   if (!value) {
@@ -391,6 +545,7 @@ function extractRssItems(xml: string): RawRssItem[] {
 export async function syncPodcastFeed(
   dbClient: PodcastDbClient = db,
   feed: PodcastFeed,
+  fetchXml: (feedUrl: string) => Promise<string> = fetchPodcastFeedXml,
 ): Promise<SyncPodcastFeedResult> {
   return withPodcastFeedLock(dbClient, feed.id, async (client) => {
     let processed = 0;
@@ -399,15 +554,12 @@ export async function syncPodcastFeed(
     let transactionActive = false;
 
     try {
-      const response = await axios.get(feed.feedUrl, {
-        responseType: 'text',
-        timeout: RSS_REQUEST_TIMEOUT_MS,
-      });
+      const xml = await fetchXml(feed.feedUrl);
 
       await client.query('BEGIN');
       transactionActive = true;
 
-      const items = extractRssItems(String(response.data ?? ''));
+      const items = extractRssItems(xml);
       for (const item of items) {
         processed += 1;
         const episode = normalizePodcastEpisode(item);

@@ -7,6 +7,7 @@ class KioskApp {
     constructor() {
         this.socket = null;
         this.device = null;
+        this.kioskCredentialRenewalInterval = null;
         this.queueData = { now_playing: null, queue: [] };
         this.audioPlayer = document.getElementById('audioPlayer');
         this.spotifyController = null;
@@ -171,7 +172,7 @@ class KioskApp {
         this.spotifyDeviceAuthController = window.KioskDeviceSpotifyAuth.createSpotifyDeviceAuthController({
             apiBaseUrl: CONFIG.API_URL,
             deviceId: this.device?.id,
-            devicePassword: localStorage.getItem('device_pwd') || CONFIG.DEVICE_PWD || '',
+            devicePassword: localStorage.getItem('device_pwd') || '',
             document,
             fetch,
             window,
@@ -275,7 +276,7 @@ class KioskApp {
     }
 
     getDevicePasswordForApi() {
-        return localStorage.getItem('device_pwd') || CONFIG.DEVICE_PWD || '';
+        return localStorage.getItem('device_pwd') || '';
     }
 
     // ===== Initialization =====
@@ -299,6 +300,7 @@ class KioskApp {
 
         try {
             await this.registerDevice();
+            if (!this.device) return;
         } catch (err) {
             this.log(`❌ Başlatma hatası: ${err.message}`, 'error');
             this.showDeviceSetupOverlay();
@@ -352,10 +354,10 @@ class KioskApp {
                 <p class="device-setup-message">Bu ekranın hangi Jukebox'u temsil ettiğini belirlemek için sistem panelindeki Cihaz Kodunu ve Şifresini girin.</p>
                 <div class="device-setup-form">
                     <input class="device-setup-input" type="text" id="setupDeviceCode" placeholder="Cihaz Kodu (Örn: KAFE-01)">
-                    <input class="device-setup-input" type="password" id="setupDevicePassword" placeholder="Cihaz Şifresi">
+                    <input class="device-setup-input" type="password" id="setupDevicePassword" placeholder="One-time provisioning code">
                     <button class="device-setup-button" id="saveDeviceCode">Kaydet ve Başlat</button>
                 </div>
-                <p class="device-setup-footnote">Veya URL'ye <b>?code=KOD&pwd=SIFRE</b> ekleyerek açın.</p>
+                <p class="device-setup-footnote">Enter the one-time code generated in the admin panel. It expires in 15 minutes.</p>
             </div>
         `;
         document.body.appendChild(div);
@@ -365,37 +367,34 @@ class KioskApp {
         const button = div.querySelector('#saveDeviceCode');
 
         // Pre-fill if exists
-        input.value = localStorage.getItem('device_code') || '';
-        pwdInput.value = localStorage.getItem('device_pwd') || '';
+        if (input) input.value = localStorage.getItem('device_code') || '';
+        if (pwdInput) pwdInput.value = localStorage.getItem('kiosk_provisioning_code') || '';
 
         const save = () => {
             const code = input.value.trim().toUpperCase();
             const pwd = pwdInput.value.trim();
-            if (code) {
+            if (code && pwd) {
                 this.persistDeviceSetupCredentials(code, pwd);
             }
         };
 
-        button.onclick = save;
-        input.onkeydown = (e) => { if (e.key === 'Enter') pwdInput.focus(); };
-        pwdInput.onkeydown = (e) => { if (e.key === 'Enter') save(); };
+        if (button) button.onclick = save;
+        if (input) input.onkeydown = (e) => { if (e.key === 'Enter') pwdInput?.focus(); };
+        if (pwdInput) pwdInput.onkeydown = (e) => { if (e.key === 'Enter') save(); };
     }
 
-    persistDeviceSetupCredentials(code, password) {
+    persistDeviceSetupCredentials(code, provisioningCode) {
         try {
             localStorage.setItem('device_code', code);
-            localStorage.setItem('device_pwd', password);
+            localStorage.removeItem('device_pwd');
+            localStorage.setItem('kiosk_provisioning_code', provisioningCode);
         } catch (error) {
             this.log(`⚠️ Cihaz bilgileri localStorage'a yazılamadı: ${error.message}`, 'error');
         }
 
         const nextUrl = new URL(window.location.href);
         nextUrl.searchParams.set('code', code);
-        if (password) {
-            nextUrl.searchParams.set('pwd', password);
-        } else {
-            nextUrl.searchParams.delete('pwd');
-        }
+        nextUrl.searchParams.delete('pwd');
 
         window.location.href = nextUrl.toString();
     }
@@ -447,6 +446,9 @@ class KioskApp {
         // Clear stored credentials
         localStorage.removeItem('device_code');
         localStorage.removeItem('device_pwd');
+        localStorage.removeItem('kiosk_provisioning_code');
+        if (this.kioskCredentialRenewalInterval) clearInterval(this.kioskCredentialRenewalInterval);
+        this.kioskCredentialRenewalInterval = null;
 
         // Show setup overlay again
         this.showDeviceSetupOverlay();
@@ -948,18 +950,21 @@ class KioskApp {
     // ===== Device Registration =====
     async registerDevice() {
         try {
+            const credential = localStorage.getItem('device_pwd') || '';
+            const provisioningCode = localStorage.getItem('kiosk_provisioning_code') || '';
+            const registrationAuth = credential ? { credential } : (provisioningCode ? { provisioning_code: provisioningCode } : {});
             const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/register`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    device_code: CONFIG.DEVICE_CODE,
-                    password: CONFIG.DEVICE_PWD
-                })
+                body: JSON.stringify({ device_code: CONFIG.DEVICE_CODE, ...registrationAuth })
             });
 
             if (!response.ok) {
                 const errData = await response.json().catch(() => ({}));
-                throw new Error(`Registration failed (${response.status}): ${errData.error || 'Unknown'}`);
+                const error = new Error(`Registration failed (${response.status}): ${errData.error || 'Unknown'}`);
+                error.status = response.status;
+                error.code = errData.code;
+                throw error;
             }
 
             const data = await response.json();
@@ -969,6 +974,14 @@ class KioskApp {
 
             if (!deviceData) {
                 throw new Error('Device data missing in response');
+            }
+
+            if (data.data?.credential) {
+                localStorage.setItem('device_pwd', data.data.credential);
+                localStorage.removeItem('kiosk_provisioning_code');
+            }
+            if (!this.kioskCredentialRenewalInterval) {
+                this.kioskCredentialRenewalInterval = setInterval(() => this.registerDevice(), 12 * 60 * 60 * 1000);
             }
 
             this.device = deviceData;
@@ -990,6 +1003,18 @@ class KioskApp {
         } catch (error) {
             this.log(`❌ Kayıt hatası: ${error.message}`, 'error');
             this.updateConnectionStatus('error', 'Bağlantı hatası');
+
+            if (error.status === 403) {
+                localStorage.removeItem('device_pwd');
+                if (error.code === 'INVALID_PROVISIONING_CODE') localStorage.removeItem('kiosk_provisioning_code');
+                if (!document.getElementById('deviceSetupOverlay')) this.showDeviceSetupOverlay();
+                return;
+            }
+
+            if (error.status === 400) {
+                if (!document.getElementById('deviceSetupOverlay')) this.showDeviceSetupOverlay();
+                return;
+            }
 
             if (error.message.includes('404')) {
                 // Invalid code - reset and show setup
@@ -1028,6 +1053,10 @@ class KioskApp {
 
         this.socket = io(CONFIG.WS_URL, {
             path: CONFIG.SOCKET_PATH || '/socket.io',
+            auth: {
+                deviceId: this.device?.id || '',
+                devicePassword: this.getDevicePasswordForApi(),
+            },
         });
 
         this.socket.on('connect', () => {

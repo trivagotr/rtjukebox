@@ -80,6 +80,8 @@ describe('db migration helper', () => {
         expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS game_score_submissions');
         expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS user_profile_customization');
         expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS qr_reward_claims');
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS kiosk_provisioning_codes');
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS kiosk_credentials');
     });
 
     it('applies schema sql inside a single transaction and forces UTF-8 client encoding', async () => {

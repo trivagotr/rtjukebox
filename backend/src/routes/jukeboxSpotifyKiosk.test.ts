@@ -1,14 +1,17 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import type { AddressInfo } from 'net';
+import { hashKioskSecret } from '../services/kioskCredentials';
 
-const { mockDbQuery } = vi.hoisted(() => ({
+const { mockDbQuery, mockDbTransaction } = vi.hoisted(() => ({
   mockDbQuery: vi.fn(),
+  mockDbTransaction: vi.fn(),
 }));
 
 vi.mock('../db', () => ({
   db: {
     query: mockDbQuery,
+    transaction: mockDbTransaction,
     pool: {},
   },
 }));
@@ -51,10 +54,58 @@ beforeAll(async () => {
 
 beforeEach(() => {
   mockDbQuery.mockReset();
+  mockDbTransaction.mockReset().mockImplementation((callback: (client: { query: typeof mockDbQuery }) => unknown) => callback({ query: mockDbQuery }));
   vi.restoreAllMocks();
 });
 
 describe('jukebox spotify kiosk routes', () => {
+  it('requires a configured device credential to register a kiosk', async () => {
+    const server = await createJukeboxRouterServer();
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', device_code: 'KIOSK-1', name: 'Kiosk', password: null }] });
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_code: 'KIOSK-1' }),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(payload.code).toBeUndefined();
+      expect(mockDbQuery).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('consumes a one-time provisioning code and returns a new kiosk credential', async () => {
+    const server = await createJukeboxRouterServer();
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', device_code: 'KIOSK-1', name: 'Kiosk', is_active: true }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'provision-1' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', device_code: 'KIOSK-1', name: 'Kiosk', is_active: true }] });
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_code: 'KIOSK-1', provisioning_code: 'one-time-code' }),
+      });
+      const payload = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(payload.data.credential).toEqual(expect.any(String));
+      expect(payload.data.credential).not.toBe('one-time-code');
+      expect(mockDbTransaction).toHaveBeenCalledOnce();
+      expect(mockDbQuery).toHaveBeenCalledTimes(5);
+    } finally {
+      await server.close();
+    }
+  });
+
   it('rejects missing device_id when requesting a kiosk spotify token', async () => {
     const res = createMockRes();
 
@@ -73,13 +124,13 @@ describe('jukebox spotify kiosk routes', () => {
 
   it('returns 503 when the current device has no spotify auth', async () => {
     const res = createMockRes();
-    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', password: null, is_active: true }] });
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret'), is_active: true }] });
     vi.spyOn(spotifyServiceModule.spotifyService, 'getKioskPlaybackToken').mockRejectedValue(
       new Error('No Spotify authorization found for device')
     );
 
     await jukeboxModule.handleSpotifyKioskTokenRequest(
-      { query: { device_id: 'device-1' } } as any,
+      { body: { device_id: 'device-1', device_pwd: 'secret' } } as any,
       res,
     );
 
@@ -94,13 +145,13 @@ describe('jukebox spotify kiosk routes', () => {
 
   it('returns 503 when the current device spotify auth has expired', async () => {
     const res = createMockRes();
-    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', password: null, is_active: true }] });
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret'), is_active: true }] });
     vi.spyOn(spotifyServiceModule.spotifyService, 'getKioskPlaybackToken').mockRejectedValue(
       new Error('Spotify authorization expired for device. Please reconnect Spotify for this kiosk.')
     );
 
     await jukeboxModule.handleSpotifyKioskTokenRequest(
-      { query: { device_id: 'device-1' } } as any,
+      { body: { device_id: 'device-1', device_pwd: 'secret' } } as any,
       res,
     );
 
@@ -115,13 +166,13 @@ describe('jukebox spotify kiosk routes', () => {
 
   it('returns 503 when the current device spotify account cannot play in the kiosk', async () => {
     const res = createMockRes();
-    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', password: null, is_active: true }] });
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret'), is_active: true }] });
     vi.spyOn(spotifyServiceModule.spotifyService, 'getKioskPlaybackToken').mockRejectedValue(
       new Error('Spotify Premium hesabı gerekli')
     );
 
     await jukeboxModule.handleSpotifyKioskTokenRequest(
-      { query: { device_id: 'device-1' } } as any,
+      { body: { device_id: 'device-1', device_pwd: 'secret' } } as any,
       res,
     );
 
@@ -136,13 +187,13 @@ describe('jukebox spotify kiosk routes', () => {
 
   it('returns 503 when the current device spotify connection must be refreshed by reconnecting', async () => {
     const res = createMockRes();
-    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', password: null, is_active: true }] });
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret'), is_active: true }] });
     vi.spyOn(spotifyServiceModule.spotifyService, 'getKioskPlaybackToken').mockRejectedValue(
       new Error('Spotify bağlantısı gerekli')
     );
 
     await jukeboxModule.handleSpotifyKioskTokenRequest(
-      { query: { device_id: 'device-1' } } as any,
+      { body: { device_id: 'device-1', device_pwd: 'secret' } } as any,
       res,
     );
 
@@ -157,18 +208,18 @@ describe('jukebox spotify kiosk routes', () => {
 
   it('rejects missing device credentials when requesting a kiosk spotify token for a protected device', async () => {
     const res = createMockRes();
-    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret' }] });
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret') }] });
     const getKioskPlaybackToken = vi.spyOn(spotifyServiceModule.spotifyService, 'getKioskPlaybackToken');
 
     await jukeboxModule.handleSpotifyKioskTokenRequest(
-      { query: { device_id: 'device-1' } } as any,
+      { body: { device_id: 'device-1' } } as any,
       res,
     );
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(res.json).toHaveBeenCalledWith({
       success: false,
-      error: 'Invalid device password',
+      error: 'Invalid kiosk credential',
       code: undefined,
     });
     expect(getKioskPlaybackToken).not.toHaveBeenCalled();
@@ -177,7 +228,7 @@ describe('jukebox spotify kiosk routes', () => {
   it('returns the kiosk spotify token for a registered device', async () => {
     const res = createMockRes();
     mockDbQuery
-      .mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret', is_active: true }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret'), is_active: true }] })
       .mockResolvedValueOnce({
         rows: [
           {
@@ -219,7 +270,7 @@ describe('jukebox spotify kiosk routes', () => {
 
   it('accepts kiosk spotify token requests through the POST router endpoint used by the kiosk app', async () => {
     const server = await createJukeboxRouterServer();
-    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret', is_active: true }] });
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret'), is_active: true }] });
     vi.spyOn(spotifyServiceModule.spotifyService, 'getKioskPlaybackToken').mockResolvedValue({
       accessToken: 'kiosk-access-token',
       tokenExpiresAt: new Date('2026-04-03T11:00:00.000Z'),
@@ -253,9 +304,21 @@ describe('jukebox spotify kiosk routes', () => {
     }
   });
 
+  it('does not expose the kiosk spotify token endpoint over GET', async () => {
+    const server = await createJukeboxRouterServer();
+
+    try {
+      const response = await fetch(`${server.baseUrl}/kiosk/spotify-token?device_id=device-1&device_pwd=secret`);
+      expect(response.status).toBe(404);
+      expect(mockDbQuery).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
   it('rejects invalid device credentials when requesting kiosk spotify auth status', async () => {
     const res = createMockRes();
-    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret' }] });
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret') }] });
 
     await jukeboxModule.handleSpotifyKioskDeviceAuthStatusRequest(
       { body: { device_id: 'device-1', device_pwd: 'wrong' } } as any,
@@ -265,7 +328,7 @@ describe('jukebox spotify kiosk routes', () => {
     expect(res.status).toHaveBeenCalledWith(403);
     expect(res.json).toHaveBeenCalledWith({
       success: false,
-      error: 'Invalid device password',
+      error: 'Invalid kiosk credential',
       code: undefined,
     });
   });
@@ -273,7 +336,7 @@ describe('jukebox spotify kiosk routes', () => {
   it('returns spotify auth status for a kiosk device with valid credentials', async () => {
     const res = createMockRes();
     mockDbQuery
-      .mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret' }] });
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret') }] });
 
     vi.spyOn(spotifyServiceModule.spotifyService, 'getDeviceAuthStatus').mockResolvedValue({
       deviceId: 'device-1',
@@ -307,7 +370,7 @@ describe('jukebox spotify kiosk routes', () => {
   it('returns a device-specific spotify auth url for kiosk setup', async () => {
     const res = createMockRes();
     mockDbQuery
-      .mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret' }] });
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret') }] });
 
     vi.spyOn(spotifyServiceModule.spotifyService, 'getDeviceAuthStartUrl').mockResolvedValue(
       'https://accounts.spotify.com/authorize?state=device-state'
@@ -329,29 +392,24 @@ describe('jukebox spotify kiosk routes', () => {
     }));
   });
 
-  it('redirects a kiosk popup directly to spotify auth on the GET start route', async () => {
-    const res = {
-      redirect: vi.fn(),
-      status: vi.fn().mockReturnThis(),
-      json: vi.fn().mockReturnThis(),
-    } as any;
-
-    mockDbQuery
-      .mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret' }] });
-
+  it('uses POST body credentials and return origin for kiosk spotify authorization', async () => {
+    const res = createMockRes();
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret') }] });
     vi.spyOn(spotifyServiceModule.spotifyService, 'getDeviceAuthStartUrl').mockResolvedValue(
       'https://accounts.spotify.com/authorize?state=device-state'
     );
 
     await jukeboxModule.handleSpotifyKioskDeviceAuthStartRequest(
       {
-        method: 'GET',
-        query: { device_id: 'device-1', device_pwd: 'secret' },
+        method: 'POST',
+        body: { device_id: 'device-1', device_pwd: 'secret', return_origin: 'https://kiosk.example' },
+        query: { device_id: 'attacker', device_pwd: 'wrong' },
       } as any,
       res,
     );
 
-    expect(res.redirect).toHaveBeenCalledWith('https://accounts.spotify.com/authorize?state=device-state');
+    expect(spotifyServiceModule.spotifyService.getDeviceAuthStartUrl).toHaveBeenCalledWith('device-1', 'https://kiosk.example');
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
   });
 
   it('rejects missing spotify_device_id when registering a kiosk browser player', async () => {
@@ -377,7 +435,7 @@ describe('jukebox spotify kiosk routes', () => {
 
   it('rejects invalid device credentials when registering a kiosk browser player', async () => {
     const res = createMockRes();
-    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret' }] });
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret') }] });
 
     await jukeboxModule.handleSpotifyKioskDeviceRegistration(
       {
@@ -394,7 +452,7 @@ describe('jukebox spotify kiosk routes', () => {
     expect(res.status).toHaveBeenCalledWith(403);
     expect(res.json).toHaveBeenCalledWith({
       success: false,
-      error: 'Invalid device password',
+      error: 'Invalid kiosk credential',
       code: undefined,
     });
     expect(mockDbQuery).toHaveBeenCalledTimes(1);
@@ -403,7 +461,7 @@ describe('jukebox spotify kiosk routes', () => {
   it('stores kiosk spotify player metadata for a registered device', async () => {
     const res = createMockRes();
     mockDbQuery
-      .mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret', device_code: 'KIOSK-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret'), device_code: 'KIOSK-1' }] })
       .mockResolvedValueOnce({
         rows: [
           {
@@ -452,7 +510,7 @@ describe('jukebox spotify kiosk routes', () => {
   it('marks a kiosk spotify player inactive and releases any stuck spotify playback state', async () => {
     const res = createMockRes();
     mockDbQuery
-      .mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret', device_code: 'KIOSK-1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret'), device_code: 'KIOSK-1' }] })
       .mockResolvedValueOnce({ rows: [{ id: 'queue-item-1' }] })
       .mockResolvedValueOnce({
         rows: [
@@ -505,7 +563,7 @@ describe('jukebox spotify kiosk routes', () => {
 
   it('rejects invalid device credentials when a kiosk clears now-playing state', async () => {
     mockDbQuery.mockResolvedValue({ rows: [] });
-    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret' }] });
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret') }] });
     const server = await createJukeboxRouterServer();
 
     try {
@@ -523,7 +581,7 @@ describe('jukebox spotify kiosk routes', () => {
       expect(response.status).toBe(403);
       expect(payload).toEqual({
         success: false,
-        error: 'Invalid device password',
+        error: 'Invalid kiosk credential',
       });
       expect(mockDbQuery).toHaveBeenCalledTimes(1);
     } finally {
@@ -533,7 +591,7 @@ describe('jukebox spotify kiosk routes', () => {
 
   it('returns 503 when a kiosk starts a spotify song without device spotify auth', async () => {
     mockDbQuery
-      .mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret', is_active: true }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret'), is_active: true }] })
       .mockResolvedValueOnce({ rows: [{ id: 'song-spotify-1', source_type: 'spotify', spotify_uri: 'spotify:track:iris' }] })
       .mockResolvedValueOnce({
         rows: [{
@@ -570,7 +628,7 @@ describe('jukebox spotify kiosk routes', () => {
 
   it('returns 503 when a kiosk starts a spotify song with an account that cannot play in the kiosk', async () => {
     mockDbQuery
-      .mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret', is_active: true }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret'), is_active: true }] })
       .mockResolvedValueOnce({ rows: [{ id: 'song-spotify-1', source_type: 'spotify', spotify_uri: 'spotify:track:iris' }] })
       .mockResolvedValueOnce({
         rows: [{
@@ -607,7 +665,7 @@ describe('jukebox spotify kiosk routes', () => {
 
   it('returns 503 when a kiosk starts a spotify song but device auth must be reconnected', async () => {
     mockDbQuery
-      .mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret', is_active: true }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret'), is_active: true }] })
       .mockResolvedValueOnce({ rows: [{ id: 'song-spotify-1', source_type: 'spotify', spotify_uri: 'spotify:track:iris' }] })
       .mockResolvedValueOnce({
         rows: [{
@@ -644,7 +702,7 @@ describe('jukebox spotify kiosk routes', () => {
 
   it('returns 503 when Spotify rejects runtime playback because Premium is required', async () => {
     mockDbQuery
-      .mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret', is_active: true }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret'), is_active: true }] })
       .mockResolvedValueOnce({ rows: [{ id: 'song-spotify-1', source_type: 'spotify', spotify_uri: 'spotify:track:iris' }] })
       .mockResolvedValueOnce({
         rows: [{
@@ -697,7 +755,7 @@ describe('jukebox spotify kiosk routes', () => {
 
   it('returns 503 when Spotify rejects runtime playback because playback scopes are insufficient', async () => {
     mockDbQuery
-      .mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret', is_active: true }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret'), is_active: true }] })
       .mockResolvedValueOnce({ rows: [{ id: 'song-spotify-1', source_type: 'spotify', spotify_uri: 'spotify:track:iris' }] })
       .mockResolvedValueOnce({
         rows: [{
@@ -750,7 +808,7 @@ describe('jukebox spotify kiosk routes', () => {
 
   it('rejects invalid device credentials when a kiosk triggers autoplay', async () => {
     mockDbQuery.mockResolvedValue({ rows: [] });
-    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', password: 'secret' }] });
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1', credential_hash: hashKioskSecret('secret') }] });
     const server = await createJukeboxRouterServer();
 
     try {
@@ -767,7 +825,7 @@ describe('jukebox spotify kiosk routes', () => {
       expect(response.status).toBe(403);
       expect(payload).toEqual({
         success: false,
-        error: 'Invalid device password',
+        error: 'Invalid kiosk credential',
       });
       expect(mockDbQuery).toHaveBeenCalledTimes(1);
     } finally {

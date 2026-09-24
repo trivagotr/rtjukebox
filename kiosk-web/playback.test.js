@@ -210,7 +210,7 @@ describe('kiosk playback helpers', () => {
     const windowStub = {
       location: { protocol: 'http:', hostname: '127.0.0.1', search: '' },
       localStorage: {
-        getItem: vi.fn(() => null),
+        getItem: vi.fn((key) => key === 'device_pwd' ? 'secret' : null),
         setItem: vi.fn(),
         removeItem: vi.fn(),
       },
@@ -630,7 +630,7 @@ describe('kiosk playback helpers', () => {
     const socketStub = { connected: true, on: vi.fn(), emit: vi.fn(), disconnect: vi.fn() };
     const windowStub = {
       location: { protocol: 'http:', hostname: '127.0.0.1', search: '' },
-      localStorage: { getItem: vi.fn(() => null), setItem: vi.fn(), removeItem: vi.fn() },
+      localStorage: { getItem: vi.fn((key) => key === 'device_pwd' ? 'secret' : null), setItem: vi.fn(), removeItem: vi.fn() },
       addEventListener: vi.fn(),
       Image: imageStub,
       KioskPlayback: playbackHelpers,
@@ -717,7 +717,7 @@ describe('kiosk playback helpers', () => {
     const socketStub = { connected: true, on: vi.fn(), emit: vi.fn(), disconnect: vi.fn() };
     const windowStub = {
       location: { protocol: 'http:', hostname: '127.0.0.1', search: '' },
-      localStorage: { getItem: vi.fn(() => null), setItem: vi.fn(), removeItem: vi.fn() },
+      localStorage: { getItem: vi.fn((key) => key === 'device_pwd' ? 'secret' : null), setItem: vi.fn(), removeItem: vi.fn() },
       addEventListener: vi.fn(),
       Image: imageStub,
       KioskPlayback: playbackHelpers,
@@ -821,7 +821,7 @@ describe('kiosk playback helpers', () => {
     };
     const windowStub = {
       location: { protocol: 'http:', hostname: '127.0.0.1', search: '' },
-      localStorage: { getItem: vi.fn(() => null), setItem: vi.fn(), removeItem: vi.fn() },
+      localStorage: { getItem: vi.fn((key) => key === 'device_pwd' ? 'secret' : null), setItem: vi.fn(), removeItem: vi.fn() },
       addEventListener: vi.fn(),
       Image: imageStub,
       KioskPlayback: playbackHelpers,
@@ -1838,7 +1838,7 @@ describe('kiosk playback helpers', () => {
     expect(loadInitialQueue).toHaveBeenCalled();
   });
 
-  it('persists device setup credentials by redirecting with code and password query params', () => {
+  it('persists a provisioning code without putting it in the URL', () => {
     const appSource = fs.readFileSync(path.resolve(__dirname, './app.js'), 'utf8');
     const locationStub = {
       href: 'http://127.0.0.1:3000/kiosk/',
@@ -1880,8 +1880,9 @@ describe('kiosk playback helpers', () => {
     app.persistDeviceSetupCredentials('CHILL-IN', '1234');
 
     expect(localStorageStub.setItem).toHaveBeenCalledWith('device_code', 'CHILL-IN');
-    expect(localStorageStub.setItem).toHaveBeenCalledWith('device_pwd', '1234');
-    expect(locationStub.href).toBe('http://127.0.0.1:3000/kiosk/?code=CHILL-IN&pwd=1234');
+    expect(localStorageStub.removeItem).toHaveBeenCalledWith('device_pwd');
+    expect(localStorageStub.setItem).toHaveBeenCalledWith('kiosk_provisioning_code', '1234');
+    expect(locationStub.href).toBe('http://127.0.0.1:3000/kiosk/?code=CHILL-IN');
   });
 
   it('shows a visible spotify connect action in the startup overlay when device auth is missing', () => {
