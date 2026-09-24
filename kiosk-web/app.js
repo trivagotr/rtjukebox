@@ -1463,7 +1463,9 @@ class KioskApp {
         this.lastSpotifyPoll = now;
 
         try {
-            const res = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/playback-state/${this.device.id}`);
+            const res = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/kiosk/playback-state/${this.device.id}`, {
+                headers: { 'x-kiosk-credential': this.getDevicePasswordForApi() },
+            });
             if (!res.ok) return;
             const payload = await res.json();
             const data = payload?.data;

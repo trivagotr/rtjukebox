@@ -13,6 +13,8 @@ vi.mock('../db', () => ({
 
 let spotifyRoutes: typeof import('./spotify');
 let spotifyServiceModule: typeof import('../services/spotify');
+const DEVICE_ID = '00000000-0000-4000-8000-000000000001';
+const OTHER_DEVICE_ID = '00000000-0000-4000-8000-000000000002';
 
 function createMockRes() {
   return {
@@ -43,7 +45,7 @@ describe('device spotify auth routes', () => {
     mockDbQuery.mockResolvedValueOnce({ rows: [] });
 
     await spotifyRoutes.handleSpotifyDeviceAuthStart(
-      { query: { device_id: 'device-missing' } } as any,
+      { body: { device_id: DEVICE_ID }, query: {} } as any,
       res,
     );
 
@@ -57,17 +59,17 @@ describe('device spotify auth routes', () => {
 
   it('returns the authorization url only after validating the device', async () => {
     const res = createMockRes();
-    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1' }] });
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: DEVICE_ID }] });
     vi.spyOn(spotifyServiceModule.spotifyService, 'getDeviceAuthStartUrl').mockResolvedValue(
       'https://accounts.spotify.com/authorize?state=device-state'
     );
 
     await spotifyRoutes.handleSpotifyDeviceAuthStart(
-      { body: { device_id: 'device-1' } } as any,
+      { body: { device_id: DEVICE_ID }, query: {} } as any,
       res,
     );
 
-    expect(spotifyServiceModule.spotifyService.getDeviceAuthStartUrl).toHaveBeenCalledWith('device-1', null);
+    expect(spotifyServiceModule.spotifyService.getDeviceAuthStartUrl).toHaveBeenCalledWith(DEVICE_ID, null);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
       data: { authUrl: 'https://accounts.spotify.com/authorize?state=device-state' },
@@ -76,17 +78,17 @@ describe('device spotify auth routes', () => {
 
   it('returns a json auth url for authenticated frontend requests', async () => {
     const res = createMockRes();
-    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: 'device-1' }] });
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ id: DEVICE_ID }] });
     vi.spyOn(spotifyServiceModule.spotifyService, 'getDeviceAuthStartUrl').mockResolvedValue(
       'https://accounts.spotify.com/authorize?state=device-state'
     );
 
     await spotifyRoutes.handleSpotifyDeviceAuthStart(
-      { body: { device_id: 'device-1' } } as any,
+      { body: { device_id: DEVICE_ID }, query: {} } as any,
       res,
     );
 
-    expect(spotifyServiceModule.spotifyService.getDeviceAuthStartUrl).toHaveBeenCalledWith('device-1', null);
+    expect(spotifyServiceModule.spotifyService.getDeviceAuthStartUrl).toHaveBeenCalledWith(DEVICE_ID, null);
     expect(res.redirect).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
@@ -107,15 +109,16 @@ describe('device spotify auth routes', () => {
     await spotifyRoutes.handleSpotifyDeviceAuthStart(
       {
         body: {
-          device_id: 'device-1',
-          return_origin: 'http://127.0.0.1:5173',
-        },
+        device_id: DEVICE_ID,
+        return_origin: 'http://127.0.0.1:5173',
+      },
+      query: {},
       } as any,
       res,
     );
 
     expect(spotifyServiceModule.spotifyService.getDeviceAuthStartUrl).toHaveBeenCalledWith(
-      'device-1',
+      DEVICE_ID,
       'http://127.0.0.1:5173',
     );
   });
@@ -123,7 +126,7 @@ describe('device spotify auth routes', () => {
   it('binds the callback through the device auth handler using the oauth state', async () => {
     const res = createMockRes();
     vi.spyOn(spotifyServiceModule.spotifyService, 'handleDeviceAuthCallback').mockResolvedValue({
-      deviceId: 'device-1',
+      deviceId: DEVICE_ID,
       spotifyAccountId: 'spotify-user-1',
       spotifyDisplayName: 'Kiosk Device',
       spotifyEmail: 'kiosk@example.com',
@@ -148,7 +151,7 @@ describe('device spotify auth routes', () => {
   it('posts device auth success messages only to the signed return origin', async () => {
     const res = createMockRes();
     vi.spyOn(spotifyServiceModule.spotifyService, 'handleDeviceAuthCallback').mockResolvedValue({
-      deviceId: 'device-1',
+        deviceId: DEVICE_ID,
       connected: true,
       spotifyAccountId: 'spotify-user-1',
       spotifyDisplayName: 'Kiosk Device',
@@ -167,7 +170,7 @@ describe('device spotify auth routes', () => {
     );
 
     const [html] = res.send.mock.calls[0];
-    expect(html).toContain("window.opener.postMessage({ type: 'SPOTIFY_DEVICE_AUTH_SUCCESS', deviceId: \"device-1\" }, \"http://127.0.0.1:5173\")");
+    expect(html).toContain(`window.opener.postMessage({ type: 'SPOTIFY_DEVICE_AUTH_SUCCESS', deviceId: "${DEVICE_ID}" }, "http://127.0.0.1:5173")`);
     expect(html).not.toContain("}, '*')");
   });
 
@@ -198,7 +201,7 @@ describe('device spotify auth routes', () => {
   it('returns connected account metadata from the device auth status endpoint', async () => {
     const res = createMockRes();
     vi.spyOn(spotifyServiceModule.spotifyService, 'getDeviceAuthStatus').mockResolvedValue({
-      deviceId: 'device-1',
+      deviceId: DEVICE_ID,
       connected: true,
       spotifyAccountId: 'spotify-user-1',
       spotifyDisplayName: 'Kiosk Device',
@@ -210,36 +213,36 @@ describe('device spotify auth routes', () => {
     });
 
     await spotifyRoutes.handleSpotifyDeviceAuthStatus(
-      { query: { device_id: 'device-1' } } as any,
+      { query: { device_id: DEVICE_ID } } as any,
       res,
     );
 
-    expect(spotifyServiceModule.spotifyService.getDeviceAuthStatus).toHaveBeenCalledWith('device-1');
+    expect(spotifyServiceModule.spotifyService.getDeviceAuthStatus).toHaveBeenCalledWith(DEVICE_ID);
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
       data: expect.objectContaining({
-        deviceId: 'device-1',
+        deviceId: DEVICE_ID,
         connected: true,
         spotifyAccountId: 'spotify-user-1',
       }),
     }));
   });
 
-  it('disconnects the path device auth row even if query contains another device id', async () => {
+  it('rejects unexpected query fields on device auth disconnect', async () => {
     const res = createMockRes();
     vi.spyOn(spotifyServiceModule.spotifyService, 'deleteDeviceAuth').mockResolvedValue(undefined);
 
     await spotifyRoutes.handleSpotifyDeviceAuthDelete(
-      { params: { deviceId: 'device-1' }, query: { device_id: 'device-2' } } as any,
+      { params: { deviceId: DEVICE_ID }, query: { device_id: OTHER_DEVICE_ID } } as any,
       res,
     );
 
-    expect(spotifyServiceModule.spotifyService.deleteDeviceAuth).toHaveBeenCalledWith('device-1');
-    expect(res.status).toHaveBeenCalledWith(200);
+    expect(spotifyServiceModule.spotifyService.deleteDeviceAuth).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
-      success: true,
-      data: expect.objectContaining({ deviceId: 'device-1' }),
+      success: false,
+      error: 'Invalid Spotify device ID',
     }));
   });
 });

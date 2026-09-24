@@ -37,7 +37,7 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
     }
 
     try {
-        const decoded = jwt.verify(token, JWT_SECRET);
+        const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
         req.user = decoded as any;
         next();
     } catch (error) {
@@ -50,7 +50,7 @@ export const optionalAuth = (req: AuthRequest, res: Response, next: NextFunction
     if (!token) return next();
 
     try {
-        const decoded = jwt.verify(token, JWT_SECRET);
+        const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
         req.user = decoded as any;
     } catch (e) {
         // Just continue without user

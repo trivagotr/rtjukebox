@@ -151,3 +151,11 @@ Kiosk queue polling sends its stored device credential as `x-kiosk-credential`. 
 ## Final inventory pass — 2026-09-24
 
 The kiosk queue poller includes `x-kiosk-credential`; the backend grants queue access only after matching the kiosk credential or an authorized user/admin session. This changed an existing API call's authorization header, not the UI component tree. The controller and mobile component inventories were rechecked; no screen, component, navigation item, or game inventory entry was changed by this final pass.
+
+## Final non-game client scan (2026-09-24)
+
+- `jukebox-web-controller/src/App.tsx` playback-state polling sends the logged-in user's bearer token. `kiosk-web/app.js` sends the stored kiosk credential. These headers match the backend playback-state authorization rules.
+- `mobile/src/services/profileService.ts` sends profile customization and favorites through PATCH endpoints. The existing ProfileScreen and its component tree are unchanged.
+- No mobile, controller, or kiosk UI called the removed `POST /api/v1/spotify/refresh`; OAuth/device authorization and playback-device UI calls remain unchanged.
+- The source scan found no new UI component tied to the admin-only event QR token endpoint. No mobile, controller, or kiosk component uses health probes; these are deployment/operator endpoints.
+- No screen, component, navigation entry, or kiosk panel was added or removed in this continuation. Existing game inventory entries were not changed.

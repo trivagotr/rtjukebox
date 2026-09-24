@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { createHmac, randomUUID } from 'node:crypto';
 import { db } from '../db';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { upload, validateAvatarUpload } from '../middleware/upload';
@@ -22,7 +23,7 @@ const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || (IS_TEST_ENV ? 'tes
 
 const registerSchema = z.object({
     email: z.string().trim().email().max(320),
-    password: z.string().min(6).max(1024),
+    password: z.string().min(10).max(1024),
     display_name: z.string().trim().min(2).max(100)
 }).strict();
 const loginSchema = z.object({
@@ -31,6 +32,46 @@ const loginSchema = z.object({
 }).strict();
 const guestSchema = z.object({ display_name: z.string().max(200) }).strict();
 const refreshSchema = z.object({ refresh_token: z.string().min(1).max(4096) }).strict();
+const emptyQuerySchema = z.object({}).strict();
+const DUMMY_PASSWORD_HASH = bcrypt.hash(randomUUID(), 10);
+const LOGIN_FAILURE_LIMIT = 5;
+
+function getLoginIdentifierHash(userId: string | null, normalizedIdentifier: string) {
+    const value = userId ? `user:${userId}` : `identifier:${normalizedIdentifier}`;
+    return createHmac('sha256', JWT_SECRET).update(value).digest('hex');
+}
+
+async function isLoginLocked(identifierHash: string) {
+    const result = await db.query(
+        'SELECT locked_until > NOW() AS locked FROM auth_login_attempts WHERE identifier_hash = $1',
+        [identifierHash],
+    );
+    return Boolean(result.rows[0]?.locked);
+}
+
+async function recordLoginFailure(identifierHash: string) {
+    await db.query("DELETE FROM auth_login_attempts WHERE updated_at < NOW() - INTERVAL '24 hours'");
+    const result = await db.query(
+        `INSERT INTO auth_login_attempts (identifier_hash, failed_attempts, locked_until)
+         VALUES ($1, 1, NULL)
+         ON CONFLICT (identifier_hash) DO UPDATE SET
+           failed_attempts = CASE
+             WHEN auth_login_attempts.locked_until IS NOT NULL AND auth_login_attempts.locked_until <= NOW() THEN 1
+             ELSE auth_login_attempts.failed_attempts + 1
+           END,
+           locked_until = CASE
+             WHEN (CASE
+               WHEN auth_login_attempts.locked_until IS NOT NULL AND auth_login_attempts.locked_until <= NOW() THEN 1
+               ELSE auth_login_attempts.failed_attempts + 1
+             END) >= $2 THEN NOW() + INTERVAL '15 minutes'
+             ELSE NULL
+           END,
+           updated_at = NOW()
+         RETURNING locked_until > NOW() AS locked`,
+        [identifierHash, LOGIN_FAILURE_LIMIT],
+    );
+    return Boolean(result.rows[0]?.locked);
+}
 
 const ALLOWED_REGISTRATION_EMAIL_DOMAINS = new Set([
     'gmail.com',
@@ -94,17 +135,17 @@ export function mapAuthSessionUser(row: Record<string, unknown>) {
 }
 
 // Helper to generate and store tokens
-async function createAuthSession(userId: string, email: string, role: string) {
+async function createAuthSession(userId: string, email: string, role: string, dbClient: Pick<typeof db, 'query'> = db) {
     const accessToken = jwt.sign(
         { id: userId, email, role },
         JWT_SECRET,
-        { expiresIn: '24h' }
+        { algorithm: 'HS256', expiresIn: '24h' }
     );
 
     const refreshToken = jwt.sign(
         { id: userId, email, role },
         JWT_REFRESH_SECRET,
-        { expiresIn: '30d' }
+        { algorithm: 'HS256', expiresIn: '30d' }
     );
 
     const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
@@ -112,7 +153,7 @@ async function createAuthSession(userId: string, email: string, role: string) {
     expiresAt.setDate(expiresAt.getDate() + 30); // 30 days
 
     // Store in DB
-    await db.query(
+    await dbClient.query(
         'INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)',
         [userId, refreshTokenHash, expiresAt]
     );
@@ -125,6 +166,7 @@ async function createAuthSession(userId: string, email: string, role: string) {
 
 router.post('/register', authRateLimit, async (req: Request, res: Response) => {
     try {
+        if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Invalid registration query', 400, 'INVALID_REGISTRATION');
         const parsed = registerSchema.safeParse(req.body);
         if (!parsed.success) return sendError(res, 'Invalid registration payload', 400, 'INVALID_REGISTRATION');
         const { email, password, display_name } = parsed.data;
@@ -142,7 +184,7 @@ router.post('/register', authRateLimit, async (req: Request, res: Response) => {
         // Check if user exists
         const existing = await db.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
         if (existing.rows[0]) {
-            return sendError(res, 'Email already registered', 400);
+            return sendError(res, 'Registration could not be completed', 400, 'REGISTRATION_UNAVAILABLE');
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -165,6 +207,7 @@ router.post('/register', authRateLimit, async (req: Request, res: Response) => {
 
 router.post('/login', authRateLimit, async (req: Request, res: Response) => {
     try {
+        if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Invalid login query', 400, 'INVALID_CREDENTIALS');
         const parsed = loginSchema.safeParse(req.body);
         if (!parsed.success) {
             return sendError(res, 'Invalid credentials', 401, 'INVALID_CREDENTIALS');
@@ -175,7 +218,7 @@ router.post('/login', authRateLimit, async (req: Request, res: Response) => {
             return sendError(res, 'Invalid credentials', 401);
         }
 
-        const normalizedIdentifier = inputIdentifier.toLowerCase();
+        const normalizedIdentifier = inputIdentifier.trim().toLowerCase();
         const result = await db.query(
             `SELECT * FROM users 
              WHERE LOWER(TRIM(email)) = $1 
@@ -185,16 +228,22 @@ router.post('/login', authRateLimit, async (req: Request, res: Response) => {
             [normalizedIdentifier]
         );
 
-        if (!result.rows[0]) {
+        const user = result.rows[0] ?? null;
+        const identifierHash = getLoginIdentifierHash(user?.id ?? null, normalizedIdentifier);
+        if (await isLoginLocked(identifierHash)) {
+            return sendError(res, 'Invalid credentials', 429, 'LOGIN_TEMPORARILY_LOCKED');
+        }
+
+        const passwordHash = user?.password_hash ?? await DUMMY_PASSWORD_HASH;
+        const valid = await bcrypt.compare(password, passwordHash);
+
+        if (!user || !valid) {
+            const locked = await recordLoginFailure(identifierHash);
+            if (locked) return sendError(res, 'Invalid credentials', 429, 'LOGIN_TEMPORARILY_LOCKED');
             return sendError(res, 'Invalid credentials', 401);
         }
 
-        const user = result.rows[0];
-        const valid = await bcrypt.compare(password, user.password_hash);
-
-        if (!valid) {
-            return sendError(res, 'Invalid credentials', 401);
-        }
+        await db.query('DELETE FROM auth_login_attempts WHERE identifier_hash = $1', [identifierHash]);
 
         // Update last IP and UA on login (best-effort)
         try {
@@ -218,6 +267,7 @@ router.post('/login', authRateLimit, async (req: Request, res: Response) => {
 
 router.post('/guest', guestRateLimit, async (req: Request, res: Response) => {
     try {
+        if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Invalid guest query', 400, 'INVALID_GUEST_PROFILE');
         const parsed = guestSchema.safeParse(req.body);
         if (!parsed.success) return sendError(res, 'Invalid guest profile payload', 400, 'INVALID_GUEST_PROFILE');
         const normalizedDisplayName = normalizeDisplayNameInput(parsed.data.display_name);
@@ -226,7 +276,7 @@ router.post('/guest', guestRateLimit, async (req: Request, res: Response) => {
         }
 
         // Generate a random guest email
-        const guestId = Math.random().toString(36).substring(7);
+        const guestId = randomUUID();
         const email = `guest_${guestId}@radiotedu.internal`;
 
         const result = await db.query(
@@ -250,41 +300,52 @@ router.post('/guest', guestRateLimit, async (req: Request, res: Response) => {
 
 router.post('/refresh', authRateLimit, async (req: Request, res: Response) => {
     try {
+        if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Invalid refresh query', 400, 'INVALID_REFRESH_TOKEN');
         const parsed = refreshSchema.safeParse(req.body);
         if (!parsed.success) return sendError(res, 'Refresh token required', 400, 'INVALID_REFRESH_TOKEN');
         const { refresh_token } = parsed.data;
 
-        const decoded = jwt.verify(
-            refresh_token,
-            JWT_REFRESH_SECRET
-        ) as any;
-
-        // Verify token exists in DB
-        const result = await db.query(
-            'SELECT id, token_hash FROM refresh_tokens WHERE user_id = $1 AND expires_at > NOW()',
-            [decoded.id]
-        );
-
-        // Find match (tokens are rotated, so there might be multiple if handled incorrectly, 
-        // but here we rotate on match)
-        let matchedTokenId = null;
-        for (const row of result.rows) {
-            const isValid = await bcrypt.compare(refresh_token, row.token_hash);
-            if (isValid) {
-                matchedTokenId = row.id;
-                break;
-            }
-        }
-
-        if (!matchedTokenId) {
+        const decoded = jwt.verify(refresh_token, JWT_REFRESH_SECRET, { algorithms: ['HS256'] }) as jwt.JwtPayload & {
+            id?: string;
+            email?: string;
+            role?: string;
+        };
+        if (!decoded.id || !z.string().uuid().safeParse(decoded.id).success || !decoded.email || !decoded.role) {
             return sendError(res, 'Invalid or expired refresh token', 401);
         }
 
-        // Token Rotation: Delete old token, create new pair
-        await db.query('DELETE FROM refresh_tokens WHERE id = $1', [matchedTokenId]);
+        const rotation = await db.transaction(async (client) => {
+            const result = await client.query(
+                'SELECT id, token_hash FROM refresh_tokens WHERE user_id = $1 AND expires_at > NOW() FOR UPDATE',
+                [decoded.id],
+            );
+            let matchedTokenId: string | null = null;
+            for (const row of result.rows) {
+                if (await bcrypt.compare(refresh_token, row.token_hash)) {
+                    matchedTokenId = row.id;
+                    break;
+                }
+            }
 
-        const tokens = await createAuthSession(decoded.id, decoded.email, decoded.role);
-        return sendSuccess(res, tokens, 'Token refreshed');
+            if (!matchedTokenId) {
+                await client.query('DELETE FROM refresh_tokens WHERE user_id = $1', [decoded.id]);
+                return null;
+            }
+
+            const deleted = await client.query(
+                'DELETE FROM refresh_tokens WHERE id = $1 AND user_id = $2 RETURNING id',
+                [matchedTokenId, decoded.id],
+            );
+            if (deleted.rows.length !== 1) {
+                await client.query('DELETE FROM refresh_tokens WHERE user_id = $1', [decoded.id]);
+                return null;
+            }
+
+            return createAuthSession(decoded.id!, decoded.email!, decoded.role!, client);
+        });
+
+        if (!rotation) return sendError(res, 'Invalid or expired refresh token', 401);
+        return sendSuccess(res, rotation, 'Token refreshed');
     } catch (error) {
         return sendError(res, 'Invalid refresh token', 401);
     }
@@ -292,6 +353,7 @@ router.post('/refresh', authRateLimit, async (req: Request, res: Response) => {
 
 export async function handleCurrentUserProfileRequest(req: AuthRequest, res: Response) {
     try {
+        if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Unexpected profile query parameters', 400, 'INVALID_QUERY');
         const currentYearMonth = getIstanbulYearMonth(new Date());
         const result = await db.query(
             `SELECT u.id,
@@ -324,6 +386,7 @@ router.get('/me', authMiddleware, handleCurrentUserProfileRequest);
 
 router.post('/upload-avatar', authMiddleware, upload.single('avatar'), validateAvatarUpload, async (req: AuthRequest, res: Response) => {
     try {
+        if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Unexpected avatar upload query parameters', 400, 'INVALID_QUERY');
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });
         }

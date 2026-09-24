@@ -292,6 +292,15 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 );
 CREATE INDEX IF NOT EXISTS idx_refresh_user ON refresh_tokens(user_id);
 
+CREATE TABLE IF NOT EXISTS auth_login_attempts (
+    identifier_hash CHAR(64) PRIMARY KEY,
+    failed_attempts INTEGER NOT NULL DEFAULT 0 CHECK (failed_attempts >= 0),
+    locked_until TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_auth_login_attempts_locked_until
+    ON auth_login_attempts(locked_until);
+
 -- Audit Logs Table
 CREATE TABLE IF NOT EXISTS audit_logs (
     id BIGSERIAL PRIMARY KEY,
@@ -656,6 +665,21 @@ CREATE TABLE IF NOT EXISTS spotify_auth (
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS spotify_oauth_states (
+    state_hash CHAR(64) PRIMARY KEY,
+    state_kind VARCHAR(16) NOT NULL DEFAULT 'admin',
+    device_id UUID REFERENCES devices(id) ON DELETE CASCADE,
+    return_origin VARCHAR(2048),
+    code_verifier VARCHAR(128),
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+ALTER TABLE spotify_oauth_states ADD COLUMN IF NOT EXISTS state_kind VARCHAR(16) NOT NULL DEFAULT 'admin';
+ALTER TABLE spotify_oauth_states ADD COLUMN IF NOT EXISTS device_id UUID REFERENCES devices(id) ON DELETE CASCADE;
+ALTER TABLE spotify_oauth_states ADD COLUMN IF NOT EXISTS code_verifier VARCHAR(128);
+CREATE INDEX IF NOT EXISTS idx_spotify_oauth_states_expires_at
+    ON spotify_oauth_states(expires_at);
 
 CREATE TABLE IF NOT EXISTS spotify_device_auth (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

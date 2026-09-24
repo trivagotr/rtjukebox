@@ -10,7 +10,7 @@ const {
 } = vi.hoisted(() => {
   const handlers: Record<string, Record<string, (...args: any[]) => any>> = {
     get: {},
-    put: {},
+    patch: {},
   };
 
   const router: any = {};
@@ -19,8 +19,8 @@ const {
     handlers.get[path] = handler;
     return router;
   });
-  router.put = vi.fn((path: string, handler: (...args: any[]) => any) => {
-    handlers.put[path] = handler;
+  router.patch = vi.fn((path: string, handler: (...args: any[]) => any) => {
+    handlers.patch[path] = handler;
     return router;
   });
 
@@ -78,11 +78,8 @@ describe('profile customization router', () => {
       favorite_song_artist: 'Artist',
       favorite_song_spotify_uri: 'spotify:track:1',
       favorite_artist_name: 'Singer',
-      favorite_artist_spotify_id: null,
-      favorite_podcast_id: null,
       favorite_podcast_title: 'Morning Show',
       profile_headline: 'Radio lover',
-      featured_badge_id: null,
       theme_key: 'neon',
     });
   });
@@ -92,7 +89,7 @@ describe('profile customization router', () => {
   });
 
   it('upserts the current user profile customization', async () => {
-    const handler = mockRouteHandlers.put['/me'];
+    const handler = mockRouteHandlers.patch['/me'];
     expect(handler).toBeTypeOf('function');
     mockDbQuery.mockResolvedValueOnce({
       rows: [
@@ -112,7 +109,9 @@ describe('profile customization router', () => {
       },
     }, {});
 
-    expect(mockDbQuery).toHaveBeenCalledWith(expect.stringContaining('ON CONFLICT (user_id) DO UPDATE'), expect.any(Array));
+    expect(mockDbQuery).toHaveBeenCalledWith(expect.stringContaining('favorite_song_title = EXCLUDED.favorite_song_title'), [
+      'user-1', 'Ankara Ruzgari', 'Radio lover',
+    ]);
     expect(mockSendSuccess).toHaveBeenCalledWith(
       {},
       expect.objectContaining({
@@ -122,5 +121,15 @@ describe('profile customization router', () => {
       }),
       'Profile updated',
     );
+  });
+
+  it('does not include omitted fields in a partial update', async () => {
+    const handler = mockRouteHandlers.patch['/me'];
+    mockDbQuery.mockResolvedValueOnce({ rows: [{ user_id: 'user-1', theme_key: 'neon' }] });
+
+    await handler({ user: { id: 'user-1', role: 'user' }, body: { theme_key: 'neon' } }, {});
+
+    expect(mockDbQuery).toHaveBeenCalledWith(expect.stringContaining('(user_id, theme_key, updated_at)'), ['user-1', 'neon']);
+    expect(mockDbQuery.mock.calls[0][0]).not.toContain('favorite_song_title');
   });
 });

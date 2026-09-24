@@ -56,6 +56,24 @@ describe('db migration helper', () => {
         expect(schemaSql).toContain('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_super_vote_at TIMESTAMP');
     });
 
+    it('includes hashed account login lockout storage', () => {
+        const schemaSql = loadSchemaSql();
+
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS auth_login_attempts');
+        expect(schemaSql).toContain('identifier_hash CHAR(64) PRIMARY KEY');
+        expect(schemaSql).toContain('idx_auth_login_attempts_locked_until');
+    });
+
+    it('includes one-time Spotify OAuth state storage', () => {
+        const schemaSql = loadSchemaSql();
+
+        expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS spotify_oauth_states');
+        expect(schemaSql).toContain('state_hash CHAR(64) PRIMARY KEY');
+        expect(schemaSql).toContain('state_kind VARCHAR(16) NOT NULL DEFAULT');
+        expect(schemaSql).toContain('code_verifier VARCHAR(128)');
+        expect(schemaSql).toContain('idx_spotify_oauth_states_expires_at');
+    });
+
     it('includes podcast feed registry tables in the schema', () => {
         const schemaSql = loadSchemaSql();
 

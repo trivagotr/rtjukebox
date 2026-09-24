@@ -945,7 +945,8 @@ function App() {
             headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
           }),
           axios.get<{ success: boolean; data: { progressMs?: number; durationMs?: number; isPlaying?: boolean } | null }>(
-            `${API_URL}/api/v1/jukebox/kiosk/playback-state/${deviceId}`
+            `${API_URL}/api/v1/jukebox/kiosk/playback-state/${deviceId}`,
+            { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } },
           ).catch(() => null),
         ]);
         const nextQueue = res.data.queue || [];

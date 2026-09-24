@@ -15,6 +15,8 @@ const createFeedSchema = z.object({
   feed_url: z.string().trim().url().max(2048),
 }).strict();
 const syncFeedsSchema = z.object({ feed_id: z.string().uuid().optional() }).strict();
+const emptyQuerySchema = z.object({}).strict();
+const emptyBodySchema = z.object({}).strict();
 
 type PodcastFeedRow = {
   id: string;
@@ -171,7 +173,8 @@ router.use(rbacMiddleware([ROLES.ADMIN]));
 router.use(adminRateLimit);
 router.use(adminAuditLog);
 
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
+  if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Unexpected podcast feed query parameters', 400, 'INVALID_QUERY');
   try {
     const feeds = await listPodcastFeeds(db);
     return sendSuccess(res, { feeds }, 'Podcast feeds fetched');
@@ -244,7 +247,7 @@ router.post('/sync', async (req: Request, res: Response) => {
 });
 
 router.delete('/:id', async (req: Request, res: Response) => {
-  if (!z.string().uuid().safeParse(req.params.id).success) {
+  if (!z.string().uuid().safeParse(req.params.id).success || !emptyBodySchema.safeParse(req.body ?? {}).success || !emptyQuerySchema.safeParse(req.query).success) {
     return sendError(res, 'Invalid podcast feed ID', 400, 'INVALID_PODCAST_FEED_ID');
   }
   try {

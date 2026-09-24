@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   mockDbQuery,
+  mockDbTransaction,
   mockRouteHandlers,
   mockRouter,
   mockSendError,
@@ -24,6 +25,7 @@ const {
 
   return {
     mockDbQuery: vi.fn(),
+    mockDbTransaction: vi.fn(),
     mockRouteHandlers: handlers,
     mockRouter: router,
     mockSendError: vi.fn(),
@@ -38,6 +40,7 @@ vi.mock('express', () => ({
 vi.mock('../db', () => ({
   db: {
     query: mockDbQuery,
+    transaction: mockDbTransaction,
   },
 }));
 
@@ -59,6 +62,8 @@ vi.mock('../utils/response', () => ({
 }));
 
 import './auth';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 function createReq(body: Record<string, unknown>) {
   return {
@@ -67,12 +72,14 @@ function createReq(body: Record<string, unknown>) {
       'user-agent': 'vitest',
     },
     ip: '127.0.0.1',
+    query: {},
   };
 }
 
 describe('auth registration routes', () => {
   beforeEach(() => {
     mockDbQuery.mockReset();
+    mockDbTransaction.mockReset().mockImplementation((work: (client: { query: typeof mockDbQuery }) => unknown) => work({ query: mockDbQuery }));
     mockSendError.mockReset();
     mockSendSuccess.mockReset();
   });
@@ -152,5 +159,65 @@ describe('auth registration routes', () => {
         role: 'guest',
       }),
     );
+  });
+
+  it('applies an account lock after the fifth failed login attempt', async () => {
+    const handler = mockRouteHandlers.post['/login'];
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'user-id', email: 'student@gmail.com', password_hash: 'not-a-bcrypt-hash' }] })
+      .mockResolvedValueOnce({ rows: [{ locked: false }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ locked: true }] });
+
+    await handler(createReq({ email: 'student@gmail.com', password: 'wrong-password' }), {});
+
+    expect(mockDbQuery.mock.calls[2][0]).toContain('DELETE FROM auth_login_attempts');
+    expect(mockDbQuery.mock.calls[3][0]).toContain('INSERT INTO auth_login_attempts');
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 'Invalid credentials', 429, 'LOGIN_TEMPORARILY_LOCKED');
+  });
+
+  it('rotates a refresh token inside one database transaction', async () => {
+    const handler = mockRouteHandlers.post['/refresh'];
+    const userId = '00000000-0000-4000-8000-000000000001';
+    const refreshToken = jwt.sign(
+      { id: userId, email: 'student@gmail.com', role: 'user' },
+      'test-refresh-secret-key',
+      { algorithm: 'HS256', expiresIn: '1h' },
+    );
+    const storedHash = await bcrypt.hash(refreshToken, 4);
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'refresh-row', token_hash: storedHash }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'refresh-row' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await handler(createReq({ refresh_token: refreshToken }), {});
+
+    expect(mockDbTransaction).toHaveBeenCalledOnce();
+    expect(mockDbQuery.mock.calls[0][0]).toContain('FOR UPDATE');
+    expect(mockDbQuery.mock.calls[1][0]).toContain('DELETE FROM refresh_tokens');
+    expect(mockDbQuery.mock.calls[2][0]).toContain('INSERT INTO refresh_tokens');
+    expect(mockSendSuccess.mock.calls[0][1]).toEqual(expect.objectContaining({
+      access_token: expect.any(String),
+      refresh_token: expect.any(String),
+    }));
+  });
+
+  it('revokes all remaining refresh sessions when a signed token is reused', async () => {
+    const handler = mockRouteHandlers.post['/refresh'];
+    const userId = '00000000-0000-4000-8000-000000000001';
+    const refreshToken = jwt.sign(
+      { id: userId, email: 'student@gmail.com', role: 'user' },
+      'test-refresh-secret-key',
+      { algorithm: 'HS256', expiresIn: '1h' },
+    );
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await handler(createReq({ refresh_token: refreshToken }), {});
+
+    expect(mockDbTransaction).toHaveBeenCalledOnce();
+    expect(mockDbQuery.mock.calls[1][0]).toBe('DELETE FROM refresh_tokens WHERE user_id = $1');
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 'Invalid or expired refresh token', 401);
   });
 });

@@ -41,11 +41,11 @@ export async function fetchProfileCustomization(): Promise<ProfileCustomizationR
 }
 
 export async function updateProfileCustomization(payload: ProfileCustomization) {
-  const response = await api.put('/profile/me', payload);
+  const response = await api.patch('/profile/me', payload);
   return unwrapData(response);
 }
 
 export async function updateProfileFavorites(payload: ProfileCustomization) {
-  const response = await api.put('/profile/favorites', payload);
+  const response = await api.patch('/profile/favorites', payload);
   return unwrapData(response);
 }

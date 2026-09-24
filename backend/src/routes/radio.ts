@@ -4,9 +4,11 @@ import { db } from '../db';
 import { z } from 'zod';
 
 const router = Router();
+const emptyQuerySchema = z.object({}).strict();
 
 // Get live radio status
 router.get('/status', async (req: Request, res: Response) => {
+    if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Unexpected radio status query parameters', 400, 'INVALID_QUERY');
     try {
         // In a real scenario, you might check an Icecast/Shoutcast stats URL
         // For now, we return config-based status
@@ -23,6 +25,7 @@ router.get('/status', async (req: Request, res: Response) => {
 
 // Get radio schedule
 router.get('/schedule', async (req: Request, res: Response) => {
+    if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Unexpected radio schedule query parameters', 400, 'INVALID_QUERY');
     try {
         const result = await db.query(
             'SELECT * FROM radio_schedule WHERE is_active = true ORDER BY day_of_week, start_time'
@@ -35,6 +38,7 @@ router.get('/schedule', async (req: Request, res: Response) => {
 
 // Get recent song history for a channel (last 15 minutes)
 router.get('/history/:channelId', async (req: Request, res: Response) => {
+    if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Unexpected radio history query parameters', 400, 'INVALID_QUERY');
     const channelId = z.string().trim().min(1).max(120).safeParse(req.params.channelId);
     if (!channelId.success) return sendError(res, 'Invalid radio channel ID', 400);
     try {

@@ -297,7 +297,7 @@ Endpoint ve UI envanterleri hâlâ son adıma bırakıldı.
 
 ## Current scaffold status (2026-09-24)
 
-The `backend-refactor/` directory is an isolated, non-production scaffold. Its app does not replace or mount into `backend/`; the current live application remains under `backend/`. The scaffold contains the shared core, module template, and an Identity vertical slice placeholder. Identity repository and HTTP handlers intentionally still raise `NotImplementedError`, so it is not ready for production traffic. Domain-by-domain migration remains an architecture phase, and any game-related migration is excluded from this work by the current request.
+The `backend-refactor/` directory is an isolated, non-production scaffold. Its app does not replace or mount into `backend/`; the current live application remains under `backend/`. The scaffold contains the shared core, module template, and an implemented Identity vertical slice with HS256 auth/admin guards. Other business modules remain templates or placeholders. The scaffold is not ready for production traffic; domain-by-domain migration and a deliberate database/token compatibility cutover remain open. Game-related migration is excluded from this work by the current request.
 
 ### Local verification
 
@@ -366,3 +366,24 @@ The `backend-refactor/` directory is an isolated, non-production scaffold. Its a
 - The earlier “Current scaffold status” paragraph is stale: Identity is no longer a placeholder. The isolated `backend-refactor/src/modules/identity` slice implements register, login, guest login, refresh-token rotation, and logout; its HS256 access-token verifier and role guard are implemented as well. Other domain modules remain templates/placeholders, the scaffold is not mounted by `backend/`, and its migration has not been applied.
 - Final verification after queue authorization: `backend` `npm run build` passed; `jukebox-web-controller` `npm run build` passed; `git diff --check` passed (Git emitted only LF/CRLF normalization warnings).
 - No automated test suites, database migration, or live Redis multi-instance smoke test were run.
+
+### Continuation — OAuth, auth and device-read hardening (2026-09-24)
+
+- Spotify admin and device authorization now use 10-minute, single-use state records. State is SHA-256 keyed, consumed atomically before token exchange, and return-origin values are matched against the stored value. Both authorization paths use PKCE S256; the verifier is stored only for the short authorization window and sent to Spotify's token endpoint on callback.
+- Callback, auth-start, device-auth start/status/delete, playback-device list, and token refresh requests now use strict bounded query/body/path schemas. Unexpected fields are rejected. Expired OAuth state rows are cleaned during state issuance.
+- The OAuth-state and login-lockout tables are declared in the legacy backend's idempotent `schema.sql`. Deployment must run the existing backend schema migration before these new flows can be used; no deployment DB was changed here.
+- Live Spotify playback snapshots now require the same device-read authorization as queues: admin, a matching user device session, or a valid active kiosk credential. Kiosk and controller clients send their stored kiosk credential or user bearer token respectively. Playback-state query parameters are rejected.
+- Added Pino/Pino HTTP structured request logging. Request logs record method, query-free path, response status, request ID and duration while serializers omit request headers; sensitive key paths are configured for redaction. Spotify playback-device requests now use the shared admin rate-limit class.
+- New account registrations require a 10-character password; duplicate-email failures use a generic response. Login failures are keyed by an HMAC of the account/identifier and locked after five failures for 15 minutes; unknown accounts receive a dummy bcrypt comparison. Guest IDs now use cryptographic UUIDs.
+- Refresh rotation now locks and consumes the old row and inserts the next token in one DB transaction. Reuse of a signed refresh token revokes remaining sessions for that user.
+- Added strict pagination schemas for podcast reads and strict empty/declared query schemas to radio, podcast-feed, jukebox catalog/admin and Spotify read routes. Jukebox session checks now use strict bodies; admin no-payload writes reject unexpected fields.
+- Verification: backend build passed; 81 focused Spotify/device/migration tests passed, and 16 focused auth/schema tests passed. Scoped ESLint had no errors; existing warnings remain. Controller production build passed after the playback-state header update. No production schema migration or live Redis/Spotify smoke test was run.
+
+### Continuation — profile PATCH, JWT algorithm pinning and health probes (2026-09-24)
+
+- Profile customization writes now use `PATCH /api/v1/profile/me` and `PATCH /api/v1/profile/favorites`; the mobile profile service uses PATCH. The strict schema requires at least one declared field, and SQL upserts only fields present in the request so omitted values are preserved. Explicit `null` or blank strings still clear a supplied field.
+- Access and optional-auth middleware now verifies HS256 only. Non-HS256 JWTs are rejected; a focused middleware test covers required and optional auth.
+- Added public `/health/live` and token-protected `/health/ready`. Readiness checks database connectivity, upload directory writability, and configured Redis availability, and returns only a generic status. `HEALTHCHECK_TOKEN` is documented in `.env.example`; `/health` remains a liveness alias.
+- Verification: backend TypeScript build passed; nine focused test files passed (94 tests); changed backend files linted with zero errors (warnings remain). Controller production build passed. Mobile has no build script; `npx tsc --noEmit` is currently blocked by pre-existing test typing errors, including stale game tests and podcast test typing. No game files were modified. No production database migration, live Redis probe, or Spotify smoke test was run.
+- Remaining architecture work: migrate live domains into `backend-refactor` and cut over only after its Prisma schema/migration, legacy raw-SQL schema, existing user rows, and current access/refresh token formats have an explicit compatibility plan. No production schema/cutover was attempted. Game modules remain excluded.
+- Removed the unused admin-only `POST /api/v1/spotify/refresh` endpoint after confirming no client calls it; token refresh remains a backend service operation. Backend build and 44 focused Spotify authorization/service tests passed after removal.

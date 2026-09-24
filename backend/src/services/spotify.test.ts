@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 
 const { mockDbQuery, mockAxiosGet, mockAxiosPost, mockAxiosPut } = vi.hoisted(() => ({
   mockDbQuery: vi.fn(),
@@ -28,6 +29,18 @@ import {
   SpotifyService,
   upsertSpotifyTrack,
 } from './spotify';
+
+function queueDeviceCallbackQueries(deviceId: string, returnOrigin: string | null, existingAuth: Record<string, unknown>[] = []) {
+  const stateInsert = mockDbQuery.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO spotify_oauth_states'));
+  const codeVerifier = stateInsert?.[1]?.[3] as string | undefined;
+  if (!codeVerifier) throw new Error('Device auth start did not persist a PKCE verifier');
+
+  mockDbQuery
+    .mockResolvedValueOnce({ rows: [] })
+    .mockResolvedValueOnce({ rows: [{ return_origin: returnOrigin, code_verifier: codeVerifier }] })
+    .mockResolvedValueOnce({ rows: [{ id: deviceId }] })
+    .mockResolvedValueOnce({ rows: existingAuth });
+}
 
 describe('SpotifyService', () => {
   beforeEach(() => {
@@ -324,6 +337,10 @@ describe('SpotifyService', () => {
     expect(url.searchParams.get('redirect_uri')).toBe('http://127.0.0.1:3000/api/v1/spotify/callback');
     expect(url.searchParams.get('state')).toMatch(/^device\./);
     expect(url.searchParams.get('state')).toContain('device-1');
+    expect(url.searchParams.get('code_challenge_method')).toBe('S256');
+    const stateInsert = mockDbQuery.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO spotify_oauth_states'));
+    const codeVerifier = stateInsert?.[1]?.[3] as string;
+    expect(url.searchParams.get('code_challenge')).toBe(createHash('sha256').update(codeVerifier).digest('base64url'));
   });
 
   it('round-trips the return origin through signed device auth state', async () => {
@@ -351,10 +368,7 @@ describe('SpotifyService', () => {
       },
     });
 
-    mockDbQuery
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: 'device-1' }] })
-      .mockResolvedValueOnce({ rows: [] });
+    queueDeviceCallbackQueries('device-1', 'http://127.0.0.1:5173');
 
     const result = await service.handleDeviceAuthCallback('auth-code', state!);
 
@@ -400,10 +414,7 @@ describe('SpotifyService', () => {
       },
     });
 
-    mockDbQuery
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: 'device-1' }] })
-      .mockResolvedValueOnce({ rows: [] });
+    queueDeviceCallbackQueries('device-1', null);
 
     const result = await service.handleDeviceAuthCallback('auth-code', state!);
 
@@ -459,11 +470,7 @@ describe('SpotifyService', () => {
       },
     });
 
-    mockDbQuery
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: 'device-1' }] })
-      .mockResolvedValueOnce({
-        rows: [
+    queueDeviceCallbackQueries('device-1', null, [
           {
             device_id: 'device-1',
             access_token: 'old-device-access-token',
@@ -475,9 +482,7 @@ describe('SpotifyService', () => {
             spotify_email: 'kiosk@example.com',
             spotify_product: 'premium',
           },
-        ],
-      })
-      .mockResolvedValueOnce({ rows: [] });
+        ]);
 
     const result = await service.handleDeviceAuthCallback('auth-code', state!);
 
@@ -500,10 +505,7 @@ describe('SpotifyService', () => {
         },
       });
 
-    mockDbQuery
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: 'device-1' }] })
-      .mockResolvedValueOnce({ rows: [] });
+    queueDeviceCallbackQueries('device-1', null);
 
     await expect(service.handleDeviceAuthCallback('auth-code', state!)).rejects.toThrow(
       'Spotify did not return a refresh token and no existing device refresh token was found'

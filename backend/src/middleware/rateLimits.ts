@@ -84,6 +84,10 @@ export async function stopRateLimitRedis() {
     if (redisClient?.isOpen) await redisClient.quit().catch(() => undefined);
 }
 
+export function isRateLimitRedisReady() {
+    return !redisUrl || Boolean(redisClient?.isReady);
+}
+
 function createRateLimit(options: RateLimitConfig) {
     return rateLimit({
         ...options,

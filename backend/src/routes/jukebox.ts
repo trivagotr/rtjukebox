@@ -58,6 +58,8 @@ const queueVoteBodySchema = z.object({
     message: 'A queue item or song is required',
 });
 const emptyAdminJobBodySchema = z.object({}).strict();
+const emptyQuerySchema = z.object({}).strict();
+const playlistPreviewQuerySchema = z.object({ url: z.string().trim().min(1).max(2048) }).strict();
 const processSongJobBodySchema = z.object({ song_id: z.string().uuid() }).strict();
 const syncMetadataJobBodySchema = z.object({ song_id: z.string().uuid().optional() }).strict();
 const deviceIdParamsSchema = z.object({ id: z.string().uuid() });
@@ -1052,7 +1054,12 @@ function getSpotifyKioskAuthSetupRequiredMessage(error: unknown): string | null 
 export async function handleSpotifyKioskTokenRequest(req: Request, res: Response) {
     try {
         const parsedBody = kioskSpotifyTokenBodySchema.safeParse(req.body);
-        if (!parsedBody.success) return sendError(res, 'Invalid Spotify token request', 400);
+        if (!parsedBody.success) {
+            if (!req.body || typeof req.body.device_id !== 'string' || !req.body.device_id.trim()) {
+                return sendError(res, 'Missing device_id', 400);
+            }
+            return sendError(res, 'Invalid Spotify token request', 400);
+        }
         const { device_id: deviceId, device_pwd: devicePassword } = parsedBody.data;
         const validation = await loadValidatedSpotifyKioskDevice(deviceId, devicePassword);
         if (!validation.ok) {
@@ -2298,7 +2305,7 @@ async function runScanFolderMutations(
 
 // --- Helper Middlewares ---
 async function checkDeviceSession(req: AuthRequest, res: Response, next: NextFunction) {
-    const parsedBody = z.object({ device_id: z.string().uuid() }).passthrough().safeParse(req.body);
+    const parsedBody = z.object({ device_id: z.string().uuid() }).strict().safeParse(req.body);
     if (!parsedBody.success) return sendError(res, 'Invalid device ID', 400);
     const { device_id } = parsedBody.data;
     const user_id = req.user?.id;
@@ -2326,6 +2333,31 @@ async function checkDeviceSession(req: AuthRequest, res: Response, next: NextFun
     }
 }
 
+async function hasDeviceReadAccess(req: Request, deviceId: string): Promise<boolean> {
+    const authReq = req as AuthRequest;
+    if (authReq.user?.role === ROLES.ADMIN) return true;
+
+    if (authReq.user?.id) {
+        const session = await db.query(
+            'SELECT 1 FROM device_sessions WHERE user_id = $1 AND device_id = $2',
+            [authReq.user.id, deviceId],
+        );
+        if (session.rows.length > 0) return true;
+    }
+
+    const kioskCredential = req.get('x-kiosk-credential')?.trim() ?? '';
+    if (!kioskCredential) return false;
+    const credential = await db.query(
+        `SELECT kc.credential_hash
+         FROM kiosk_credentials kc
+         JOIN devices d ON d.id = kc.device_id
+         WHERE kc.device_id = $1 AND d.is_active = true
+           AND kc.revoked_at IS NULL AND kc.expires_at > NOW()`,
+        [deviceId],
+    );
+    return kioskSecretMatches(credential.rows[0]?.credential_hash, kioskCredential);
+}
+
 const router = Router();
 router.use('/admin', authMiddleware, rbacMiddleware([ROLES.ADMIN]), adminRateLimit, adminAuditLog);
 
@@ -2334,7 +2366,7 @@ router.use('/admin', authMiddleware, rbacMiddleware([ROLES.ADMIN]), adminRateLim
 // Force logout all clients from a device
 router.post('/admin/devices/:id/provision', async (req: AuthRequest, res: Response) => {
     const { id: deviceId } = req.params;
-    if (!z.string().uuid().safeParse(deviceId).success) return sendError(res, 'Invalid device ID', 400);
+    if (!z.string().uuid().safeParse(deviceId).success || !emptyAdminJobBodySchema.safeParse(req.body ?? {}).success) return sendError(res, 'Invalid provisioning request', 400);
     const provisioningCode = generateKioskProvisioningCode();
     const codeHash = hashKioskSecret(provisioningCode);
 
@@ -2375,7 +2407,7 @@ router.post('/admin/devices/:id/provision', async (req: AuthRequest, res: Respon
 router.post('/admin/devices/:id/logout-all', async (req: Request, res: Response) => {
 
     const { id } = req.params;
-    if (!z.string().uuid().safeParse(id).success) return sendError(res, 'Invalid device ID', 400);
+    if (!z.string().uuid().safeParse(id).success || !emptyAdminJobBodySchema.safeParse(req.body ?? {}).success) return sendError(res, 'Invalid device logout request', 400);
 
     try {
         console.log(`[Admin] Force logout all for device: ${id}`);
@@ -2465,6 +2497,7 @@ router.post('/disconnect', authMiddleware, async (req: Request, res: Response) =
 
 // Get active devices for selection (public)
 router.get('/devices', async (req: Request, res: Response) => {
+    if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Unexpected device query parameters', 400, 'INVALID_QUERY');
     try {
         const devices = await db.query(
             'SELECT id, device_code, name, location FROM devices WHERE is_active = true ORDER BY name'
@@ -2875,32 +2908,9 @@ router.get('/queue/:deviceId', optionalAuth, async (req: Request, res: Response)
             return sendError(res, 'Invalid device ID format', 400);
         }
 
+        if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Invalid queue query parameters', 400, 'INVALID_QUERY');
+        if (!(await hasDeviceReadAccess(req, deviceId))) return sendError(res, 'An active device session is required', 403, 'SESSION_REQUIRED');
         const authReq = req as AuthRequest;
-        let canReadQueue = authReq.user?.role === ROLES.ADMIN;
-        if (!canReadQueue && authReq.user?.id) {
-            const session = await db.query(
-                'SELECT 1 FROM device_sessions WHERE user_id = $1 AND device_id = $2',
-                [authReq.user.id, deviceId],
-            );
-            canReadQueue = session.rows.length > 0;
-        }
-
-        if (!canReadQueue) {
-            const kioskCredential = req.get('x-kiosk-credential')?.trim() ?? '';
-            if (kioskCredential) {
-                const credential = await db.query(
-                    `SELECT kc.credential_hash
-                     FROM kiosk_credentials kc
-                     JOIN devices d ON d.id = kc.device_id
-                     WHERE kc.device_id = $1 AND d.is_active = true
-                       AND kc.revoked_at IS NULL AND kc.expires_at > NOW()`,
-                    [deviceId],
-                );
-                canReadQueue = kioskSecretMatches(credential.rows[0]?.credential_hash, kioskCredential);
-            }
-        }
-
-        if (!canReadQueue) return sendError(res, 'An active device session is required', 403, 'SESSION_REQUIRED');
         const queue = await getQueueForDevice(deviceId, authReq.user?.id);
         res.json(queue);
     } catch (error) {
@@ -2971,6 +2981,7 @@ router.post('/admin/sync-metadata', async (req: Request, res: Response) => {
 
 // Get all songs for admin
 router.get('/admin/songs', async (req: Request, res: Response) => {
+    if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Unexpected song query parameters', 400, 'INVALID_QUERY');
 
     try {
         const songs = await db.query(`
@@ -3087,7 +3098,7 @@ router.post('/admin/upload-song', songUpload.single('song'), validateSongUpload,
 router.delete('/admin/songs/:id', async (req: Request, res: Response) => {
 
     const { id } = req.params;
-    if (!z.string().uuid().safeParse(id).success) return sendError(res, 'Invalid song ID', 400);
+    if (!z.string().uuid().safeParse(id).success || !emptyAdminJobBodySchema.safeParse(req.body ?? {}).success) return sendError(res, 'Invalid song delete request', 400);
 
     try {
         const songRes = await db.query('SELECT id FROM songs WHERE id = $1', [id]);
@@ -3311,11 +3322,9 @@ router.put('/admin/devices/:id/spotify-playback-target', async (req: Request, re
 
 // Preview Spotify playlist metadata
 router.get('/admin/playlist-preview', async (req: Request, res: Response) => {
-
-    const url = typeof req.query?.url === 'string' ? req.query.url.trim() : '';
-    if (!url) {
-        return sendError(res, 'Playlist URL veya URI gerekli', 400);
-    }
+    const parsedQuery = playlistPreviewQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) return sendError(res, 'Invalid playlist preview query', 400, 'INVALID_PLAYLIST_QUERY');
+    const url = parsedQuery.data.url;
 
     try {
         const details = await spotifyService.getPlaylistDetails(url);
@@ -3448,10 +3457,12 @@ router.post('/kiosk/spotify-device-auth/start', handleSpotifyKioskDeviceAuthStar
 
 router.post('/kiosk/spotify-device', handleSpotifyKioskDeviceRegistration);
 
-router.get('/kiosk/playback-state/:deviceId', async (req: Request, res: Response) => {
+router.get('/kiosk/playback-state/:deviceId', optionalAuth, async (req: Request, res: Response) => {
     const { deviceId } = req.params;
     if (!z.string().uuid().safeParse(deviceId).success) return sendError(res, 'Invalid device ID', 400);
+    if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Unexpected playback-state query parameters', 400, 'INVALID_QUERY');
     try {
+        if (!(await hasDeviceReadAccess(req, deviceId))) return sendError(res, 'An active device session is required', 403, 'SESSION_REQUIRED');
         const token = await spotifyService.getKioskPlaybackToken(deviceId);
         const snapshot = await spotifyService.getCurrentPlaybackSnapshot(token.accessToken);
         return sendSuccess(res, snapshot, 'Playback state fetched');
@@ -3671,7 +3682,7 @@ router.post('/admin/songs/:id/block', async (req: Request, res: Response) => {
 router.delete('/admin/songs/:id/block', async (req: Request, res: Response) => {
 
     const { id } = req.params;
-    if (!z.string().uuid().safeParse(id).success) return sendError(res, 'Invalid song ID', 400);
+    if (!z.string().uuid().safeParse(id).success || !emptyAdminJobBodySchema.safeParse(req.body ?? {}).success) return sendError(res, 'Invalid song block request', 400);
     try {
         const result = await db.query(
             'UPDATE songs SET is_blocked = false WHERE id = $1 RETURNING id, title, artist',
@@ -3723,7 +3734,7 @@ router.post('/admin/artists/block', async (req: Request, res: Response) => {
 router.delete('/admin/artists/:id/block', async (req: Request, res: Response) => {
 
     const { id } = req.params;
-    if (!z.string().uuid().safeParse(id).success) return sendError(res, 'Invalid blocked artist ID', 400);
+    if (!z.string().uuid().safeParse(id).success || !emptyAdminJobBodySchema.safeParse(req.body ?? {}).success) return sendError(res, 'Invalid artist block request', 400);
     try {
         const result = await db.query(
             'DELETE FROM blocked_artists WHERE id = $1 RETURNING *',
@@ -3741,6 +3752,7 @@ router.delete('/admin/artists/:id/block', async (req: Request, res: Response) =>
 
 // GET /admin/blocked - list all blocked songs and artists
 router.get('/admin/blocked', async (req: Request, res: Response) => {
+    if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Unexpected moderation query parameters', 400, 'INVALID_QUERY');
 
     try {
         const blockedSongs = await db.query(
@@ -3766,6 +3778,7 @@ router.get('/admin/blocked', async (req: Request, res: Response) => {
 
 // GET /admin/moderation/settings - get content filter settings
 router.get('/admin/moderation/settings', async (req: Request, res: Response) => {
+    if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Unexpected moderation query parameters', 400, 'INVALID_QUERY');
 
     try {
         const settings = await getContentFilterSettings();
@@ -3810,6 +3823,7 @@ router.put('/admin/moderation/settings', async (req: Request, res: Response) => 
 
 // GET /admin/moderation/keywords - list custom blocked keywords
 router.get('/admin/moderation/keywords', async (req: Request, res: Response) => {
+    if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Unexpected moderation query parameters', 400, 'INVALID_QUERY');
 
     try {
         const result = await db.query('SELECT * FROM blocked_keywords ORDER BY created_at DESC');
@@ -3855,6 +3869,7 @@ router.post('/admin/moderation/keywords', async (req: Request, res: Response) =>
 router.delete('/admin/moderation/keywords/:id', async (req: Request, res: Response) => {
 
     const { id } = req.params;
+    if (!z.string().uuid().safeParse(id).success || !emptyAdminJobBodySchema.safeParse(req.body ?? {}).success) return sendError(res, 'Invalid keyword delete request', 400);
     try {
         const result = await db.query('DELETE FROM blocked_keywords WHERE id = $1 RETURNING *', [id]);
         invalidateBlockedKeywordsCache();

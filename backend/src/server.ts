@@ -28,6 +28,7 @@ import { runPodcastFeedSyncJob } from './routes/podcastFeeds';
 import { resolveCorsOrigins } from './config/cors';
 import { requestIdMiddleware } from './middleware/requestId';
 import { globalApiRateLimit, readRateLimit, startRateLimitRedis, stopRateLimitRedis } from './middleware/rateLimits';
+import { logger, requestLogger } from './logger';
 
 const IS_TEST_ENV = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
 
@@ -83,21 +84,7 @@ function registerGetWithOptionalPublicBase(routePath: string, handler: express.R
 
 // Middleware
 app.use(requestIdMiddleware);
-app.use((req, res, next) => {
-    const startedAt = Date.now();
-    res.on('finish', () => {
-        console.info(JSON.stringify({
-            level: 'info',
-            event: 'http_request',
-            requestId: req.requestId,
-            method: req.method,
-            path: req.path,
-            statusCode: res.statusCode,
-            durationMs: Date.now() - startedAt,
-        }));
-    });
-    next();
-});
+app.use(requestLogger);
 
 app.use(helmet({
     contentSecurityPolicy: false,
@@ -162,26 +149,22 @@ app.use('/api/v1/gamification', gamificationRoutes);
 app.use('/api/v1/profile', profileRoutes);
 app.use('/api/v1/jobs', jobsRoutes);
 
-// Health check
-registerGetWithOptionalPublicBase('/health', (req, res) => res.json({ status: 'ok' }));
-
 // Socket.IO
 setupSocketHandlers(io);
 
 // Global Error Handler
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
     const statusCode = Number(err?.statusCode ?? err?.status);
     const isClientError = statusCode >= 400 && statusCode < 500;
     const status = isClientError ? statusCode : 500;
-    console.error(JSON.stringify({
-        level: 'error',
+    logger.error({
         event: 'request_error',
         requestId: req.requestId,
         method: req.method,
         path: req.path,
         statusCode: status,
         errorName: typeof err?.name === 'string' ? err.name : 'Error',
-    }));
+    }, 'Request failed');
     return res.status(status).json({
         success: false,
         code: status === 413 ? 'PAYLOAD_TOO_LARGE' : status === 400 ? 'BAD_REQUEST' : 'INTERNAL_ERROR',
@@ -263,17 +246,19 @@ if (!IS_TEST_ENV) {
         switch (name) {
             case 'scan-folder':
                 return runScanFolderJob((progress) => job.updateProgress(progress));
-            case 'process-song':
+            case 'process-song': {
                 if (!payload.songId) throw new Error('song_id is required');
                 await job.updateProgress(10);
                 const processed = await runProcessSongJob(payload.songId);
                 await job.updateProgress(100);
                 return processed;
-            case 'sync-metadata':
+            }
+            case 'sync-metadata': {
                 await job.updateProgress(5);
                 const metadata = await runMetadataSyncJob(payload.songId);
                 await job.updateProgress(100);
                 return metadata;
+            }
             case 'podcast-feed-sync':
                 return runPodcastFeedSyncJob(payload.feedId, (progress) => job.updateProgress(progress));
             default:

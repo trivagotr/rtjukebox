@@ -1,18 +1,35 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
-import rateLimit from 'express-rate-limit';
 import { db } from '../db';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { rbacMiddleware } from '../middleware/rbac';
 import { sendSuccess, sendError } from '../utils/response';
 import { deriveSpotifyDeviceAuthRedirectUri, normalizeSpotifyReturnOrigin, spotifyService, type SpotifyAppConfig } from '../services/spotify';
 import { adminAuditLog } from '../middleware/adminAudit';
+import { adminRateLimit } from '../middleware/rateLimits';
 import { z } from 'zod';
 
 const spotifyAppConfigSchema = z.object({
   client_id: z.string().trim().min(1).max(128),
   client_secret: z.string().trim().max(512).optional(),
 }).strict();
+const spotifyAuthStartQuerySchema = z.object({
+  return_origin: z.string().trim().min(1).max(2048).optional(),
+}).strict();
+const spotifyCallbackQuerySchema = z.object({
+  code: z.string().trim().min(1).max(4096).optional(),
+  error: z.string().trim().min(1).max(256).optional(),
+  error_description: z.string().trim().max(2048).optional(),
+  state: z.string().trim().min(1).max(4096),
+}).strict();
+const spotifyDeviceAuthStartBodySchema = z.object({
+  device_id: z.string().uuid(),
+  return_origin: z.string().trim().min(1).max(2048).optional(),
+}).strict();
+const spotifyDeviceAuthStatusQuerySchema = z.object({ device_id: z.string().uuid() }).strict();
+const spotifyPlaybackDevicesQuerySchema = z.object({ kiosk_device_id: z.string().uuid().optional() }).strict();
+const emptyRequestBodySchema = z.object({}).strict();
+const emptyQuerySchema = z.object({}).strict();
 
 export interface SpotifyAppConfigUpdatePayload {
   client_id?: unknown;
@@ -55,27 +72,6 @@ export function maskSpotifyAppConfigForResponse(config: SpotifyAppConfig): Spoti
     redirectUriReadOnly: true,
     source: config.source,
   };
-}
-
-function readSpotifyDeviceIdFromRequest(req: Request): string | null {
-  const bodyDeviceId = typeof req.body?.device_id === 'string' ? req.body.device_id : null;
-  const queryDeviceId = typeof req.query?.device_id === 'string' ? req.query.device_id : null;
-  const paramDeviceId = typeof req.params?.deviceId === 'string' ? req.params.deviceId : null;
-  const deviceId = (bodyDeviceId ?? queryDeviceId ?? paramDeviceId)?.trim() || null;
-  return deviceId && z.string().uuid().safeParse(deviceId).success ? deviceId : null;
-}
-
-function readSpotifyDeviceIdFromPathParam(req: Request): string | null {
-  const deviceId = typeof req.params?.deviceId === 'string' ? req.params.deviceId.trim() || null : null;
-  return deviceId && z.string().uuid().safeParse(deviceId).success ? deviceId : null;
-}
-
-function readSpotifyReturnOriginFromRequest(req: Request): string | null {
-  return normalizeSpotifyReturnOrigin(
-    typeof req.body?.return_origin === 'string'
-      ? req.body.return_origin
-      : typeof req.query?.return_origin === 'string' ? req.query.return_origin : null
-  );
 }
 
 export function escapeHtml(value: string): string {
@@ -127,7 +123,9 @@ function renderSpotifyDeviceAuthSuccess(res: Response, result: {
 }
 
 async function completeSpotifyDeviceAuthCallback(req: Request, res: Response, redirectUriOverride?: string) {
-  const { code, error, state } = req.query;
+  const parsedQuery = spotifyCallbackQuerySchema.safeParse(req.query);
+  if (!parsedQuery.success) return sendError(res, 'Invalid Spotify device callback parameters', 400, 'INVALID_SPOTIFY_CALLBACK');
+  const { code, error, state } = parsedQuery.data;
 
   if (error) {
     console.error('[Spotify Device Auth Callback] Authorization denied:', error);
@@ -148,10 +146,12 @@ async function completeSpotifyDeviceAuthCallback(req: Request, res: Response, re
 
 export async function handleSpotifyDeviceAuthStart(req: Request, res: Response) {
   try {
-    const deviceId = readSpotifyDeviceIdFromRequest(req);
-    if (!deviceId) {
-      return sendError(res, 'Missing device_id', 400);
-    }
+    const parsedBody = spotifyDeviceAuthStartBodySchema.safeParse(req.body);
+    if (!parsedBody.success || !emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Invalid Spotify device authorization request', 400, 'INVALID_SPOTIFY_DEVICE_AUTH_START');
+    const deviceId = parsedBody.data.device_id;
+    const requestedOrigin = parsedBody.data.return_origin ?? null;
+    const returnOrigin = normalizeSpotifyReturnOrigin(requestedOrigin);
+    if (requestedOrigin && !returnOrigin) return sendError(res, 'Invalid Spotify return origin', 400, 'INVALID_SPOTIFY_RETURN_ORIGIN');
 
     const deviceResult = await db.query('SELECT id FROM devices WHERE id = $1', [deviceId]);
     if (deviceResult.rows.length === 0) {
@@ -160,7 +160,7 @@ export async function handleSpotifyDeviceAuthStart(req: Request, res: Response) 
 
     const authUrl = await spotifyService.getDeviceAuthStartUrl(
       deviceId,
-      readSpotifyReturnOriginFromRequest(req)
+      returnOrigin,
     );
     return sendSuccess(res, { authUrl }, 'Spotify device auth start url fetched');
   } catch (error: any) {
@@ -195,29 +195,46 @@ export async function handleSpotifyDeviceAuthCallback(req: Request, res: Respons
 
 export async function handleSpotifyAuthCallback(req: Request, res: Response) {
   try {
-    const { code, error, state } = req.query;
+    const parsedQuery = spotifyCallbackQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) return sendError(res, 'Invalid Spotify callback parameters', 400, 'INVALID_SPOTIFY_CALLBACK');
+    const { code, error, state } = parsedQuery.data;
+
+    if (spotifyService.isDeviceAuthState(state)) {
+      return await completeSpotifyDeviceAuthCallback(req, res);
+    }
+
+    const stateHash = crypto.createHash('sha256').update(state).digest('hex');
+    const consumedState = await db.query(
+      `DELETE FROM spotify_oauth_states
+       WHERE state_hash = $1 AND expires_at > NOW()
+       RETURNING return_origin, code_verifier`,
+      [stateHash],
+    );
+    if (!consumedState.rows[0]) {
+      return sendError(res, 'Spotify authorization state is invalid, expired, or already used', 400, 'INVALID_SPOTIFY_STATE');
+    }
+
+    const signedReturnOrigin = await spotifyService.getAuthReturnOriginFromState(state);
+    const returnOrigin = consumedState.rows[0].return_origin as string | null;
+    const codeVerifier = consumedState.rows[0].code_verifier as string | null;
+    if (!codeVerifier) return sendError(res, 'Spotify authorization state is invalid', 400, 'INVALID_SPOTIFY_STATE');
+    if (signedReturnOrigin !== returnOrigin) {
+      return sendError(res, 'Spotify authorization state did not match its stored origin', 400, 'INVALID_SPOTIFY_STATE');
+    }
 
     if (error) {
       console.error('[Spotify Callback] Authorization denied:', error);
       return sendError(res, `Spotify authorization denied: ${error}`, 400);
     }
 
-    if (!code || typeof code !== 'string') {
+    if (!code) {
       return sendError(res, 'Missing authorization code', 400);
     }
-
-    if (typeof state === 'string' && spotifyService.isDeviceAuthState(state)) {
-      return await completeSpotifyDeviceAuthCallback(req, res);
-    }
-
-    const returnOrigin = typeof state === 'string'
-      ? await spotifyService.getAuthReturnOriginFromState(state)
-      : null;
     const postMessageScript = returnOrigin
       ? `window.opener.postMessage({ type: 'SPOTIFY_AUTH_SUCCESS' }, ${JSON.stringify(returnOrigin)});`
       : '';
 
-    await spotifyService.handleCallback(code);
+    await spotifyService.handleCallback(code, undefined, codeVerifier);
 
     return res.send(`
       <!DOCTYPE html>
@@ -253,10 +270,25 @@ export async function handleSpotifyAuthCallback(req: Request, res: Response) {
 
 export async function handleSpotifyAuthStart(req: Request, res: Response) {
   try {
-    const state = crypto.randomBytes(16).toString('hex');
-    // In production, store state in session/cookie for CSRF validation.
-    // For now we pass it through and validate signed return origins on callback.
-    const authUrl = await spotifyService.getAuthUrl(state, readSpotifyReturnOriginFromRequest(req));
+    const parsedQuery = spotifyAuthStartQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) return sendError(res, 'Invalid Spotify authorization parameters', 400, 'INVALID_SPOTIFY_AUTH_START');
+    const requestedOrigin = parsedQuery.data.return_origin ?? null;
+    const returnOrigin = normalizeSpotifyReturnOrigin(requestedOrigin);
+    if (requestedOrigin && !returnOrigin) return sendError(res, 'Invalid Spotify return origin', 400, 'INVALID_SPOTIFY_RETURN_ORIGIN');
+
+    const nonce = crypto.randomBytes(32).toString('base64url');
+    const codeVerifier = crypto.randomBytes(48).toString('base64url');
+    const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
+    const authUrl = await spotifyService.getAuthUrl(nonce, returnOrigin, codeChallenge);
+    const state = new URL(authUrl).searchParams.get('state');
+    if (!state) throw new Error('Spotify authorization URL did not include state');
+    const stateHash = crypto.createHash('sha256').update(state).digest('hex');
+    await db.query('DELETE FROM spotify_oauth_states WHERE expires_at <= NOW()');
+    await db.query(
+      `INSERT INTO spotify_oauth_states (state_hash, state_kind, return_origin, code_verifier, expires_at)
+       VALUES ($1, 'admin', $2, $3, NOW() + INTERVAL '10 minutes')`,
+      [stateHash, returnOrigin, codeVerifier],
+    );
     if (process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST)) {
       return res.redirect(authUrl);
     }
@@ -283,10 +315,9 @@ export async function handleSpotifyAuthStart(req: Request, res: Response) {
 
 export async function handleSpotifyDeviceAuthStatus(req: Request, res: Response) {
   try {
-    const deviceId = readSpotifyDeviceIdFromRequest(req);
-    if (!deviceId) {
-      return sendError(res, 'Missing device_id', 400);
-    }
+    const parsedQuery = spotifyDeviceAuthStatusQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) return sendError(res, 'Invalid Spotify device ID', 400, 'INVALID_DEVICE_ID');
+    const deviceId = parsedQuery.data.device_id;
 
     const status = await spotifyService.getDeviceAuthStatus(deviceId);
     return sendSuccess(res, status, 'Spotify device auth status fetched');
@@ -298,10 +329,11 @@ export async function handleSpotifyDeviceAuthStatus(req: Request, res: Response)
 
 export async function handleSpotifyDeviceAuthDelete(req: Request, res: Response) {
   try {
-    const deviceId = readSpotifyDeviceIdFromPathParam(req);
-    if (!deviceId) {
-      return sendError(res, 'Missing device_id', 400);
+    const parsedParams = z.object({ deviceId: z.string().uuid() }).strict().safeParse(req.params);
+    if (!parsedParams.success || !emptyQuerySchema.safeParse(req.query).success || !emptyRequestBodySchema.safeParse(req.body ?? {}).success) {
+      return sendError(res, 'Invalid Spotify device ID', 400, 'INVALID_DEVICE_ID');
     }
+    const deviceId = parsedParams.data.deviceId;
 
     await spotifyService.deleteDeviceAuth(deviceId);
     return sendSuccess(res, { deviceId }, 'Spotify device auth disconnected');
@@ -344,6 +376,7 @@ router.get(
   adminAuditLog,
   async (req: AuthRequest, res: Response) => {
     try {
+      if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Unexpected Spotify status query parameters', 400, 'INVALID_QUERY');
       const status = await spotifyService.getAuthStatus();
       return sendSuccess(res, status);
     } catch (error: any) {
@@ -393,6 +426,7 @@ router.get(
   adminAuditLog,
   async (req: AuthRequest, res: Response) => {
     try {
+      if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Unexpected Spotify config query parameters', 400, 'INVALID_QUERY');
       const config = await spotifyService.getSpotifyAppConfig();
       return sendSuccess(res, maskSpotifyAppConfigForResponse(config), 'Spotify app config fetched');
     } catch (error: any) {
@@ -413,6 +447,7 @@ router.put(
   adminAuditLog,
   async (req: AuthRequest, res: Response) => {
     try {
+      if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Unexpected Spotify config query parameters', 400, 'INVALID_QUERY');
       const parsed = spotifyAppConfigSchema.safeParse(req.body ?? {});
       if (!parsed.success) return sendError(res, 'Invalid Spotify app config payload', 400, 'INVALID_SPOTIFY_APP_CONFIG');
       const payload = normalizeSpotifyAppConfigPayload(parsed.data);
@@ -427,42 +462,20 @@ router.put(
 );
 
 /**
- * POST /api/v1/spotify/refresh
- * Force refresh the Spotify access token. Admin only.
- */
-router.post(
-  '/refresh',
-  authMiddleware,
-  rbacMiddleware(['admin']),
-  adminAuditLog,
-  async (req: AuthRequest, res: Response) => {
-    try {
-      await spotifyService.refreshAccessToken();
-      const status = await spotifyService.getAuthStatus();
-      return sendSuccess(res, status, 'Token refreshed successfully');
-    } catch (error: any) {
-      console.error('[Spotify Refresh] Error:', error.message);
-      return sendError(res, `Failed to refresh token: ${error.message}`, 500);
-    }
-  }
-);
-
-/**
  * GET /api/v1/spotify/playback-devices
  * Returns active Spotify Connect devices available for playback. Admin only.
  */
 router.get(
   '/playback-devices',
-  rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false }),
+  adminRateLimit,
   authMiddleware,
   rbacMiddleware(['admin']),
   adminAuditLog,
   async (req: AuthRequest, res: Response) => {
     try {
-      const kioskDeviceId = typeof req.query?.kiosk_device_id === 'string' ? req.query.kiosk_device_id.trim() : null;
-      if (kioskDeviceId && !z.string().uuid().safeParse(kioskDeviceId).success) {
-        return sendError(res, 'Invalid kiosk device ID', 400, 'INVALID_DEVICE_ID');
-      }
+      const parsedQuery = spotifyPlaybackDevicesQuerySchema.safeParse(req.query);
+      if (!parsedQuery.success) return sendError(res, 'Invalid playback-device query', 400, 'INVALID_DEVICE_ID');
+      const kioskDeviceId = parsedQuery.data.kiosk_device_id ?? null;
       let accessTokenOverride: string | undefined = undefined;
 
       if (kioskDeviceId) {

@@ -16,20 +16,15 @@ const profilePayloadSchema = z.object({
     profile_headline: z.string().max(180).nullable().optional(),
     featured_badge_id: z.string().max(80).nullable().optional(),
     theme_key: z.string().max(80).nullable().optional(),
-}).strict();
+}).strict().refine((payload) => Object.keys(payload).length > 0, 'At least one profile field is required');
 
-type ProfilePayload = {
-    favorite_song_title: string | null;
-    favorite_song_artist: string | null;
-    favorite_song_spotify_uri: string | null;
-    favorite_artist_name: string | null;
-    favorite_artist_spotify_id: string | null;
-    favorite_podcast_id: string | null;
-    favorite_podcast_title: string | null;
-    profile_headline: string | null;
-    featured_badge_id: string | null;
-    theme_key: string | null;
-};
+const profileFields = [
+    'favorite_song_title', 'favorite_song_artist', 'favorite_song_spotify_uri',
+    'favorite_artist_name', 'favorite_artist_spotify_id', 'favorite_podcast_id',
+    'favorite_podcast_title', 'profile_headline', 'featured_badge_id', 'theme_key',
+] as const;
+
+type ProfilePayload = Partial<Record<typeof profileFields[number], string | null>>;
 
 function normalizeOptionalString(value: unknown, maxLength: number) {
     if (typeof value !== 'string') {
@@ -41,18 +36,27 @@ function normalizeOptionalString(value: unknown, maxLength: number) {
 }
 
 export function normalizeProfileCustomizationPayload(input: Record<string, unknown>): ProfilePayload {
-    return {
-        favorite_song_title: normalizeOptionalString(input.favorite_song_title, 255),
-        favorite_song_artist: normalizeOptionalString(input.favorite_song_artist, 255),
-        favorite_song_spotify_uri: normalizeOptionalString(input.favorite_song_spotify_uri, 120),
-        favorite_artist_name: normalizeOptionalString(input.favorite_artist_name, 255),
-        favorite_artist_spotify_id: normalizeOptionalString(input.favorite_artist_spotify_id, 120),
-        favorite_podcast_id: normalizeOptionalString(input.favorite_podcast_id, 80),
-        favorite_podcast_title: normalizeOptionalString(input.favorite_podcast_title, 500),
-        profile_headline: normalizeOptionalString(input.profile_headline, 180),
-        featured_badge_id: normalizeOptionalString(input.featured_badge_id, 80),
-        theme_key: normalizeOptionalString(input.theme_key, 80),
+    const result: ProfilePayload = {};
+    const maxLengths: Record<typeof profileFields[number], number> = {
+        favorite_song_title: 255,
+        favorite_song_artist: 255,
+        favorite_song_spotify_uri: 120,
+        favorite_artist_name: 255,
+        favorite_artist_spotify_id: 120,
+        favorite_podcast_id: 80,
+        favorite_podcast_title: 500,
+        profile_headline: 180,
+        featured_badge_id: 80,
+        theme_key: 80,
     };
+
+    for (const field of profileFields) {
+        if (Object.prototype.hasOwnProperty.call(input, field)) {
+            result[field] = normalizeOptionalString(input[field], maxLengths[field]);
+        }
+    }
+
+    return result;
 }
 
 function mapProfileRow(row: Record<string, unknown>) {
@@ -131,48 +135,18 @@ export async function handleUpdateMyProfileRequest(req: AuthRequest, res: Respon
         const parsedPayload = profilePayloadSchema.safeParse(req.body ?? {});
         if (!parsedPayload.success) return sendError(res, 'Invalid profile payload', 400, 'INVALID_PROFILE_PAYLOAD');
         const payload = normalizeProfileCustomizationPayload(parsedPayload.data);
+        const fields = profileFields.filter((field) => Object.prototype.hasOwnProperty.call(payload, field));
+        const columns = fields.join(', ');
+        const values = fields.map((_, index) => `$${index + 2}`).join(', ');
+        const updates = fields.map((field) => `${field} = EXCLUDED.${field}`).join(', ');
         const result = await db.query(
-            `INSERT INTO user_profile_customization (
-                user_id,
-                favorite_song_title,
-                favorite_song_artist,
-                favorite_song_spotify_uri,
-                favorite_artist_name,
-                favorite_artist_spotify_id,
-                favorite_podcast_id,
-                favorite_podcast_title,
-                profile_headline,
-                featured_badge_id,
-                theme_key,
-                updated_at
-             )
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+            `INSERT INTO user_profile_customization (user_id, ${columns}, updated_at)
+             VALUES ($1, ${values}, NOW())
              ON CONFLICT (user_id) DO UPDATE SET
-                favorite_song_title = EXCLUDED.favorite_song_title,
-                favorite_song_artist = EXCLUDED.favorite_song_artist,
-                favorite_song_spotify_uri = EXCLUDED.favorite_song_spotify_uri,
-                favorite_artist_name = EXCLUDED.favorite_artist_name,
-                favorite_artist_spotify_id = EXCLUDED.favorite_artist_spotify_id,
-                favorite_podcast_id = EXCLUDED.favorite_podcast_id,
-                favorite_podcast_title = EXCLUDED.favorite_podcast_title,
-                profile_headline = EXCLUDED.profile_headline,
-                featured_badge_id = EXCLUDED.featured_badge_id,
-                theme_key = EXCLUDED.theme_key,
+                ${updates},
                 updated_at = NOW()
              RETURNING *`,
-            [
-                req.user?.id,
-                payload.favorite_song_title,
-                payload.favorite_song_artist,
-                payload.favorite_song_spotify_uri,
-                payload.favorite_artist_name,
-                payload.favorite_artist_spotify_id,
-                payload.favorite_podcast_id,
-                payload.favorite_podcast_title,
-                payload.profile_headline,
-                payload.featured_badge_id,
-                payload.theme_key,
-            ],
+            [req.user?.id, ...fields.map((field) => payload[field])],
         );
 
         return sendSuccess(res, { profile: mapProfileRow(result.rows[0]) }, 'Profile updated');
@@ -184,7 +158,7 @@ export async function handleUpdateMyProfileRequest(req: AuthRequest, res: Respon
 
 router.use(authMiddleware);
 router.get('/me', handleGetMyProfileRequest);
-router.put('/me', handleUpdateMyProfileRequest);
-router.put('/favorites', handleUpdateMyProfileRequest);
+router.patch('/me', handleUpdateMyProfileRequest);
+router.patch('/favorites', handleUpdateMyProfileRequest);
 
 export default router;

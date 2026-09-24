@@ -1,8 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db';
 import { sendError, sendSuccess } from '../utils/response';
+import { z } from 'zod';
 
 const router = Router();
+const podcastListQuerySchema = z.object({
+  page: z.string().regex(/^\d{1,6}$/).optional(),
+  per_page: z.string().regex(/^\d{1,3}$/).optional(),
+}).strict();
 
 function getFirstString(value: unknown): string | undefined {
   if (typeof value === 'string') {
@@ -38,7 +43,7 @@ export function normalizePodcastListQuery(input: {
   page?: unknown;
   per_page?: unknown;
 }) {
-  const page = parseClampedInteger(input.page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const page = parseClampedInteger(input.page, 1, 1, 100_000);
   const perPage = parseClampedInteger(input.per_page, 10, 1, 50);
 
   return {
@@ -49,7 +54,9 @@ export function normalizePodcastListQuery(input: {
 
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { page, perPage } = normalizePodcastListQuery(req.query);
+    const parsedQuery = podcastListQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) return sendError(res, 'Invalid podcast pagination query', 400, 'INVALID_PODCAST_QUERY');
+    const { page, perPage } = normalizePodcastListQuery(parsedQuery.data);
     const offset = (page - 1) * perPage;
 
     const totalResult = await db.query(
