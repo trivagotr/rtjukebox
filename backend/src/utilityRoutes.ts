@@ -1,9 +1,10 @@
-import { Express, Request, Response } from 'express';
+import { Express, Request, Response, RequestHandler } from 'express';
 import { timingSafeEqual } from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { db } from './db';
 import { isRateLimitRedisReady } from './middleware/rateLimits';
+import { areBackgroundJobsReady } from './services/backgroundJobs';
 
 function hasValidHealthToken(req: Request) {
   const expected = process.env.HEALTHCHECK_TOKEN?.trim();
@@ -16,7 +17,7 @@ function hasValidHealthToken(req: Request) {
   return expectedBytes.length === suppliedBytes.length && timingSafeEqual(expectedBytes, suppliedBytes);
 }
 
-export function registerUtilityRoutes(app: Express) {
+export function registerUtilityRoutes(app: Express, publicBasePath = '') {
   const sendNoContent = (_req: Request, res: Response) => {
     res.status(204).end();
   };
@@ -25,15 +26,19 @@ export function registerUtilityRoutes(app: Express) {
   app.get('/.well-known/appspecific/com.chrome.devtools.json', sendNoContent);
 
   const live = (_req: Request, res: Response) => res.json({ status: 'ok' });
-  app.get('/health', live);
-  app.get('/health/live', live);
-  app.get('/health/ready', async (req, res) => {
+  const mountHealth = (route: string, handler: RequestHandler) => {
+    app.get(route, handler);
+    if (publicBasePath) app.get(`${publicBasePath}${route}`, handler);
+  };
+  mountHealth('/health', live);
+  mountHealth('/health/live', live);
+  mountHealth('/health/ready', async (req, res) => {
     if (!hasValidHealthToken(req)) return res.sendStatus(404);
 
     try {
       await db.query('SELECT 1');
       await fs.access(path.join(__dirname, '../uploads'), fs.constants.W_OK);
-      if (!isRateLimitRedisReady()) return res.sendStatus(503);
+      if (!isRateLimitRedisReady() || !areBackgroundJobsReady()) return res.sendStatus(503);
       return res.json({ status: 'ok' });
     } catch {
       return res.sendStatus(503);

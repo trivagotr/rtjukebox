@@ -10,11 +10,13 @@ describe('jukebox controller guest entry', () => {
     localStorage.clear();
   });
 
-  it('creates a guest session through the HTTP API and stores its access token', async () => {
+  it('creates a guest session through the cookie-based HTTP API without storing a token in local storage', async () => {
     let requestBody: unknown;
+    let authTransport: string | null = null;
     server.use(
       http.post(/\/api\/v1\/auth\/guest$/, async ({ request }) => {
         requestBody = await request.json();
+        authTransport = request.headers.get('x-auth-transport');
         return HttpResponse.json({
           success: true,
           data: {
@@ -25,7 +27,6 @@ describe('jukebox controller guest entry', () => {
               total_songs_added: 0,
               role: 'guest',
             },
-            access_token: 'controller-test-token',
           },
         }, { status: 201 });
       }),
@@ -43,7 +44,8 @@ describe('jukebox controller guest entry', () => {
 
     expect(await screen.findByText('Test Guest')).toBeInTheDocument();
     await waitFor(() => expect(requestBody).toEqual({ display_name: 'Test Guest' }));
-    expect(localStorage.getItem('token')).toBe('controller-test-token');
+    expect(authTransport).toBe('cookie');
+    expect(localStorage.getItem('token')).toBeNull();
     expect(JSON.parse(localStorage.getItem('user') || 'null')).toMatchObject({
       id: 'guest-1',
       role: 'guest',

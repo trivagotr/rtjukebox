@@ -23,6 +23,11 @@ export class BackgroundJobsUnavailableError extends Error {
     }
 }
 
+export function areBackgroundJobsReady() {
+    if (process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST)) return true;
+    return Boolean(process.env.REDIS_URL?.trim() && queue && worker?.isRunning());
+}
+
 export async function startBackgroundJobs(processJob: BackgroundJobProcessor) {
     const redisUrl = process.env.REDIS_URL?.trim();
     if (!redisUrl) {

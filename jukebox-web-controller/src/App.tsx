@@ -45,6 +45,8 @@ const runtimeConfig = resolveWebRuntimeConfig({
 
 const API_URL = runtimeConfig.apiRoot;
 const SOCKET_URL = runtimeConfig.socketUrl;
+axios.defaults.withCredentials = true;
+axios.defaults.headers.common['x-auth-transport'] = 'cookie';
 const SOCKET_PATH = runtimeConfig.socketPath;
 
 interface Song extends CatalogSearchSong {
@@ -498,11 +500,8 @@ const SyncedLyricsCard = ({
     });
     if (durationSec) params.set('duration', String(durationSec));
 
-    const token = localStorage.getItem('token');
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
-
     axios
-      .get<{ data: LyricsData | null }>(`${API_URL}/api/v1/jukebox/lyrics?${params.toString()}`, { headers })
+      .get<{ data: LyricsData | null }>(`${API_URL}/api/v1/jukebox/lyrics?${params.toString()}`)
       .then((res) => {
         if (!isMounted) return;
         setLyricsResult({ trackKey, lyrics: res.data.data || null });
@@ -941,12 +940,9 @@ function App() {
     async (deviceId: string) => {
       try {
         const [res, playbackRes] = await Promise.all([
-          axios.get<QueueState>(`${API_URL}/api/v1/jukebox/queue/${deviceId}`, {
-            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-          }),
+          axios.get<QueueState>(`${API_URL}/api/v1/jukebox/queue/${deviceId}`),
           axios.get<{ success: boolean; data: { progressMs?: number; durationMs?: number; isPlaying?: boolean } | null }>(
             `${API_URL}/api/v1/jukebox/kiosk/playback-state/${deviceId}`,
-            { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } },
           ).catch(() => null),
         ]);
         const nextQueue = res.data.queue || [];
@@ -982,7 +978,6 @@ function App() {
         const res = await axios.post<{ data: ConnectResponse }>(
           `${API_URL}/api/v1/jukebox/connect`,
           { device_code: code },
-          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } },
         );
 
         const responseData = res.data.data;
@@ -1045,18 +1040,17 @@ function App() {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
     if (code) setDeviceCode(code);
-
+    localStorage.removeItem('token');
     const savedUser = localStorage.getItem('user');
-    if (savedUser && savedUser !== 'undefined' && savedUser !== 'null') {
-      try {
-        const parsed = JSON.parse(savedUser) as AppUser;
+    if (!savedUser) return;
+    void axios.get<{ data: AppUser }>(`${API_URL}/api/v1/auth/me`)
+      .then((response) => {
+        const parsed = response.data.data;
         setUser(parsed);
+        localStorage.setItem('user', JSON.stringify(parsed));
         if (code) void connectToDevice(code);
-      } catch {
-        localStorage.removeItem('user');
-        localStorage.removeItem('token');
-      }
-    }
+      })
+      .catch(() => localStorage.removeItem('user'));
   }, [connectToDevice]);
 
   useEffect(() => {
@@ -1074,10 +1068,27 @@ function App() {
       (response) => response,
       (error) => {
         if (error.response?.status === 401) {
-          localStorage.removeItem('user');
-          localStorage.removeItem('token');
-          setUser(null);
-          setMsg({ type: 'error', text: 'Oturum süreniz doldu. Lütfen tekrar giriş yapın.' });
+          const request = error.config as (typeof error.config & { _cookieAuthRetried?: boolean }) | undefined;
+          const isAuthRoute = request?.url?.includes('/auth/login')
+            || request?.url?.includes('/auth/register')
+            || request?.url?.includes('/auth/guest')
+            || request?.url?.includes('/auth/refresh');
+          if (request && !request._cookieAuthRetried && !isAuthRoute) {
+            request._cookieAuthRetried = true;
+            return axios.post(`${API_URL}/api/v1/auth/refresh`, {})
+              .then(() => axios(request))
+              .catch((refreshError) => {
+                localStorage.removeItem('user');
+                setUser(null);
+                setMsg({ type: 'error', text: 'Oturumunuz sona erdi. Lütfen tekrar giriş yapın.' });
+                return Promise.reject(refreshError);
+              });
+          }
+          if (!isAuthRoute) {
+            localStorage.removeItem('user');
+            setUser(null);
+            setMsg({ type: 'error', text: 'Oturumunuz sona erdi. Lütfen tekrar giriş yapın.' });
+          }
         }
 
         if (error.response?.data?.code === 'SESSION_REQUIRED') {
@@ -1100,7 +1111,8 @@ function App() {
 
     const newSocket = io(SOCKET_URL, {
       path: SOCKET_PATH,
-      auth: { token: localStorage.getItem('token') || '' },
+      auth: {},
+      withCredentials: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 2000,
       transports: ['websocket', 'polling'],
@@ -1175,13 +1187,12 @@ function App() {
     if (!guestName) return;
     try {
       setLoading(true);
-      const res = await axios.post<{ data: { user: AppUser; access_token: string } }>(`${API_URL}/api/v1/auth/guest`, {
+      const res = await axios.post<{ data: { user: AppUser } }>(`${API_URL}/api/v1/auth/guest`, {
         display_name: guestName,
       });
       const userData = res.data.data.user;
       setUser(userData);
       localStorage.setItem('user', JSON.stringify(userData));
-      localStorage.setItem('token', res.data.data.access_token);
       if (deviceCode) void connectToDevice(deviceCode);
     } catch {
       setMsg({ type: 'error', text: 'Giriş yapılamadı.' });
@@ -1198,12 +1209,11 @@ function App() {
     try {
       setLoading(true);
       setLoginError(null);
-      const res = await axios.post<{ data: { user: AppUser; access_token: string } }>(`${API_URL}/api/v1/auth/login`, {
+      const res = await axios.post<{ data: { user: AppUser } }>(`${API_URL}/api/v1/auth/login`, {
         email,
         password,
       });
       setUser(res.data.data.user);
-      localStorage.setItem('token', res.data.data.access_token);
       localStorage.setItem('user', JSON.stringify(res.data.data.user));
       setGuestName('');
       setShowLoginModal(false);
@@ -1231,7 +1241,6 @@ function App() {
           device_id: device.id,
           is_super: isSuper,
         },
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } },
       );
 
       if (isSuper && user) {
@@ -1260,7 +1269,6 @@ function App() {
         await axios.post(
           `${API_URL}/api/v1/jukebox/disconnect`,
           { device_id: device.id },
-          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } },
         );
       } catch (error) {
         console.warn('Failed to delete session:', error);
@@ -1270,12 +1278,17 @@ function App() {
       socket?.emit('leave_device', device.id);
     }
 
+    try {
+      await axios.post(`${API_URL}/api/v1/auth/logout`, {});
+    } catch (error) {
+      console.warn('Failed to clear server session:', error);
+    }
+
     setUser(null);
     setDevice(null);
     setQueue([]);
     setNowPlaying(null);
     localStorage.removeItem('user');
-    localStorage.removeItem('token');
 
     if (savedDeviceCode) {
       setDeviceCode(savedDeviceCode);
@@ -1300,10 +1313,7 @@ function App() {
     try {
       setLoading(true);
       await axios.post(`${API_URL}/api/v1/jukebox/queue`, buildQueueRequestPayload(device.id, song), {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-          ...buildGuestQueueHeaders(Boolean(user.is_guest)),
-        },
+        headers: buildGuestQueueHeaders(Boolean(user.is_guest)),
       });
       setMsg({ type: 'success', text: 'Şarkı kuyruğa eklendi!' });
       setSearch('');
@@ -1401,7 +1411,7 @@ function App() {
         <div className="modal-screen admin-modal-screen" role="dialog" aria-modal="true" aria-label="Yönetici Paneli">
           <div className="modal-card admin-modal-card">
             <AdminDashboard
-              token={localStorage.getItem('token') || ''}
+              token=""
               device={device}
               onSelectDevice={setDevice}
               onClose={() => setShowAdminModal(false)}

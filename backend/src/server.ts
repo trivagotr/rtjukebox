@@ -92,14 +92,15 @@ app.use(helmet({
 }));
 
 app.use(cors({
-    origin: corsOrigin,
+    origin: corsOrigin === '*' ? true : corsOrigin,
+    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-guest-fingerprint', 'x-kiosk-credential']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-transport', 'x-guest-fingerprint', 'x-kiosk-credential']
 }));
 app.use(express.json({ limit: '1mb' }));
 app.use(globalApiRateLimit);
 app.use('/api/v1', (req, res, next) => req.method === 'GET' ? readRateLimit(req, res, next) : next());
-registerUtilityRoutes(app);
+registerUtilityRoutes(app, publicBasePath);
 
 // Static: Kiosk Web App
 mountWithOptionalPublicBase('/kiosk', express.static(path.join(__dirname, '../../kiosk-web'), {

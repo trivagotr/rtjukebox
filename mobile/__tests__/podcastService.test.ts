@@ -118,16 +118,16 @@ describe('podcastService', () => {
           </item>
         </channel>
       </rss>`;
-    (global as any).fetch = jest
-      .fn()
-      .mockResolvedValueOnce({
+    const fetchMock: any = jest.fn();
+    fetchMock.mockResolvedValueOnce({
         ok: true,
         text: () => Promise.resolve(rss),
-      })
-      .mockResolvedValue({
+      });
+    fetchMock.mockResolvedValue({
         ok: false,
         text: () => Promise.resolve(''),
       });
+    (globalThis as any).fetch = fetchMock;
 
     await expect(fetchPodcasts()).resolves.toEqual({
       items: [

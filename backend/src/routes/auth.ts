@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { createHmac, randomUUID } from 'node:crypto';
 import { db } from '../db';
-import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { authMiddleware, AuthRequest, JWT_AUDIENCE, JWT_ISSUER, JWT_ALLOW_LEGACY_TOKENS } from '../middleware/auth';
 import { upload, validateAvatarUpload } from '../middleware/upload';
 import { authRateLimit, guestRateLimit } from '../middleware/rateLimits';
 import { sendSuccess, sendError } from '../utils/response';
@@ -33,8 +33,72 @@ const loginSchema = z.object({
 const guestSchema = z.object({ display_name: z.string().max(200) }).strict();
 const refreshSchema = z.object({ refresh_token: z.string().min(1).max(4096) }).strict();
 const emptyQuerySchema = z.object({}).strict();
+const emptyRequestBodySchema = z.object({}).strict();
 const DUMMY_PASSWORD_HASH = bcrypt.hash(randomUUID(), 10);
 const LOGIN_FAILURE_LIMIT = 5;
+const ACCESS_COOKIE = 'rtj_access';
+const REFRESH_COOKIE = 'rtj_refresh';
+const ACCESS_COOKIE_OPTIONS = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict' as const,
+    path: '/api/v1',
+    maxAge: 24 * 60 * 60 * 1000,
+};
+const REFRESH_COOKIE_OPTIONS = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict' as const,
+    path: '/api/v1/auth',
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+};
+const ACCESS_COOKIE_CLEAR_OPTIONS = { httpOnly: true, secure: ACCESS_COOKIE_OPTIONS.secure, sameSite: 'strict' as const, path: ACCESS_COOKIE_OPTIONS.path };
+const REFRESH_COOKIE_CLEAR_OPTIONS = { httpOnly: true, secure: REFRESH_COOKIE_OPTIONS.secure, sameSite: 'strict' as const, path: REFRESH_COOKIE_OPTIONS.path };
+
+function isCookieAuthRequest(req: Request) {
+    return req.headers['x-auth-transport'] === 'cookie';
+}
+
+function readCookie(req: Request, name: string) {
+    for (const entry of (req.headers.cookie || '').split(';')) {
+        const separator = entry.indexOf('=');
+        if (separator >= 0 && entry.slice(0, separator).trim() === name) return entry.slice(separator + 1).trim() || null;
+    }
+    return null;
+}
+
+function applyAuthTransport(req: Request, res: Response, tokens: { access_token: string; refresh_token?: string }) {
+    if (!isCookieAuthRequest(req)) return tokens;
+    res.cookie(ACCESS_COOKIE, tokens.access_token, ACCESS_COOKIE_OPTIONS);
+    if (tokens.refresh_token) res.cookie(REFRESH_COOKIE, tokens.refresh_token, REFRESH_COOKIE_OPTIONS);
+    else res.clearCookie(REFRESH_COOKIE, REFRESH_COOKIE_CLEAR_OPTIONS);
+    return { expires_in: 24 * 60 * 60 };
+}
+
+async function revokeRefreshSession(token: string) {
+    let decoded: jwt.JwtPayload & { id?: string };
+    try {
+        decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET || (IS_TEST_ENV ? 'test-refresh-secret-key' : ''), {
+            algorithms: ['HS256'], issuer: JWT_ISSUER, audience: 'radiotedu-refresh',
+        }) as typeof decoded;
+    } catch (error) {
+        if (!JWT_ALLOW_LEGACY_TOKENS) return;
+        try {
+            decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET || (IS_TEST_ENV ? 'test-refresh-secret-key' : ''), { algorithms: ['HS256'] }) as typeof decoded;
+            if (decoded.iss !== undefined || decoded.aud !== undefined) return;
+        } catch {
+            return;
+        }
+    }
+    if (!decoded.id) return;
+    const rows = await db.query('SELECT id, token_hash FROM refresh_tokens WHERE user_id = $1', [decoded.id]);
+    for (const row of rows.rows) {
+        if (await bcrypt.compare(token, row.token_hash)) {
+            await db.query('DELETE FROM refresh_tokens WHERE id = $1 AND user_id = $2', [row.id, decoded.id]);
+            return;
+        }
+    }
+}
 
 function getLoginIdentifierHash(userId: string | null, normalizedIdentifier: string) {
     const value = userId ? `user:${userId}` : `identifier:${normalizedIdentifier}`;
@@ -110,6 +174,7 @@ export function mapCurrentUserProfile(row: Record<string, unknown>) {
         email: row.email,
         display_name: row.display_name,
         avatar_url: row.avatar_url ?? null,
+        is_guest: Boolean(row.is_guest),
         rank_score: Number(row.rank_score ?? 0),
         monthly_rank_score: Number(row.monthly_rank_score ?? 0),
         total_songs_added: Number(row.total_songs_added ?? 0),
@@ -139,13 +204,15 @@ async function createAuthSession(userId: string, email: string, role: string, db
     const accessToken = jwt.sign(
         { id: userId, email, role },
         JWT_SECRET,
-        { algorithm: 'HS256', expiresIn: '24h' }
+        { algorithm: 'HS256', issuer: JWT_ISSUER, audience: JWT_AUDIENCE, expiresIn: '24h' }
     );
+
+    if (role === ROLES.GUEST) return { access_token: accessToken };
 
     const refreshToken = jwt.sign(
         { id: userId, email, role },
         JWT_REFRESH_SECRET,
-        { algorithm: 'HS256', expiresIn: '30d' }
+        { algorithm: 'HS256', issuer: JWT_ISSUER, audience: 'radiotedu-refresh', expiresIn: '30d' }
     );
 
     const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
@@ -198,7 +265,7 @@ router.post('/register', authRateLimit, async (req: Request, res: Response) => {
         const user = result.rows[0];
         const tokens = await createAuthSession(user.id, user.email, user.role);
 
-        return sendSuccess(res, { user: mapAuthSessionUser(user), ...tokens }, 'Registration successful', null, 201);
+        return sendSuccess(res, { user: mapAuthSessionUser(user), ...applyAuthTransport(req, res, tokens) }, 'Registration successful', null, 201);
     } catch (error) {
         console.error('Registration failed:', error instanceof Error ? error.name : 'Error');
         return sendError(res, 'Registration failed', 500);
@@ -257,7 +324,7 @@ router.post('/login', authRateLimit, async (req: Request, res: Response) => {
         const tokens = await createAuthSession(user.id, user.email, user.role);
         return sendSuccess(res, {
             user: mapAuthSessionUser(user),
-            ...tokens
+            ...applyAuthTransport(req, res, tokens)
         }, 'Login successful');
     } catch (error) {
         console.error('Login failed:', error instanceof Error ? error.name : 'Error');
@@ -290,7 +357,7 @@ router.post('/guest', guestRateLimit, async (req: Request, res: Response) => {
 
         return sendSuccess(res, {
             user: mapAuthSessionUser(user),
-            ...tokens
+            ...applyAuthTransport(req, res, tokens)
         }, 'Guest login successful', null, 201);
     } catch (error) {
         console.error('Guest login failed:', error instanceof Error ? error.name : 'Error');
@@ -301,17 +368,36 @@ router.post('/guest', guestRateLimit, async (req: Request, res: Response) => {
 router.post('/refresh', authRateLimit, async (req: Request, res: Response) => {
     try {
         if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Invalid refresh query', 400, 'INVALID_REFRESH_TOKEN');
-        const parsed = refreshSchema.safeParse(req.body);
+        const cookieMode = isCookieAuthRequest(req);
+        const cookieToken = cookieMode ? readCookie(req, REFRESH_COOKIE) : null;
+        const parsed = cookieToken
+            ? (emptyRequestBodySchema.safeParse(req.body ?? {}).success
+                ? { success: true as const, data: { refresh_token: cookieToken } }
+                : { success: false as const })
+            : refreshSchema.safeParse(req.body);
         if (!parsed.success) return sendError(res, 'Refresh token required', 400, 'INVALID_REFRESH_TOKEN');
         const { refresh_token } = parsed.data;
 
-        const decoded = jwt.verify(refresh_token, JWT_REFRESH_SECRET, { algorithms: ['HS256'] }) as jwt.JwtPayload & {
+        let decoded: jwt.JwtPayload & {
             id?: string;
             email?: string;
             role?: string;
         };
+        try {
+            decoded = jwt.verify(refresh_token, JWT_REFRESH_SECRET, {
+                algorithms: ['HS256'], issuer: JWT_ISSUER, audience: 'radiotedu-refresh',
+            }) as typeof decoded;
+        } catch (error) {
+            if (!JWT_ALLOW_LEGACY_TOKENS) throw error;
+            decoded = jwt.verify(refresh_token, JWT_REFRESH_SECRET, { algorithms: ['HS256'] }) as typeof decoded;
+            if (decoded.iss !== undefined || decoded.aud !== undefined) throw error;
+        }
         if (!decoded.id || !z.string().uuid().safeParse(decoded.id).success || !decoded.email || !decoded.role) {
             return sendError(res, 'Invalid or expired refresh token', 401);
+        }
+        if (decoded.role === ROLES.GUEST) {
+            await db.query('DELETE FROM refresh_tokens WHERE user_id = $1', [decoded.id]);
+            return sendError(res, 'Guest sessions cannot be refreshed', 401, 'GUEST_SESSION_EXPIRED');
         }
 
         const rotation = await db.transaction(async (client) => {
@@ -345,10 +431,24 @@ router.post('/refresh', authRateLimit, async (req: Request, res: Response) => {
         });
 
         if (!rotation) return sendError(res, 'Invalid or expired refresh token', 401);
-        return sendSuccess(res, rotation, 'Token refreshed');
+        return sendSuccess(res, applyAuthTransport(req, res, rotation), 'Token refreshed');
     } catch (error) {
         return sendError(res, 'Invalid refresh token', 401);
     }
+});
+
+router.post('/logout', async (req: Request, res: Response) => {
+    const cookieMode = isCookieAuthRequest(req);
+    if (!emptyRequestBodySchema.safeParse(req.body ?? {}).success) {
+        return sendError(res, 'Invalid logout request', 400, 'INVALID_LOGOUT_REQUEST');
+    }
+    const refreshToken = cookieMode ? readCookie(req, REFRESH_COOKIE) : null;
+    if (refreshToken) await revokeRefreshSession(refreshToken);
+    if (cookieMode) {
+        res.clearCookie(ACCESS_COOKIE, ACCESS_COOKIE_CLEAR_OPTIONS);
+        res.clearCookie(REFRESH_COOKIE, REFRESH_COOKIE_CLEAR_OPTIONS);
+    }
+    return sendSuccess(res, null, 'Logged out');
 });
 
 export async function handleCurrentUserProfileRequest(req: AuthRequest, res: Response) {
@@ -360,6 +460,7 @@ export async function handleCurrentUserProfileRequest(req: AuthRequest, res: Res
                     u.email,
                     u.display_name,
                     u.avatar_url,
+                    u.is_guest,
                     u.rank_score,
                     u.total_songs_added,
                     u.role,

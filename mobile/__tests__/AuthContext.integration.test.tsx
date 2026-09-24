@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Button, Text } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { http, HttpResponse } from 'msw';
+import { beforeEach, describe, expect, it } from '@jest/globals';
 import { AuthProvider, useAuth } from '../src/context/AuthContext';
 import { server } from '../mswServer';
 
@@ -42,7 +43,6 @@ describe('mobile authentication flow', () => {
               total_upvotes_received: 0,
             },
             access_token: 'mobile-access-token',
-            refresh_token: 'mobile-refresh-token',
           },
         }, { status: 201 });
       }),
@@ -60,6 +60,6 @@ describe('mobile authentication flow', () => {
     await waitFor(() => expect(screen.getByText('Test Guest')).toBeTruthy());
     expect(requestBody).toEqual({ display_name: 'Test Guest' });
     expect(await AsyncStorage.getItem('access_token')).toBe('mobile-access-token');
-    expect(await AsyncStorage.getItem('refresh_token')).toBe('mobile-refresh-token');
+    expect(await AsyncStorage.getItem('refresh_token')).toBeNull();
   });
 });

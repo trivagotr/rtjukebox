@@ -17,7 +17,7 @@ describe('utility routes', () => {
 
   it('returns no-content for browser utility asset requests', async () => {
     const app = express();
-    registerUtilityRoutes(app);
+    registerUtilityRoutes(app, '/public');
 
     const server = app.listen(0);
     servers.push(server);
@@ -28,11 +28,13 @@ describe('utility routes', () => {
       `http://127.0.0.1:${port}/.well-known/appspecific/com.chrome.devtools.json`
     );
     const liveResponse = await fetch(`http://127.0.0.1:${port}/health/live`);
+    const prefixedLiveResponse = await fetch(`http://127.0.0.1:${port}/public/health/live`);
     const unauthenticatedReadyResponse = await fetch(`http://127.0.0.1:${port}/health/ready`);
 
     expect(faviconResponse.status).toBe(204);
     expect(chromeDevtoolsResponse.status).toBe(204);
     expect(liveResponse.status).toBe(200);
+    expect(prefixedLiveResponse.status).toBe(200);
     expect(await liveResponse.json()).toEqual({ status: 'ok' });
     expect(unauthenticatedReadyResponse.status).toBe(404);
 

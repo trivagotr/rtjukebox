@@ -46,6 +46,9 @@ vi.mock('../db', () => ({
 
 vi.mock('../middleware/auth', () => ({
   JWT_SECRET: 'test-secret-key',
+  JWT_ISSUER: 'radiotedu-api',
+  JWT_AUDIENCE: 'radiotedu-client',
+  JWT_ALLOW_LEGACY_TOKENS: false,
   authMiddleware: vi.fn(),
 }));
 
@@ -103,8 +106,7 @@ describe('auth registration routes', () => {
             last_super_vote_at: null,
           },
         ],
-      })
-      .mockResolvedValueOnce({ rows: [] });
+      });
 
     await handler(
       createReq({
@@ -152,6 +154,7 @@ describe('auth registration routes', () => {
 
     expect(mockDbQuery.mock.calls[0][0]).toContain('role');
     expect(mockDbQuery.mock.calls[0][1]).toContain('guest');
+    expect(mockDbQuery).toHaveBeenCalledOnce();
     expect(mockSendSuccess.mock.calls[0][1].user).toEqual(
       expect.objectContaining({
         id: 'guest-1',
@@ -159,6 +162,32 @@ describe('auth registration routes', () => {
         role: 'guest',
       }),
     );
+    expect(mockSendSuccess.mock.calls[0][1].access_token).toEqual(expect.any(String));
+    expect(mockSendSuccess.mock.calls[0][1]).not.toHaveProperty('refresh_token');
+  });
+
+  it('issues strict HttpOnly cookies and omits bearer tokens for cookie clients', async () => {
+    const handler = mockRouteHandlers.post['/register'];
+    mockDbQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{
+        id: 'user-1', email: 'student@gmail.com', display_name: 'Student', role: 'user', is_guest: false,
+      }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const res = { cookie: vi.fn(), clearCookie: vi.fn() };
+
+    await handler({
+      ...createReq({ email: 'student@gmail.com', password: 'long-enough-password', display_name: 'Student' }),
+      headers: { 'user-agent': 'vitest', 'x-auth-transport': 'cookie' },
+    }, res);
+
+    expect(res.cookie).toHaveBeenCalledTimes(2);
+    expect(res.cookie.mock.calls[0][0]).toBe('rtj_access');
+    expect(res.cookie.mock.calls[0][2]).toMatchObject({ httpOnly: true, sameSite: 'strict', path: '/api/v1' });
+    expect(res.cookie.mock.calls[1][0]).toBe('rtj_refresh');
+    expect(res.cookie.mock.calls[1][2].path).toBe('/api/v1/auth');
+    expect(mockSendSuccess.mock.calls[0][1]).not.toHaveProperty('access_token');
+    expect(mockSendSuccess.mock.calls[0][1]).not.toHaveProperty('refresh_token');
   });
 
   it('applies an account lock after the fifth failed login attempt', async () => {
@@ -182,7 +211,7 @@ describe('auth registration routes', () => {
     const refreshToken = jwt.sign(
       { id: userId, email: 'student@gmail.com', role: 'user' },
       'test-refresh-secret-key',
-      { algorithm: 'HS256', expiresIn: '1h' },
+      { algorithm: 'HS256', issuer: 'radiotedu-api', audience: 'radiotedu-refresh', expiresIn: '1h' },
     );
     const storedHash = await bcrypt.hash(refreshToken, 4);
     mockDbQuery
@@ -208,7 +237,7 @@ describe('auth registration routes', () => {
     const refreshToken = jwt.sign(
       { id: userId, email: 'student@gmail.com', role: 'user' },
       'test-refresh-secret-key',
-      { algorithm: 'HS256', expiresIn: '1h' },
+      { algorithm: 'HS256', issuer: 'radiotedu-api', audience: 'radiotedu-refresh', expiresIn: '1h' },
     );
     mockDbQuery
       .mockResolvedValueOnce({ rows: [] })
@@ -219,5 +248,21 @@ describe('auth registration routes', () => {
     expect(mockDbTransaction).toHaveBeenCalledOnce();
     expect(mockDbQuery.mock.calls[1][0]).toBe('DELETE FROM refresh_tokens WHERE user_id = $1');
     expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 'Invalid or expired refresh token', 401);
+  });
+
+  it('rejects legacy guest refresh tokens and removes their stored refresh rows', async () => {
+    const handler = mockRouteHandlers.post['/refresh'];
+    const guestId = '00000000-0000-4000-8000-000000000002';
+    const guestRefreshToken = jwt.sign(
+      { id: guestId, email: 'guest@radiotedu.internal', role: 'guest' },
+      'test-refresh-secret-key',
+      { algorithm: 'HS256', issuer: 'radiotedu-api', audience: 'radiotedu-refresh', expiresIn: '1h' },
+    );
+    mockDbQuery.mockResolvedValueOnce({ rows: [] });
+
+    await handler(createReq({ refresh_token: guestRefreshToken }), {});
+
+    expect(mockDbQuery).toHaveBeenCalledWith('DELETE FROM refresh_tokens WHERE user_id = $1', [guestId]);
+    expect(mockSendError).toHaveBeenCalledWith(expect.anything(), 'Guest sessions cannot be refreshed', 401, 'GUEST_SESSION_EXPIRED');
   });
 });

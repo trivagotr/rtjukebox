@@ -1,8 +1,6 @@
 import { Server } from 'socket.io';
-import jwt from 'jsonwebtoken';
-import { timingSafeEqual } from 'crypto';
 import { db } from './db';
-import { JWT_SECRET } from './middleware/auth';
+import { verifyAccessToken } from './middleware/auth';
 import { CorsOrigin, resolveCorsOrigins } from './config/cors';
 import { kioskSecretMatches } from './services/kioskCredentials';
 
@@ -30,16 +28,21 @@ export const initIO = (server: any, options: { corsOrigin?: CorsOrigin } = {}) =
     });
 
     io = new Server(server, {
-        cors: { origin: corsOrigin },
+        cors: { origin: corsOrigin === '*' ? true : corsOrigin, credentials: true },
         path: normalizeSocketPath(process.env.PUBLIC_BASE_PATH),
     });
 
     io.use(async (socket, next) => {
         const auth = socket.handshake.auth ?? {};
-        const accessToken = typeof auth.token === 'string' ? auth.token : '';
+        const cookieAccessToken = socket.handshake.headers.cookie
+            ?.split(';')
+            .map((entry) => entry.trim())
+            .find((entry) => entry.startsWith('rtj_access='))
+            ?.slice('rtj_access='.length);
+        const accessToken = typeof auth.token === 'string' && auth.token ? auth.token : cookieAccessToken ?? '';
         if (accessToken) {
             try {
-                const user = jwt.verify(accessToken, JWT_SECRET, { algorithms: ['HS256'] }) as {
+                const user = verifyAccessToken(accessToken) as {
                     id?: string;
                     role?: string;
                     exp?: number;

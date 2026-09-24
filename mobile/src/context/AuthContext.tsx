@@ -79,7 +79,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             const { user: userData, access_token, refresh_token } = response.data.data;
 
             await AsyncStorage.setItem('access_token', access_token);
-            await AsyncStorage.setItem('refresh_token', refresh_token);
+            if (refresh_token) await AsyncStorage.setItem('refresh_token', refresh_token);
+            else await AsyncStorage.removeItem('refresh_token');
 
             axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
             setUser(normalizeUser(userData));
@@ -98,7 +99,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             const { user: userData, access_token, refresh_token } = response.data.data;
 
             await AsyncStorage.setItem('access_token', access_token);
-            await AsyncStorage.setItem('refresh_token', refresh_token);
+            if (refresh_token) await AsyncStorage.setItem('refresh_token', refresh_token);
+            else await AsyncStorage.removeItem('refresh_token');
 
             axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
             setUser(normalizeUser(userData));
@@ -115,7 +117,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             const { user: userData, access_token, refresh_token } = response.data.data;
 
             await AsyncStorage.setItem('access_token', access_token);
-            await AsyncStorage.setItem('refresh_token', refresh_token);
+            if (refresh_token) await AsyncStorage.setItem('refresh_token', refresh_token);
+            else await AsyncStorage.removeItem('refresh_token');
 
             axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
             setUser(normalizeUser(userData));

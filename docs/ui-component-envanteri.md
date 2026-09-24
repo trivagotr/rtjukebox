@@ -154,8 +154,10 @@ The kiosk queue poller includes `x-kiosk-credential`; the backend grants queue a
 
 ## Final non-game client scan (2026-09-24)
 
-- `jukebox-web-controller/src/App.tsx` playback-state polling sends the logged-in user's bearer token. `kiosk-web/app.js` sends the stored kiosk credential. These headers match the backend playback-state authorization rules.
+- `jukebox-web-controller/src/App.tsx` playback-state polling uses the logged-in controller session cookie. `kiosk-web/app.js` sends the stored kiosk credential. These headers match the backend playback-state authorization rules.
 - `mobile/src/services/profileService.ts` sends profile customization and favorites through PATCH endpoints. The existing ProfileScreen and its component tree are unchanged.
 - No mobile, controller, or kiosk UI called the removed `POST /api/v1/spotify/refresh`; OAuth/device authorization and playback-device UI calls remain unchanged.
 - The source scan found no new UI component tied to the admin-only event QR token endpoint. No mobile, controller, or kiosk component uses health probes; these are deployment/operator endpoints.
+- Controller auth now uses HttpOnly cookies for access/refresh, restores the saved user from `/auth/me`, retries one expired access request through refresh, and calls `/auth/logout`; no access token is stored in localStorage. Mobile guest login stores no refresh token and its auth service continues bearer-token requests.
+- Controller cookie auth requires credentialed CORS and same-site frontend/API origins; the existing component tree is unchanged.
 - No screen, component, navigation entry, or kiosk panel was added or removed in this continuation. Existing game inventory entries were not changed.

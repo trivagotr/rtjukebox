@@ -30,7 +30,11 @@ describe('HTTP API Integration Tests (supertest)', () => {
     });
 
     it('rejects POST /api/v1/auth/login when user not found', async () => {
-      vi.mocked(db.query).mockResolvedValueOnce({ rows: [] } as any);
+      vi.mocked(db.query)
+        .mockResolvedValueOnce({ rows: [] } as any)
+        .mockResolvedValueOnce({ rows: [{ locked: false }] } as any)
+        .mockResolvedValueOnce({ rows: [] } as any)
+        .mockResolvedValueOnce({ rows: [{ locked: false }] } as any);
 
       const res = await request(app)
         .post('/api/v1/auth/login')
@@ -97,6 +101,20 @@ describe('HTTP API Integration Tests (supertest)', () => {
       const res = await request(app).get('/favicon.ico');
       expect(res.headers).toHaveProperty('x-content-type-options', 'nosniff');
       expect(res.headers).toHaveProperty('x-frame-options');
+    });
+
+    it('allows credentialed cookie-auth requests from configured browser origins', async () => {
+      const allowedOrigin = (process.env.CORS_ORIGINS || 'http://localhost').split(',')[0].trim();
+      const res = await request(app)
+        .options('/api/v1/auth/login')
+        .set('Origin', allowedOrigin)
+        .set('Access-Control-Request-Method', 'POST')
+        .set('Access-Control-Request-Headers', 'x-auth-transport');
+
+      expect(res.status).toBe(204);
+      expect(res.headers['access-control-allow-origin']).toBe(allowedOrigin);
+      expect(res.headers['access-control-allow-credentials']).toBe('true');
+      expect(res.headers['access-control-allow-headers']).toContain('x-auth-transport');
     });
   });
 });

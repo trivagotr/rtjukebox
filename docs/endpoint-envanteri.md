@@ -4,7 +4,7 @@ Envanter, `backend/src/server.ts` mount'ları ve `backend/src/routes/*.ts` tanı
 
 ## Mount ve alias davranışı
 
-- HTTP API'nin tek kanonik kökü `/api/v1`'dir. `PUBLIC_BASE_PATH` API route'larına ve health uçlarına eklenmez; kiosk/controller statik dosyaları ve Socket.IO path'i için kullanılır.
+- HTTP API'nin tek kanonik kökü `/api/v1`'dir. `PUBLIC_BASE_PATH` API route'larına eklenmez; health uçları, kiosk/controller statik dosyaları ve Socket.IO için alias sağlar.
 - Eski `/jukebox/kiosk/*` yolu doğrudan router'a girmez; herhangi bir HTTP metoduyla gelen istek `308` ile `/api/v1/jukebox/kiosk/*` yoluna yönlendirilir. Diğer `/jukebox/*` API alias'ı yoktur.
 - `/api/v1/radio-profiles/*` yalnız `RADIO_PROFILES_ENABLED=true` iken mount edilir; varsayılan kapalıdır.
 - Aşağıdaki `/api/v1` rotaları `server.ts` içindeki router mount'larından türetilmiştir.
@@ -13,7 +13,7 @@ Envanter, `backend/src/server.ts` mount'ları ve `backend/src/routes/*.ts` tanı
 
 | Kaynak / mount | Metot ve tam yollar | İstemci kullanımı |
 |---|---|---|
-| `auth` | `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/guest`, `POST /api/v1/auth/refresh`, `GET /api/v1/auth/me`, `POST /api/v1/auth/upload-avatar` | register mobil; login/guest mobil ve web controller; refresh mobil API interceptor; me ve avatar mobil |
+| `auth` | `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/guest`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me`, `POST /api/v1/auth/upload-avatar` | register mobil; login/guest mobil ve web controller; refresh mobil API interceptor; logout web controller; me ve avatar mobil, controller me cookie auth |
 | `podcasts` | `GET /api/v1/podcasts` | Mobil |
 | `podcast-feeds` | `GET /api/v1/podcast-feeds`, `POST /api/v1/podcast-feeds`, `POST /api/v1/podcast-feeds/sync`, `DELETE /api/v1/podcast-feeds/:id` | Mobil Profile/feed yönetim servisi; backend router'ı admin auth + role guard + rate limit uygular |
 | `radio` | `GET /api/v1/radio/status`, `GET /api/v1/radio/schedule`, `GET /api/v1/radio/history/:channelId` | Yalnız history GET için mobil çağrı bulundu. Status/schedule çağrısı bulunmadı |
@@ -30,7 +30,7 @@ Envanter, `backend/src/server.ts` mount'ları ve `backend/src/routes/*.ts` tanı
 
 ## Route olmayan HTTP/static yüzeyler
 
-- `GET /health`, `GET /health/live` ve token korumalı `GET /health/ready`; bu uçlar PUBLIC_BASE_PATH alias'ı altında mount edilmez.
+- `GET /health`, `GET /health/live` ve token korumalı `GET /health/ready`; PUBLIC_BASE_PATH tanımlıysa bu uçlar aynı prefix altında da mount edilir.
 - `GET /favicon.ico`, `GET /.well-known/appspecific/com.chrome.devtools.json`: 204 dönen utility route'ları.
 - `/controller` statik build ve `GET /controller/*` SPA fallback; `/kiosk` statik web dosyaları; `/uploads` statik yükleme dosyaları.
 - Socket.IO, REST endpointi değildir. Path varsayılan `/socket.io`; `PUBLIC_BASE_PATH` ile yapılandırılabilir.
@@ -100,10 +100,18 @@ Source recheck after the queue authorization decision confirms the route and cli
 ## Final non-game inventory refresh (2026-09-24)
 
 - Profile writes are `PATCH /api/v1/profile/me` and `PATCH /api/v1/profile/favorites`. The mobile profile service uses PATCH; only explicitly supplied fields change. Unknown fields and empty bodies are rejected.
-- Jukebox playback state `GET /api/v1/jukebox/kiosk/playback-state/:deviceId` requires admin access, a matching user device session, or a valid active kiosk credential in `x-kiosk-credential`. The controller supplies its bearer token; kiosk supplies its kiosk credential. CORS allows the kiosk header.
+- Jukebox playback state `GET /api/v1/jukebox/kiosk/playback-state/:deviceId` requires admin access, a matching user device session, or a valid active kiosk credential in `x-kiosk-credential`. The controller supplies its access cookie; kiosk supplies its kiosk credential. CORS allows the kiosk header.
 - Public liveness routes are `GET /health` and `GET /health/live`. `GET /health/ready` is hidden unless a valid `HEALTHCHECK_TOKEN` bearer token is configured and supplied; it returns only a generic status and checks DB, upload storage writability, and configured Redis readiness.
 - Spotify OAuth and device authorization state is single-use and expires after 10 minutes; both flows use PKCE S256. Callback/start/status/device routes have strict bounded input validation. Auth access JWT verification accepts HS256 only.
 - Removed unused `POST /api/v1/spotify/refresh`; Spotify token refresh is an internal backend service operation. No mobile, controller, or kiosk client called this route.
 - Additional non-game event/reward administration route: `POST /api/v1/gamification/admin/qr-rewards/:rewardId/token` issues an event QR reward token and is admin-guarded. It is listed separately so the existing game route entries remain untouched.
-- `PUBLIC_BASE_PATH` aliases static/controller and Socket.IO paths but currently does not alias `/health`, `/health/live`, or `/health/ready`; the earlier generic health alias note is superseded by this source scan.
+- `PUBLIC_BASE_PATH` is applied to static/controller, Socket.IO, and health paths; API routes remain at the canonical `/api/v1` prefix.
 - This refresh covers existing routes plus the new liveness/readiness paths. `backend-refactor` remains unmounted and contributes no live API routes. The gamification row above was not changed under the no-game scope.
+
+## Final pre-live auth and readiness scan (2026-09-25)
+
+- Added `POST /api/v1/auth/logout`; the controller calls it to revoke its refresh session and clear HttpOnly cookies. Browser register/login/guest/refresh use `x-auth-transport: cookie`; cookie clients receive tokens only through HttpOnly SameSite=Strict cookies. Mobile continues to use bearer access tokens and body-based refresh.
+- Controller session restore calls `GET /api/v1/auth/me` with credentials; expired access cookies trigger one `POST /api/v1/auth/refresh` retry. Socket.IO uses the access cookie. The controller no longer stores bearer tokens in localStorage.
+- New JWTs require HS256, the configured issuer/audience, and a dedicated refresh audience. A temporary `JWT_ALLOW_LEGACY_TOKENS` switch controls old issuerless sessions.
+- `/health`, `/health/live`, and `/health/ready` are also mounted at `{PUBLIC_BASE_PATH}/health*` when configured. Readiness checks DB, writable uploads, configured rate-limit Redis, and BullMQ worker readiness; a bearer `HEALTHCHECK_TOKEN` is required.
+- The new browser logout route and cookie flow are current in the route table. The game route entries remain unchanged.
