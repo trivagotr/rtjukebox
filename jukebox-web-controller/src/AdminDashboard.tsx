@@ -123,6 +123,21 @@ export interface AdminDashboardProps {
 
 const authHeaders = (token: string) => ({ Authorization: `Bearer ${token}` });
 
+async function waitForControllerJob<T>(jobId: string, token: string): Promise<T> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 30 * 60_000) {
+    const response = await axios.get<{ data?: { state?: string; failed?: boolean; result?: T } }>(
+      `${API_URL}/api/v1/jobs/${encodeURIComponent(jobId)}`,
+      { headers: authHeaders(token) },
+    );
+    const job = response.data.data;
+    if (job?.state === 'completed') return job.result as T;
+    if (job?.state === 'failed' || job?.failed) throw new Error('Background job failed');
+    await new Promise((resolve) => window.setTimeout(resolve, 1_500));
+  }
+  throw new Error('Background job timed out while waiting');
+}
+
 const errorMessage = (error: unknown, fallback = 'Hata oluştu') => {
   if (isAxiosError<{ error?: string; message?: string }>(error)) {
     return error.response?.data?.error || error.response?.data?.message || fallback;
@@ -290,7 +305,7 @@ export function AdminDashboard({ token, device, onSelectDevice, onClose }: Admin
     try {
       setLoading(true);
       const targetDeviceId = selectedPlaylistDeviceId || device.id;
-      await axios.put(
+      await axios.patch(
         `${API_URL}/api/v1/jukebox/admin/devices/${targetDeviceId}`,
         {
           override_autoplay_spotify_playlist_uri: fallbackPlaylistUrl,
@@ -312,7 +327,7 @@ export function AdminDashboard({ token, device, onSelectDevice, onClose }: Admin
     try {
       setLoading(true);
       const targetDeviceId = selectedPlaylistDeviceId || device.id;
-      await axios.put(
+      await axios.patch(
         `${API_URL}/api/v1/jukebox/admin/devices/${targetDeviceId}`,
         {
           override_autoplay_spotify_playlist_uri: '',
@@ -511,7 +526,8 @@ export function AdminDashboard({ token, device, onSelectDevice, onClose }: Admin
     try {
       setLoading(true);
       setStatus('Ses işleniyor...');
-      await axios.post(`${API_URL}/api/v1/jukebox/admin/process-song`, { song_id: songId }, { headers: authHeaders(token) });
+      const queued = await axios.post<{ data: { job_id: string } }>(`${API_URL}/api/v1/jukebox/admin/process-song`, { song_id: songId }, { headers: authHeaders(token) });
+      await waitForControllerJob(queued.data.data.job_id, token);
       setStatus('İşlem başarılı');
     } catch (error) {
       setStatus(`Hata: ${errorMessage(error)}`);
@@ -525,12 +541,13 @@ export function AdminDashboard({ token, device, onSelectDevice, onClose }: Admin
     try {
       setLoading(true);
       setStatus('Senkronize ediliyor...');
-      const res = await axios.post<{ data: { success: number; failed: number } }>(
+      const queued = await axios.post<{ data: { job_id: string } }>(
         `${API_URL}/api/v1/jukebox/admin/sync-metadata`,
         {},
         { headers: authHeaders(token) },
       );
-      setStatus(`Başarılı: ${res.data.data.success}, Hata: ${res.data.data.failed}`);
+      const result = await waitForControllerJob<{ success: number; failed: number }>(queued.data.data.job_id, token);
+      setStatus(`Başarılı: ${result.success}, Hata: ${result.failed}`);
     } catch (error) {
       setStatus(`Hata: ${errorMessage(error)}`);
     } finally {
@@ -560,7 +577,7 @@ export function AdminDashboard({ token, device, onSelectDevice, onClose }: Admin
 
   const toggleDevice = async (deviceId: string, isActive: boolean) => {
     try {
-      await axios.put(`${API_URL}/api/v1/jukebox/admin/devices/${deviceId}`, { is_active: !isActive }, { headers: authHeaders(token) });
+      await axios.patch(`${API_URL}/api/v1/jukebox/admin/devices/${deviceId}`, { is_active: !isActive }, { headers: authHeaders(token) });
       void fetchDevices();
     } catch (error) {
       setStatus(`Hata: ${errorMessage(error)}`);
@@ -570,7 +587,7 @@ export function AdminDashboard({ token, device, onSelectDevice, onClose }: Admin
   const updateDevice = async (deviceId: string) => {
     try {
       setLoading(true);
-      await axios.put(`${API_URL}/api/v1/jukebox/admin/devices/${deviceId}`, editValues, { headers: authHeaders(token) });
+      await axios.patch(`${API_URL}/api/v1/jukebox/admin/devices/${deviceId}`, editValues, { headers: authHeaders(token) });
       setEditingDeviceId(null);
       setStatus('Cihaz güncellendi');
       void fetchDevices();
@@ -692,10 +709,10 @@ export function AdminDashboard({ token, device, onSelectDevice, onClose }: Admin
     try {
       setLoading(true);
       setStatus('Klasör taranıyor ve sync yapılıyor...');
-      const res = await axios.post<{ data: ScanFolderResponse }>(`${API_URL}/api/v1/jukebox/admin/scan-folder`, {}, {
+      const queued = await axios.post<{ data: { job_id: string } }>(`${API_URL}/api/v1/jukebox/admin/scan-folder`, {}, {
         headers: authHeaders(token),
       });
-      const { added, skipped, total, synced = 0, syncFailed = 0, failedSongs = [] } = res.data.data;
+      const { added, skipped, total, synced = 0, syncFailed = 0, failedSongs = [] } = await waitForControllerJob<ScanFolderResponse>(queued.data.data.job_id, token);
       let message = `${added} yeni şarkı eklendi, ${skipped} atlandı (Toplam: ${total})`;
       if (synced > 0 || syncFailed > 0) message += ` | Sync: ${synced} Başarılı, ${syncFailed} Hata`;
       if (failedSongs.length > 0) message += ` | Bulunamayanlar: ${failedSongs.map((song) => song.title).join(', ')}`;

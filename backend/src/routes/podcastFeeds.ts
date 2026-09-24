@@ -1,12 +1,20 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { db } from '../db';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { rbacMiddleware, ROLES } from '../middleware/rbac';
 import { sendError, sendSuccess } from '../utils/response';
 import { syncPodcastFeed } from '../services/podcastFeeds';
 import { adminRateLimit } from '../middleware/rateLimits';
+import { adminAuditLog } from '../middleware/adminAudit';
+import { BackgroundJobsUnavailableError, enqueueBackgroundJob } from '../services/backgroundJobs';
 
 const router = Router();
+const createFeedSchema = z.object({
+  title: z.string().trim().min(1).max(160),
+  feed_url: z.string().trim().url().max(2048),
+}).strict();
+const syncFeedsSchema = z.object({ feed_id: z.string().uuid().optional() }).strict();
 
 type PodcastFeedRow = {
   id: string;
@@ -27,24 +35,6 @@ type PodcastFeedSyncSuccessResult = {
   upserted: number;
   skipped: number;
 };
-
-type PodcastFeedSyncFailureResult = {
-  feed_id: string;
-  status: 'failed';
-  error: string;
-};
-
-function getFirstString(value: unknown): string | undefined {
-  if (typeof value === 'string') {
-    return value;
-  }
-
-  if (Array.isArray(value) && typeof value[0] === 'string') {
-    return value[0];
-  }
-
-  return undefined;
-}
 
 function normalizeText(value: unknown): string {
   return String(value ?? '').trim();
@@ -153,17 +143,33 @@ function buildSyncResult(
   };
 }
 
-function buildSyncFailureResult(feed: PodcastFeedRow, error: unknown): PodcastFeedSyncFailureResult {
-  return {
-    feed_id: feed.id,
-    status: 'failed',
-    error: error instanceof Error ? error.message : 'Podcast feed sync failed',
-  };
+export async function runPodcastFeedSyncJob(feedId?: string, updateProgress?: (progress: number) => Promise<void>) {
+  const feeds = await getPodcastFeedsForSync(db, feedId);
+  const results: Array<PodcastFeedSyncSuccessResult | { feed_id: string; status: 'failed' }> = [];
+  let failed = 0;
+  for (let index = 0; index < feeds.length; index += 1) {
+    const feed = feeds[index];
+    try {
+      const result = await syncPodcastFeed(db, {
+        id: feed.id,
+        feedUrl: feed.feed_url,
+        title: feed.title,
+      });
+      results.push(buildSyncResult(feed, result));
+    } catch (error) {
+      failed += 1;
+      console.error(JSON.stringify({ level: 'error', event: 'podcast_feed_job_failed', feedId: feed.id, errorName: error instanceof Error ? error.name : 'Error' }));
+      results.push({ feed_id: feed.id, status: 'failed' });
+    }
+    if (updateProgress) await updateProgress(feeds.length ? Math.round(((index + 1) / feeds.length) * 100) : 100);
+  }
+  return { results, succeeded: results.length - failed, failed, total: results.length };
 }
 
 router.use(authMiddleware);
 router.use(rbacMiddleware([ROLES.ADMIN]));
 router.use(adminRateLimit);
+router.use(adminAuditLog);
 
 router.get('/', async (_req: Request, res: Response) => {
   try {
@@ -177,7 +183,9 @@ router.get('/', async (_req: Request, res: Response) => {
 
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const payload = normalizePodcastFeedPayload(req.body ?? {});
+    const parsedBody = createFeedSchema.safeParse(req.body);
+    if (!parsedBody.success) return sendError(res, 'Invalid podcast feed payload', 400, 'INVALID_PODCAST_FEED');
+    const payload = normalizePodcastFeedPayload(parsedBody.data);
     let feed: PodcastFeedRow;
 
     try {
@@ -191,31 +199,17 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       return sendError(res, 'Failed to create podcast feed', 500);
     }
 
+    let syncJobId: string | null = null;
     try {
-      const syncResult = await syncPodcastFeed(db, {
-        id: feed.id,
-        feedUrl: feed.feed_url,
-        title: feed.title,
+      const job = await enqueueBackgroundJob('podcast-feed-sync', {
+        requestedBy: req.user!.id,
+        feedId: feed.id,
       });
-
-      return sendSuccess(res, { feed, sync: syncResult }, 'Podcast feed created', undefined, 201);
+      syncJobId = String(job.id);
     } catch (error) {
-      console.error('Initial podcast feed sync failed:', error);
-      return sendSuccess(
-        res,
-        {
-          feed,
-          sync: {
-            status: 'failed',
-          },
-        },
-        'Podcast feed created; initial sync failed',
-        {
-          sync_status: 'failed',
-        },
-        201,
-      );
+      console.error('Initial podcast feed sync could not be queued:', error instanceof Error ? error.name : 'Error');
     }
+    return sendSuccess(res, { feed, sync_job_id: syncJobId }, 'Podcast feed created', undefined, 201);
   } catch (error) {
     if (isValidationError(error)) {
       return sendError(res, error.message, 400);
@@ -227,51 +221,32 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 });
 
 router.post('/sync', async (req: Request, res: Response) => {
+  const parsedBody = syncFeedsSchema.safeParse(req.body ?? {});
+  if (!parsedBody.success) return sendError(res, 'Invalid podcast sync request', 400, 'INVALID_PODCAST_SYNC_REQUEST');
+  const feedId = parsedBody.data.feed_id;
   try {
-    const feedId = getFirstString(req.body?.feed_id);
-    const feeds = await getPodcastFeedsForSync(db, feedId);
-
-    if (feedId && feeds.length === 0) {
+    if (feedId) {
+      const feeds = await getPodcastFeedsForSync(db, feedId);
+      if (feeds.length === 0) {
       return sendError(res, 'Podcast feed not found', 404);
-    }
-
-    const results: Array<PodcastFeedSyncSuccessResult | PodcastFeedSyncFailureResult> = [];
-    let failed = 0;
-    for (const feed of feeds) {
-      try {
-        const result = await syncPodcastFeed(db, {
-          id: feed.id,
-          feedUrl: feed.feed_url,
-          title: feed.title,
-        });
-        results.push(buildSyncResult(feed, result));
-      } catch (error) {
-        failed += 1;
-        results.push(buildSyncFailureResult(feed, error));
       }
     }
-
-    if (failed > 0) {
-      return sendSuccess(
-        res,
-        { results },
-        'Podcast feeds synced with some failures',
-        {
-          succeeded: results.length - failed,
-          failed,
-          total: results.length,
-        },
-      );
-    }
-
-    return sendSuccess(res, { results }, 'Podcast feeds synced');
+    const job = await enqueueBackgroundJob('podcast-feed-sync', {
+      requestedBy: (req as AuthRequest).user!.id,
+      feedId,
+    });
+    return sendSuccess(res, { job_id: String(job.id), state: 'queued' }, 'Podcast feed sync queued', undefined, 202);
   } catch (error) {
+    if (error instanceof BackgroundJobsUnavailableError) return sendError(res, error.message, 503, 'JOBS_UNAVAILABLE');
     console.error('Sync podcast feeds error:', error);
     return sendError(res, 'Failed to sync podcast feeds', 500);
   }
 });
 
 router.delete('/:id', async (req: Request, res: Response) => {
+  if (!z.string().uuid().safeParse(req.params.id).success) {
+    return sendError(res, 'Invalid podcast feed ID', 400, 'INVALID_PODCAST_FEED_ID');
+  }
   try {
     const feed = await deletePodcastFeed(db, req.params.id);
     if (!feed) {

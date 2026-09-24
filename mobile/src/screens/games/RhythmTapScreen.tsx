@@ -5,7 +5,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import {COLORS, SPACING} from '../../theme/theme';
 import {ArcadeGame} from '../../services/gamificationService';
-import {createClientRoundId, submitMobileGameScore} from './gameSession';
+import {submitMobileGameScore, useServerGameSession} from './gameSession';
 import {ComboMeter, FeedbackToast, GameResultModal, GameShell} from './GameChrome';
 
 const LANES = ['Sol', 'Orta', 'Sağ'];
@@ -15,6 +15,7 @@ const RhythmTapScreen = () => {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const game = route.params?.game as ArcadeGame;
+  const gameSession = useServerGameSession(game.id);
   const [activeLane, setActiveLane] = useState(1);
   const [beat, setBeat] = useState(1);
   const [score, setScore] = useState(0);
@@ -29,12 +30,10 @@ const RhythmTapScreen = () => {
   const scoreRef = useRef(0);
   const streakRef = useRef(0);
   const submittedRef = useRef(false);
-  const roundIdRef = useRef(createClientRoundId(game));
-  const startedAtRef = useRef(Date.now());
   const beatStartedAtRef = useRef(Date.now());
 
   useEffect(() => {
-    if (!running || finished) {
+    if (!running || finished || !gameSession.ready) {
       return undefined;
     }
 
@@ -53,11 +52,12 @@ const RhythmTapScreen = () => {
     setIsSubmitting(true);
     setSubmitFailed(false);
     try {
+      const sessionId = await gameSession.waitForSession();
+      if (!sessionId) throw new Error('Could not start a verified game session');
       const result: any = await submitMobileGameScore({
         game,
         score: finalScore,
-        clientRoundId: roundIdRef.current,
-        startedAt: startedAtRef.current,
+        sessionId,
       });
       setAwardedXp(Number(result?.points_awarded ?? 0));
     } catch (error) {
@@ -81,7 +81,7 @@ const RhythmTapScreen = () => {
   };
 
   const handleTap = (laneIndex: number) => {
-    if (!running || finished) {
+    if (!running || finished || !gameSession.ready) {
       return;
     }
 
@@ -118,9 +118,12 @@ const RhythmTapScreen = () => {
     submitFinalScore(scoreRef.current);
   };
 
-  const resetGame = () => {
-    roundIdRef.current = createClientRoundId(game);
-    startedAtRef.current = Date.now();
+  const resetGame = async () => {
+    setRunning(false);
+    if (!await gameSession.beginNewRound()) {
+      setSubmitFailed(true);
+      return;
+    }
     beatStartedAtRef.current = Date.now();
     submittedRef.current = false;
     scoreRef.current = 0;

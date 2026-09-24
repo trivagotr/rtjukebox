@@ -9,6 +9,8 @@ import { authMiddleware, optionalAuth, AuthRequest } from '../middleware/auth';
 import { sendSuccess, sendError } from '../utils/response';
 import { rbacMiddleware, ROLES } from '../middleware/rbac';
 import { adminRateLimit, writeRateLimit } from '../middleware/rateLimits';
+import { adminAuditLog } from '../middleware/adminAudit';
+import { BackgroundJobsUnavailableError, enqueueBackgroundJob } from '../services/backgroundJobs';
 import { AudioService } from '../services/audio';
 import { songUpload, songUploadDir, normalizeUploadedSongFilename, validateSongUpload } from '../middleware/upload';
 import path from 'path';
@@ -54,6 +56,102 @@ const queueVoteBodySchema = z.object({
     is_super: z.boolean().optional(),
 }).strict().refine((body) => Boolean(body.queue_item_id) || Boolean(body.song_id), {
     message: 'A queue item or song is required',
+});
+const emptyAdminJobBodySchema = z.object({}).strict();
+const processSongJobBodySchema = z.object({ song_id: z.string().uuid() }).strict();
+const syncMetadataJobBodySchema = z.object({ song_id: z.string().uuid().optional() }).strict();
+const deviceIdParamsSchema = z.object({ id: z.string().uuid() });
+const adminSkipBodySchema = z.object({ device_id: z.string().uuid() }).strict();
+const connectBodySchema = z.object({
+    device_code: z.string().trim().min(1).max(50),
+    password: z.string().max(100).optional(),
+}).strict();
+const disconnectBodySchema = z.object({ device_id: z.string().uuid() }).strict();
+const kioskRegisterBodySchema = z.object({
+    device_code: z.string().trim().min(1).max(50),
+    credential: z.string().trim().min(1).max(256).optional(),
+    provisioning_code: z.string().trim().min(1).max(64).optional(),
+}).strict().refine((body) => Boolean(body.credential) !== Boolean(body.provisioning_code), {
+    message: 'Provide exactly one kiosk credential or provisioning code',
+});
+const deviceSongBodySchema = z.object({
+    device_id: z.string().uuid(),
+    song_id: z.string().uuid().nullable(),
+    device_pwd: z.string().max(256).optional(),
+}).strict();
+const deviceBodySchema = z.object({
+    device_id: z.string().uuid(),
+    device_pwd: z.string().max(256).optional(),
+}).strict();
+const kioskSpotifyDeviceAuthBodySchema = z.object({
+    device_id: z.string().uuid(),
+    device_pwd: z.string().max(256).optional(),
+    return_origin: z.string().max(2048).optional(),
+}).strict();
+const kioskSpotifyTokenBodySchema = z.object({
+    device_id: z.string().uuid(),
+    device_pwd: z.string().min(1).max(256),
+}).strict();
+const kioskSpotifyRegistrationBodySchema = z.object({
+    device_id: z.string().uuid(),
+    device_pwd: z.string().min(1).max(256),
+    spotify_device_id: z.string().max(255).nullable().optional(),
+    player_name: z.string().max(160).nullable().optional(),
+    player_state: z.unknown().nullable().optional(),
+    is_active: z.boolean().optional(),
+}).strict();
+const songCatalogQuerySchema = z.object({
+    search: z.string().trim().min(1).max(120).optional(),
+    page: z.coerce.number().int().min(1).max(10000).default(1),
+}).strict();
+const lyricsQuerySchema = z.object({
+    title: z.string().trim().min(1).max(500),
+    artist: z.string().trim().min(1).max(500),
+    duration: z.coerce.number().finite().positive().max(86_400).optional(),
+}).passthrough();
+const songClassificationBodySchema = z.object({
+    visibility: z.enum(['public', 'hidden']).optional(),
+    asset_role: z.enum(['music', 'jingle', 'ad']).optional(),
+}).strict();
+const createDeviceBodySchema = z.object({
+    device_code: z.string().trim().min(1).max(50),
+    name: z.string().trim().min(1).max(160),
+    location: z.string().max(255).nullable().optional(),
+    password: z.string().trim().min(1).max(50),
+}).strict();
+const updateDeviceBodySchema = z.object({
+    name: z.string().trim().min(1).max(160).nullable().optional(),
+    location: z.string().max(255).nullable().optional(),
+    is_active: z.boolean().optional(),
+    password: z.string().max(50).optional(),
+    override_autoplay_spotify_playlist_uri: z.string().max(512).nullable().optional(),
+    fallback_playlist_url: z.string().max(512).nullable().optional(),
+    override_enabled: z.boolean().optional(),
+}).strict();
+const spotifyPlaybackTargetBodySchema = z.object({
+    spotify_playback_device_id: z.string().max(255).nullable().optional(),
+    spotify_player_name: z.string().max(160).nullable().optional(),
+}).strict();
+const blockArtistBodySchema = z.object({
+    artist_name: z.string().trim().min(1).max(255),
+    spotify_artist_id: z.string().trim().max(255).nullable().optional(),
+    reason: z.string().max(500).nullable().optional(),
+}).strict();
+const moderationSettingsBodySchema = z.object({
+    lyrics_filter_enabled: z.boolean().optional(),
+    block_unverified_obscure_tracks: z.boolean().optional(),
+    min_popularity_without_lyrics: z.number().finite().min(0).max(100).optional(),
+}).strict();
+const blockedKeywordBodySchema = z.object({
+    word: z.string().trim().min(1).max(100),
+    category: z.string().trim().min(1).max(50).optional(),
+}).strict();
+const moderationTestBodySchema = z.object({
+    text: z.string().max(100000).optional(),
+    title: z.string().trim().min(1).max(500).optional(),
+    artist: z.string().trim().min(1).max(500).optional(),
+}).strict().refine((body) => Boolean(body.text?.trim()) || Boolean(body.title && body.artist), {
+    message: 'Provide text or both title and artist',
 });
 
 export function normalizeDeviceAdminInput(input: { name: string; location?: string | null }) {
@@ -953,16 +1051,9 @@ function getSpotifyKioskAuthSetupRequiredMessage(error: unknown): string | null 
 
 export async function handleSpotifyKioskTokenRequest(req: Request, res: Response) {
     try {
-        const deviceId = typeof (req.body as { device_id?: unknown } | undefined)?.device_id === 'string'
-            ? (req.body as { device_id: string }).device_id.trim()
-            : '';
-        if (!deviceId) {
-            return sendError(res, 'Missing device_id', 400);
-        }
-
-        const devicePassword = typeof (req.body as { device_pwd?: unknown } | undefined)?.device_pwd === 'string'
-            ? (req.body as { device_pwd: string }).device_pwd.trim()
-            : '';
+        const parsedBody = kioskSpotifyTokenBodySchema.safeParse(req.body);
+        if (!parsedBody.success) return sendError(res, 'Invalid Spotify token request', 400);
+        const { device_id: deviceId, device_pwd: devicePassword } = parsedBody.data;
         const validation = await loadValidatedSpotifyKioskDevice(deviceId, devicePassword);
         if (!validation.ok) {
             return sendError(res, validation.error, validation.statusCode);
@@ -993,8 +1084,10 @@ export async function handleSpotifyKioskTokenRequest(req: Request, res: Response
 
 export async function handleSpotifyKioskDeviceAuthStatusRequest(req: Request, res: Response) {
     try {
+        const parsedBody = kioskSpotifyDeviceAuthBodySchema.safeParse(req.body);
+        if (!parsedBody.success) return sendError(res, 'Invalid Spotify device auth request', 400);
         const deviceId = readSpotifyKioskDeviceId(req);
-        const devicePassword = readSpotifyKioskDevicePassword(req);
+        const devicePassword = parsedBody.data.device_pwd ?? '';
 
         if (!deviceId) {
             return sendError(res, 'Missing device_id', 400);
@@ -1015,8 +1108,10 @@ export async function handleSpotifyKioskDeviceAuthStatusRequest(req: Request, re
 
 export async function handleSpotifyKioskDeviceAuthStartRequest(req: Request, res: Response) {
     try {
+        const parsedBody = kioskSpotifyDeviceAuthBodySchema.safeParse(req.body);
+        if (!parsedBody.success) return sendError(res, 'Invalid Spotify device auth request', 400);
         const deviceId = readSpotifyKioskDeviceId(req);
-        const devicePassword = readSpotifyKioskDevicePassword(req);
+        const devicePassword = parsedBody.data.device_pwd ?? '';
 
         if (!deviceId) {
             return sendError(res, 'Missing device_id', 400);
@@ -1027,7 +1122,7 @@ export async function handleSpotifyKioskDeviceAuthStartRequest(req: Request, res
             return sendError(res, validation.error, validation.statusCode);
         }
 
-        const returnOrigin = typeof req.body?.return_origin === 'string' ? req.body.return_origin : null;
+        const returnOrigin = parsedBody.data.return_origin ?? null;
         const authUrl = await spotifyService.getDeviceAuthStartUrl(deviceId, returnOrigin);
         return sendSuccess(res, { deviceId, authUrl }, 'Spotify device auth url ready');
     } catch (error) {
@@ -1038,14 +1133,16 @@ export async function handleSpotifyKioskDeviceAuthStartRequest(req: Request, res
 
 export async function handleSpotifyKioskDeviceRegistration(req: Request, res: Response) {
     try {
+        const parsedBody = kioskSpotifyRegistrationBodySchema.safeParse(req.body);
+        if (!parsedBody.success) return sendError(res, 'Invalid Spotify device registration request', 400);
         const normalized = normalizeSpotifyKioskRegistrationInput({
-            device_id: typeof req.body?.device_id === 'string' ? req.body.device_id : '',
-            spotify_device_id: typeof req.body?.spotify_device_id === 'string' ? req.body.spotify_device_id : null,
-            player_name: typeof req.body?.player_name === 'string' ? req.body.player_name : null,
-            is_active: req.body?.is_active !== false,
+            device_id: parsedBody.data.device_id,
+            spotify_device_id: parsedBody.data.spotify_device_id,
+            player_name: parsedBody.data.player_name,
+            is_active: parsedBody.data.is_active,
         });
 
-        const devicePassword = readSpotifyKioskDevicePassword(req);
+        const devicePassword = parsedBody.data.device_pwd;
         const validation = await loadValidatedSpotifyKioskDevice(normalized.deviceId, devicePassword);
         if (!validation.ok) {
             return sendError(res, validation.error, validation.statusCode);
@@ -2094,6 +2191,80 @@ export async function processScanFolderSongFile(params: {
     }
 }
 
+export async function runScanFolderJob(updateProgress: (progress: number) => Promise<void>) {
+    const uploadsPath = path.join(__dirname, '../../uploads/songs');
+    await fs.promises.mkdir(uploadsPath, { recursive: true });
+    const entries = await fs.promises.readdir(uploadsPath, { withFileTypes: true });
+    const files = entries
+        .filter((entry) => entry.isFile() && shouldScanFolderProcessFile(entry.name))
+        .map((entry) => entry.name);
+    let added = 0;
+    let skipped = 0;
+
+    for (let index = 0; index < files.length; index += 1) {
+        const result = await processScanFolderSongFile({ file: files[index], uploadsPath });
+        if (result.action === 'skipped') skipped += 1;
+        else added += 1;
+        await updateProgress(files.length ? Math.round(((index + 1) / files.length) * 90) : 90);
+    }
+
+    let syncStats: { success: number; failed: number; failedSongs: any[] } = { success: 0, failed: 0, failedSongs: [] };
+    try {
+        syncStats = await MetadataService.syncAllSongs();
+    } catch (error) {
+        console.error('[scan-folder] Metadata sync failed:', error instanceof Error ? error.name : 'Error');
+    }
+    await updateProgress(100);
+    return {
+        added,
+        skipped,
+        total: files.length,
+        synced: syncStats.success,
+        syncFailed: syncStats.failed,
+        failedSongs: syncStats.failedSongs.map((song) => ({ title: String(song?.title ?? 'Unknown') })),
+    };
+}
+
+export async function runProcessSongJob(songId: string) {
+    const song = await db.query('SELECT id, file_url FROM songs WHERE id = $1', [songId]);
+    if (!song.rows[0]) throw new Error('Song not found');
+    const uploadsRoot = await fs.promises.realpath(path.resolve(__dirname, '../../uploads/songs'));
+    const fileUrl = song.rows[0].file_url;
+    const relativeFilename = typeof fileUrl === 'string' && fileUrl.startsWith('/uploads/songs/')
+        ? fileUrl.slice('/uploads/songs/'.length)
+        : '';
+    if (!relativeFilename || /[\\/]/.test(relativeFilename) || relativeFilename === '.' || relativeFilename === '..') {
+        throw new Error('Song file path is invalid');
+    }
+    const candidatePath = path.resolve(uploadsRoot, relativeFilename);
+    if (!candidatePath.startsWith(`${uploadsRoot}${path.sep}`)) throw new Error('Song file path is invalid');
+    const targetPath = await fs.promises.realpath(candidatePath);
+    if (!targetPath.startsWith(`${uploadsRoot}${path.sep}`) || !(await fs.promises.stat(targetPath)).isFile()) {
+        throw new Error('Song file not found');
+    }
+    const processedPath = await AudioService.processTrack(targetPath);
+    const resolvedProcessedPath = await fs.promises.realpath(processedPath);
+    if (!resolvedProcessedPath.startsWith(`${uploadsRoot}${path.sep}`)) throw new Error('Processed file path is invalid');
+    const processedFilename = path.relative(uploadsRoot, resolvedProcessedPath).split(path.sep).join('/');
+    const webPath = `/uploads/songs/${processedFilename}`;
+    await db.query('UPDATE songs SET file_url = $1 WHERE id = $2', [webPath, songId]);
+    return { new_path: webPath };
+}
+
+export async function runMetadataSyncJob(songId?: string) {
+    if (songId) {
+        const updated = await MetadataService.syncSongMetadata(songId);
+        if (!updated) throw new Error('Song not found or metadata unavailable');
+        return { success: 1, failed: 0, song: { id: updated.id, title: updated.title } };
+    }
+    const stats = await MetadataService.syncAllSongs();
+    return {
+        success: stats.success,
+        failed: stats.failed,
+        failedSongs: stats.failedSongs.map((song) => ({ title: String(song?.title ?? 'Unknown') })),
+    };
+}
+
 async function runScanFolderMutations(
     dbClient: ScanFolderDbClient,
     mutations: Array<() => Promise<{ rows: any[] }>>,
@@ -2127,13 +2298,10 @@ async function runScanFolderMutations(
 
 // --- Helper Middlewares ---
 async function checkDeviceSession(req: AuthRequest, res: Response, next: NextFunction) {
-    const { device_id } = req.body;
+    const parsedBody = z.object({ device_id: z.string().uuid() }).passthrough().safeParse(req.body);
+    if (!parsedBody.success) return sendError(res, 'Invalid device ID', 400);
+    const { device_id } = parsedBody.data;
     const user_id = req.user?.id;
-
-    if (!device_id) {
-        console.warn(`[SECURITY] Missing device_id in request to ${req.path} from user ${user_id}`);
-        return sendError(res, 'Device ID required', 400);
-    }
 
     if (!user_id) return sendError(res, 'Unauthorized', 401);
 
@@ -2159,13 +2327,14 @@ async function checkDeviceSession(req: AuthRequest, res: Response, next: NextFun
 }
 
 const router = Router();
-router.use('/admin', authMiddleware, rbacMiddleware([ROLES.ADMIN]), adminRateLimit);
+router.use('/admin', authMiddleware, rbacMiddleware([ROLES.ADMIN]), adminRateLimit, adminAuditLog);
 
 // --- Admin Endpoints (High Priority) ---
 
 // Force logout all clients from a device
 router.post('/admin/devices/:id/provision', async (req: AuthRequest, res: Response) => {
     const { id: deviceId } = req.params;
+    if (!z.string().uuid().safeParse(deviceId).success) return sendError(res, 'Invalid device ID', 400);
     const provisioningCode = generateKioskProvisioningCode();
     const codeHash = hashKioskSecret(provisioningCode);
 
@@ -2206,6 +2375,7 @@ router.post('/admin/devices/:id/provision', async (req: AuthRequest, res: Respon
 router.post('/admin/devices/:id/logout-all', async (req: Request, res: Response) => {
 
     const { id } = req.params;
+    if (!z.string().uuid().safeParse(id).success) return sendError(res, 'Invalid device ID', 400);
 
     try {
         console.log(`[Admin] Force logout all for device: ${id}`);
@@ -2239,7 +2409,9 @@ router.post('/connect', optionalAuth, async (req: Request, res: Response) => {
     const isAdmin = authReq.user?.role === ROLES.ADMIN;
 
     try {
-        const { device_code, password } = req.body;
+        const parsedBody = connectBodySchema.safeParse(req.body);
+        if (!parsedBody.success) return sendError(res, 'Invalid connect request', 400);
+        const { device_code } = parsedBody.data;
         const deviceRes = await db.query(
             'SELECT * FROM devices WHERE device_code = $1 AND is_active = true',
             [device_code]
@@ -2273,9 +2445,9 @@ router.post('/connect', optionalAuth, async (req: Request, res: Response) => {
 // Disconnect from device (delete session, require password on reconnect)
 router.post('/disconnect', authMiddleware, async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
-    const { device_id } = req.body;
-
-    if (!device_id) return sendError(res, 'Device ID required', 400);
+    const parsedBody = disconnectBodySchema.safeParse(req.body);
+    if (!parsedBody.success) return sendError(res, 'Invalid device ID', 400);
+    const { device_id } = parsedBody.data;
     if (!authReq.user?.id) return sendError(res, 'Unauthorized', 401);
 
     try {
@@ -2306,7 +2478,9 @@ router.get('/devices', async (req: Request, res: Response) => {
 
 // Get song catalog (Spotify-backed search with content filtering)
 router.get('/songs', async (req: Request, res: Response) => {
-    const { search, page = 1 } = req.query;
+    const parsedQuery = songCatalogQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) return sendError(res, 'Invalid catalog search parameters', 400);
+    const { search, page } = parsedQuery.data;
     const limit = 20;
     const offset = (Number(page) - 1) * limit;
 
@@ -2697,12 +2871,36 @@ router.post('/vote', authMiddleware, writeRateLimit, checkDeviceSession, async (
 router.get('/queue/:deviceId', optionalAuth, async (req: Request, res: Response) => {
     try {
         const { deviceId } = req.params;
-        const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        if (!deviceId || !UUID_REGEX.test(deviceId)) {
+        if (!z.string().uuid().safeParse(deviceId).success) {
             return sendError(res, 'Invalid device ID format', 400);
         }
 
         const authReq = req as AuthRequest;
+        let canReadQueue = authReq.user?.role === ROLES.ADMIN;
+        if (!canReadQueue && authReq.user?.id) {
+            const session = await db.query(
+                'SELECT 1 FROM device_sessions WHERE user_id = $1 AND device_id = $2',
+                [authReq.user.id, deviceId],
+            );
+            canReadQueue = session.rows.length > 0;
+        }
+
+        if (!canReadQueue) {
+            const kioskCredential = req.get('x-kiosk-credential')?.trim() ?? '';
+            if (kioskCredential) {
+                const credential = await db.query(
+                    `SELECT kc.credential_hash
+                     FROM kiosk_credentials kc
+                     JOIN devices d ON d.id = kc.device_id
+                     WHERE kc.device_id = $1 AND d.is_active = true
+                       AND kc.revoked_at IS NULL AND kc.expires_at > NOW()`,
+                    [deviceId],
+                );
+                canReadQueue = kioskSecretMatches(credential.rows[0]?.credential_hash, kioskCredential);
+            }
+        }
+
+        if (!canReadQueue) return sendError(res, 'An active device session is required', 403, 'SESSION_REQUIRED');
         const queue = await getQueueForDevice(deviceId, authReq.user?.id);
         res.json(queue);
     } catch (error) {
@@ -2717,9 +2915,9 @@ router.get('/queue/:deviceId', optionalAuth, async (req: Request, res: Response)
 
 // Force Skip Song
 router.post('/admin/skip', async (req: Request, res: Response) => {
-
-    const { device_id } = req.body;
-    if (!device_id) return sendError(res, 'Missing device_id', 400);
+    const parsedBody = adminSkipBodySchema.safeParse(req.body);
+    if (!parsedBody.success) return sendError(res, 'Invalid skip request', 400);
+    const { device_id } = parsedBody.data;
 
     try {
         console.log('Admin force skip triggered for device:', device_id);
@@ -2752,19 +2950,20 @@ router.post('/admin/skip', async (req: Request, res: Response) => {
 
 // Sync Song Metadata
 router.post('/admin/sync-metadata', async (req: Request, res: Response) => {
-
-    const { song_id } = req.body;
-
+    const parsedBody = syncMetadataJobBodySchema.safeParse(req.body ?? {});
+    if (!parsedBody.success) return sendError(res, 'Invalid metadata sync request', 400, 'INVALID_METADATA_SYNC_REQUEST');
     try {
-        if (song_id) {
-            const updated = await MetadataService.syncSongMetadata(song_id);
-            if (!updated) return sendError(res, 'Song not found or no metadata found', 404);
-            return sendSuccess(res, updated, 'Metadata synced successfully');
-        } else {
-            const stats = await MetadataService.syncAllSongs();
-            return sendSuccess(res, stats, 'Full library sync initiated');
+        if (parsedBody.data.song_id) {
+            const existing = await db.query('SELECT id FROM songs WHERE id = $1', [parsedBody.data.song_id]);
+            if (!existing.rows[0]) return sendError(res, 'Song not found', 404);
         }
+        const job = await enqueueBackgroundJob('sync-metadata', {
+            requestedBy: (req as AuthRequest).user!.id,
+            songId: parsedBody.data.song_id,
+        });
+        return sendSuccess(res, { job_id: String(job.id), state: 'queued' }, 'Metadata sync queued', undefined, 202);
     } catch (error) {
+        if (error instanceof BackgroundJobsUnavailableError) return sendError(res, error.message, 503, 'JOBS_UNAVAILABLE');
         console.error('Metadata sync error:', error);
         return sendError(res, 'Metadata sync failed', 500);
     }
@@ -2793,10 +2992,13 @@ router.get('/admin/songs', async (req: Request, res: Response) => {
 router.patch('/admin/songs/:id/classification', async (req: Request, res: Response) => {
 
     try {
-        const input = normalizeAdminSongClassificationInput(req.body ?? {});
+        const parsedId = z.string().uuid().safeParse(req.params.id);
+        const parsedBody = songClassificationBodySchema.safeParse(req.body ?? {});
+        if (!parsedId.success || !parsedBody.success) return sendError(res, 'Invalid song classification request', 400);
+        const input = normalizeAdminSongClassificationInput(parsedBody.data);
         const songResult = await db.query(
             'SELECT id, source_type, visibility, asset_role FROM songs WHERE id = $1',
-            [req.params.id]
+            [parsedId.data]
         );
 
         if (songResult.rows.length === 0) {
@@ -2824,7 +3026,7 @@ router.patch('/admin/songs/:id/classification', async (req: Request, res: Respon
                  asset_role = $3
              WHERE id = $1
              RETURNING id, source_type, visibility, asset_role, file_url, is_active`,
-            [req.params.id, nextVisibility, nextAssetRole]
+            [parsedId.data, nextVisibility, nextAssetRole]
         );
 
         return sendSuccess(res, { song: updatedSong.rows[0] }, 'Song classification updated');
@@ -2836,51 +3038,14 @@ router.patch('/admin/songs/:id/classification', async (req: Request, res: Respon
 
 // Scan uploads folder for new songs
 router.post('/admin/scan-folder', async (req: Request, res: Response) => {
-
-    const uploadsPath = path.join(__dirname, '../../uploads/songs');
-
+    if (!emptyAdminJobBodySchema.safeParse(req.body ?? {}).success) {
+        return sendError(res, 'Invalid scan request', 400, 'INVALID_SCAN_REQUEST');
+    }
     try {
-        if (!fs.existsSync(uploadsPath)) {
-            fs.mkdirSync(uploadsPath, { recursive: true });
-        }
-
-        const files = fs.readdirSync(uploadsPath, { withFileTypes: true })
-            .filter((entry) => entry.isFile() && shouldScanFolderProcessFile(entry.name))
-            .map((entry) => entry.name);
-
-        let added = 0;
-        let skipped = 0;
-
-        for (const file of files) {
-            const result = await processScanFolderSongFile({
-                file,
-                uploadsPath,
-            });
-
-            if (result.action === 'skipped') {
-                skipped++;
-            } else {
-                added++;
-            }
-        }
-
-        // Sync metadata for ALL songs in library
-        let syncStats: any = { success: 0, failed: 0, failedSongs: [] };
-        try {
-            syncStats = await MetadataService.syncAllSongs();
-        } catch (syncErr) {
-            console.log('Full metadata sync failed:', syncErr);
-        }
-
-        return sendSuccess(res, {
-            added,
-            skipped,
-            total: files.length,
-            synced: syncStats.success,
-            syncFailed: syncStats.failed,
-            failedSongs: syncStats.failedSongs
-        }, 'Folder scanned and all metadata synced');
+        const job = await enqueueBackgroundJob('scan-folder', { requestedBy: (req as AuthRequest).user!.id });
+        return sendSuccess(res, { job_id: String(job.id), state: 'queued' }, 'Folder scan queued', undefined, 202);
     } catch (error) {
+        if (error instanceof BackgroundJobsUnavailableError) return sendError(res, error.message, 503, 'JOBS_UNAVAILABLE');
         console.error('Folder scan error:', error);
         return sendError(res, 'Folder scan failed', 500);
     }
@@ -2922,6 +3087,7 @@ router.post('/admin/upload-song', songUpload.single('song'), validateSongUpload,
 router.delete('/admin/songs/:id', async (req: Request, res: Response) => {
 
     const { id } = req.params;
+    if (!z.string().uuid().safeParse(id).success) return sendError(res, 'Invalid song ID', 400);
 
     try {
         const songRes = await db.query('SELECT id FROM songs WHERE id = $1', [id]);
@@ -2964,13 +3130,11 @@ router.get('/admin/devices', async (req: Request, res: Response) => {
 
 // Create new device
 router.post('/admin/devices', async (req: Request, res: Response) => {
-
-    const { device_code, name, location, password } = req.body;
-
-    if (typeof device_code !== 'string' || !device_code.trim() || !name
-        || typeof password !== 'string' || !password.trim() || password.trim().length > 50) {
+    const parsedBody = createDeviceBodySchema.safeParse(req.body);
+    if (!parsedBody.success) {
         return sendError(res, 'device_code, name, and password are required', 400);
     }
+    const { device_code, name, location, password } = parsedBody.data;
 
     try {
         const existing = await db.query('SELECT id FROM devices WHERE device_code = $1', [device_code]);
@@ -3001,9 +3165,12 @@ router.post('/admin/devices', async (req: Request, res: Response) => {
 
 
 // Update device
-router.put('/admin/devices/:id', async (req: Request, res: Response) => {
+router.patch('/admin/devices/:id', async (req: Request, res: Response) => {
 
     const { id } = req.params;
+    const parsedId = z.string().uuid().safeParse(id);
+    const parsedBody = updateDeviceBodySchema.safeParse(req.body);
+    if (!parsedId.success || !parsedBody.success) return sendError(res, 'Invalid device update request', 400);
     const {
         name,
         location,
@@ -3012,7 +3179,7 @@ router.put('/admin/devices/:id', async (req: Request, res: Response) => {
         override_autoplay_spotify_playlist_uri,
         fallback_playlist_url,
         override_enabled
-    } = req.body;
+    } = parsedBody.data;
     const nextPassword = typeof password === 'string' && password.trim() ? password.trim() : null;
 
     try {
@@ -3087,33 +3254,14 @@ router.put('/admin/devices/:id', async (req: Request, res: Response) => {
     }
 });
 
-// Get all available Spotify Connect playback devices
-router.get('/admin/spotify-devices', async (req: Request, res: Response) => {
-
-    try {
-        const kioskDeviceId = typeof req.query?.kiosk_device_id === 'string' ? req.query.kiosk_device_id.trim() : null;
-        let accessTokenOverride: string | undefined = undefined;
-        if (kioskDeviceId) {
-            try {
-                const token = await spotifyService.getKioskPlaybackToken(kioskDeviceId);
-                accessTokenOverride = token.accessToken;
-            } catch {
-                // fallback
-            }
-        }
-        const devices = await spotifyService.getAvailableDevices(accessTokenOverride);
-        return sendSuccess(res, { devices }, 'Active Spotify devices fetched');
-    } catch (error: any) {
-        console.error('Fetch spotify devices error:', error);
-        return sendSuccess(res, { devices: [] }, 'Failed to fetch spotify devices');
-    }
-});
-
 // Update kiosk Spotify playback target device
 router.put('/admin/devices/:id/spotify-playback-target', async (req: Request, res: Response) => {
 
     const { id } = req.params;
-    const { spotify_playback_device_id, spotify_player_name } = req.body;
+    const parsedId = z.string().uuid().safeParse(id);
+    const parsedBody = spotifyPlaybackTargetBodySchema.safeParse(req.body);
+    if (!parsedId.success || !parsedBody.success) return sendError(res, 'Invalid Spotify playback target request', 400);
+    const { spotify_playback_device_id, spotify_player_name } = parsedBody.data;
 
     try {
         const trimmedDeviceId = typeof spotify_playback_device_id === 'string' ? spotify_playback_device_id.trim() : null;
@@ -3183,52 +3331,20 @@ router.get('/admin/playlist-preview', async (req: Request, res: Response) => {
 
 // Manually trigger audio processing (e.g. after upload)
 router.post('/admin/process-song', async (req: Request, res: Response) => {
-
-    const { song_id } = req.body;
-
+    const parsedBody = processSongJobBodySchema.safeParse(req.body);
+    if (!parsedBody.success) return sendError(res, 'Invalid process request', 400, 'INVALID_PROCESS_SONG_REQUEST');
     try {
-        if (typeof song_id !== 'string' || !song_id.trim()) {
-            return sendError(res, 'song_id is required', 400);
-        }
-
-        const song = await db.query('SELECT id, file_url FROM songs WHERE id = $1', [song_id]);
-        if (!song.rows[0]) return sendError(res, 'Song not found', 404);
-
-        const uploadsRoot = await fs.promises.realpath(path.resolve(__dirname, '../../uploads/songs'));
-        const fileUrl = song.rows[0].file_url;
-        const relativeFilename = typeof fileUrl === 'string' && fileUrl.startsWith('/uploads/songs/')
-            ? fileUrl.slice('/uploads/songs/'.length)
-            : '';
-        if (!relativeFilename || /[\\/]/.test(relativeFilename) || relativeFilename === '.' || relativeFilename === '..') {
-            return sendError(res, 'Song file path is invalid', 400);
-        }
-
-        const candidatePath = path.resolve(uploadsRoot, relativeFilename);
-        if (!candidatePath.startsWith(`${uploadsRoot}${path.sep}`)) {
-            return sendError(res, 'Song file path is invalid', 400);
-        }
-
-        const targetPath = await fs.promises.realpath(candidatePath);
-        if (!targetPath.startsWith(`${uploadsRoot}${path.sep}`) || !(await fs.promises.stat(targetPath)).isFile()) {
-            return sendError(res, 'Song file not found', 404);
-        }
-
-        const processedPath = await AudioService.processTrack(targetPath);
-        const resolvedProcessedPath = await fs.promises.realpath(processedPath);
-        if (!resolvedProcessedPath.startsWith(`${uploadsRoot}${path.sep}`)) {
-            return sendError(res, 'Processed file path is invalid', 500);
-        }
-
-        const processedFilename = path.relative(uploadsRoot, resolvedProcessedPath).split(path.sep).join('/');
-        const webPath = `/uploads/songs/${processedFilename}`;
-
-        await db.query('UPDATE songs SET file_url = $1 WHERE id = $2', [webPath, song_id]);
-
-        return sendSuccess(res, { new_path: webPath }, 'Audio processed successfully');
-
-    } catch (error: any) {
-        console.error(error);
-        return sendError(res, 'Processing failed: ' + error.message, 500);
+        const existing = await db.query('SELECT id FROM songs WHERE id = $1', [parsedBody.data.song_id]);
+        if (!existing.rows[0]) return sendError(res, 'Song not found', 404);
+        const job = await enqueueBackgroundJob('process-song', {
+            requestedBy: (req as AuthRequest).user!.id,
+            songId: parsedBody.data.song_id,
+        });
+        return sendSuccess(res, { job_id: String(job.id), state: 'queued' }, 'Audio processing queued', undefined, 202);
+    } catch (error) {
+        if (error instanceof BackgroundJobsUnavailableError) return sendError(res, error.message, 503, 'JOBS_UNAVAILABLE');
+        console.error('Audio processing enqueue failed:', error instanceof Error ? error.name : 'Error');
+        return sendError(res, 'Processing could not be queued', 500);
     }
 });
 
@@ -3236,12 +3352,13 @@ router.post('/admin/process-song', async (req: Request, res: Response) => {
 
 router.post('/kiosk/register', async (req: Request, res: Response) => {
     try {
-        const deviceCode = typeof req.body?.device_code === 'string' ? req.body.device_code.trim().toUpperCase() : '';
-        const suppliedCredential = typeof req.body?.credential === 'string' ? req.body.credential.trim() : '';
-        const provisioningCode = typeof req.body?.provisioning_code === 'string' ? req.body.provisioning_code.trim() : '';
-        if (!deviceCode || (!suppliedCredential && !provisioningCode)) {
+        const parsedBody = kioskRegisterBodySchema.safeParse(req.body);
+        if (!parsedBody.success) {
             return sendError(res, 'device_code and a kiosk credential or provisioning code are required', 400);
         }
+        const deviceCode = parsedBody.data.device_code.toUpperCase();
+        const suppliedCredential = parsedBody.data.credential ?? '';
+        const provisioningCode = parsedBody.data.provisioning_code ?? '';
 
         const deviceCheck = await db.query(
             'SELECT id, device_code, name, location, is_active FROM devices WHERE device_code = $1',
@@ -3333,6 +3450,7 @@ router.post('/kiosk/spotify-device', handleSpotifyKioskDeviceRegistration);
 
 router.get('/kiosk/playback-state/:deviceId', async (req: Request, res: Response) => {
     const { deviceId } = req.params;
+    if (!z.string().uuid().safeParse(deviceId).success) return sendError(res, 'Invalid device ID', 400);
     try {
         const token = await spotifyService.getKioskPlaybackToken(deviceId);
         const snapshot = await spotifyService.getCurrentPlaybackSnapshot(token.accessToken);
@@ -3343,15 +3461,14 @@ router.get('/kiosk/playback-state/:deviceId', async (req: Request, res: Response
 });
 
 router.get('/lyrics', async (req: Request, res: Response) => {
-    const { title, artist, duration } = req.query;
-    if (!title || !artist) {
-        return sendError(res, 'title and artist query parameters are required', 400);
-    }
+    const parsedQuery = lyricsQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) return sendError(res, 'Invalid lyrics query parameters', 400);
+    const { title, artist, duration } = parsedQuery.data;
     try {
         const lyrics = await fetchLyrics({
-            title: String(title),
-            artist: String(artist),
-            durationSeconds: duration ? Number(duration) : undefined,
+            title,
+            artist,
+            durationSeconds: duration,
         });
         return sendSuccess(res, lyrics, 'Lyrics fetched');
     } catch (error) {
@@ -3360,7 +3477,9 @@ router.get('/lyrics', async (req: Request, res: Response) => {
 });
 
 router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
-    const { device_id, song_id } = req.body;
+    const parsedBody = deviceSongBodySchema.safeParse(req.body);
+    if (!parsedBody.success) return sendError(res, 'Invalid now-playing update', 400);
+    const { device_id, song_id } = parsedBody.data;
 
     try {
         const validation = await loadValidatedSpotifyKioskDevice(device_id, readSpotifyKioskDevicePassword(req));
@@ -3488,7 +3607,9 @@ router.post('/kiosk/now-playing', async (req: Request, res: Response) => {
 
 // Trigger Autoplay Pre-emptively (80% rule)
 router.post('/autoplay/trigger', async (req: Request, res: Response) => {
-    const { device_id } = req.body;
+    const parsedBody = deviceBodySchema.safeParse(req.body);
+    if (!parsedBody.success) return sendError(res, 'Invalid autoplay request', 400);
+    const { device_id } = parsedBody.data;
 
     try {
         const validation = await loadValidatedSpotifyKioskDevice(device_id, readSpotifyKioskDevicePassword(req));
@@ -3530,6 +3651,7 @@ router.post('/autoplay/trigger', async (req: Request, res: Response) => {
 router.post('/admin/songs/:id/block', async (req: Request, res: Response) => {
 
     const { id } = req.params;
+    if (!z.string().uuid().safeParse(id).success || !emptyAdminJobBodySchema.safeParse(req.body ?? {}).success) return sendError(res, 'Invalid song ID or request body', 400);
     try {
         const result = await db.query(
             'UPDATE songs SET is_blocked = true WHERE id = $1 RETURNING id, title, artist',
@@ -3549,6 +3671,7 @@ router.post('/admin/songs/:id/block', async (req: Request, res: Response) => {
 router.delete('/admin/songs/:id/block', async (req: Request, res: Response) => {
 
     const { id } = req.params;
+    if (!z.string().uuid().safeParse(id).success) return sendError(res, 'Invalid song ID', 400);
     try {
         const result = await db.query(
             'UPDATE songs SET is_blocked = false WHERE id = $1 RETURNING id, title, artist',
@@ -3567,11 +3690,9 @@ router.delete('/admin/songs/:id/block', async (req: Request, res: Response) => {
 // POST /admin/artists/block - block an artist
 router.post('/admin/artists/block', async (req: Request, res: Response) => {
     const authReq = req as AuthRequest;
-
-    const { artist_name, spotify_artist_id, reason } = req.body;
-    if (!artist_name) {
-        return sendError(res, 'artist_name is required', 400);
-    }
+    const parsedBody = blockArtistBodySchema.safeParse(req.body);
+    if (!parsedBody.success) return sendError(res, 'Invalid blocked artist request', 400);
+    const { artist_name, spotify_artist_id, reason } = parsedBody.data;
 
     try {
         // Check for duplicate by spotify_artist_id if provided
@@ -3602,6 +3723,7 @@ router.post('/admin/artists/block', async (req: Request, res: Response) => {
 router.delete('/admin/artists/:id/block', async (req: Request, res: Response) => {
 
     const { id } = req.params;
+    if (!z.string().uuid().safeParse(id).success) return sendError(res, 'Invalid blocked artist ID', 400);
     try {
         const result = await db.query(
             'DELETE FROM blocked_artists WHERE id = $1 RETURNING *',
@@ -3656,8 +3778,9 @@ router.get('/admin/moderation/settings', async (req: Request, res: Response) => 
 
 // PUT /admin/moderation/settings - update content filter settings
 router.put('/admin/moderation/settings', async (req: Request, res: Response) => {
-
-    const { lyrics_filter_enabled, block_unverified_obscure_tracks, min_popularity_without_lyrics } = req.body;
+    const parsedBody = moderationSettingsBodySchema.safeParse(req.body);
+    if (!parsedBody.success) return sendError(res, 'Invalid moderation settings', 400);
+    const { lyrics_filter_enabled, block_unverified_obscure_tracks, min_popularity_without_lyrics } = parsedBody.data;
 
     try {
         const lyricsEnabled = typeof lyrics_filter_enabled === 'boolean' ? lyrics_filter_enabled : true;
@@ -3699,11 +3822,11 @@ router.get('/admin/moderation/keywords', async (req: Request, res: Response) => 
 
 // POST /admin/moderation/keywords - add custom blocked keyword
 router.post('/admin/moderation/keywords', async (req: Request, res: Response) => {
-
-    const { word, category } = req.body;
-    if (!word || typeof word !== 'string' || !word.trim()) {
+    const parsedBody = blockedKeywordBodySchema.safeParse(req.body);
+    if (!parsedBody.success) {
         return sendError(res, 'Yasaklı kelime boş olamaz', 400);
     }
+    const { word, category } = parsedBody.data;
 
     try {
         const cleanWord = word.trim().toLowerCase();
@@ -3749,8 +3872,9 @@ router.delete('/admin/moderation/keywords/:id', async (req: Request, res: Respon
 
 // POST /admin/moderation/test - test lyrics or text for profanity
 router.post('/admin/moderation/test', async (req: Request, res: Response) => {
-
-    const { text, title, artist } = req.body;
+    const parsedBody = moderationTestBodySchema.safeParse(req.body);
+    if (!parsedBody.success) return sendError(res, 'Invalid moderation test request', 400);
+    const { text, title, artist } = parsedBody.data;
 
     try {
         let contentToTest = text;

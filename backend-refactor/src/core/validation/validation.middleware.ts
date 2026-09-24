@@ -23,6 +23,9 @@ export const strictObject = <TShape extends z.ZodRawShape>(shape: TShape) => z.s
 export const validateBody = (shape: z.ZodRawShape): RequestHandler =>
   validatePart('body', strictObject(shape));
 
+export const validateBodySchema = (schema: z.ZodType): RequestHandler =>
+  validatePart('body', schema);
+
 export const validateQuery = (shape: z.ZodRawShape): RequestHandler =>
   validatePart('query', strictObject(shape));
 

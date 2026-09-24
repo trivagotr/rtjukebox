@@ -13,7 +13,35 @@ export interface LyricsResponse {
     artist: string;
 }
 
-const lyricsCache = new Map<string, LyricsResponse | null>();
+const LYRICS_CACHE_TTL_MS = 60 * 60 * 1000;
+const LYRICS_MISS_TTL_MS = 5 * 60 * 1000;
+const LYRICS_CACHE_MAX_ENTRIES = 1000;
+const lyricsCache = new Map<string, { value: LyricsResponse | null; expiresAt: number }>();
+
+function readLyricsCache(key: string): LyricsResponse | null | undefined {
+    const cached = lyricsCache.get(key);
+    if (!cached) return undefined;
+    if (cached.expiresAt <= Date.now()) {
+        lyricsCache.delete(key);
+        return undefined;
+    }
+    lyricsCache.delete(key);
+    lyricsCache.set(key, cached);
+    return cached.value;
+}
+
+function writeLyricsCache(key: string, value: LyricsResponse | null) {
+    lyricsCache.delete(key);
+    lyricsCache.set(key, {
+        value,
+        expiresAt: Date.now() + (value ? LYRICS_CACHE_TTL_MS : LYRICS_MISS_TTL_MS),
+    });
+    while (lyricsCache.size > LYRICS_CACHE_MAX_ENTRIES) {
+        const oldestKey = lyricsCache.keys().next().value;
+        if (oldestKey === undefined) break;
+        lyricsCache.delete(oldestKey);
+    }
+}
 
 export function parseLrc(lrcText: string): SyncedLyricLine[] {
     const lines: SyncedLyricLine[] = [];
@@ -44,11 +72,10 @@ export async function fetchLyrics(params: {
 }): Promise<LyricsResponse | null> {
     const title = params.title.trim();
     const artist = params.artist.trim();
-    const cacheKey = `${artist} - ${title}`.toLowerCase();
+    const cacheKey = `${artist.normalize('NFKC').trim()} - ${title.normalize('NFKC').trim()}`.toLocaleLowerCase('en-US');
 
-    if (lyricsCache.has(cacheKey)) {
-        return lyricsCache.get(cacheKey) || null;
-    }
+    const cached = readLyricsCache(cacheKey);
+    if (cached !== undefined) return cached;
 
     try {
         // Clean title from common Spotify suffixes like "(Remastered)", "- Live", etc.
@@ -84,7 +111,7 @@ export async function fetchLyrics(params: {
         }
 
         if (!res?.data) {
-            lyricsCache.set(cacheKey, null);
+            writeLyricsCache(cacheKey, null);
             return null;
         }
 
@@ -107,11 +134,11 @@ export async function fetchLyrics(params: {
             artist: res.data.artistName || artist,
         };
 
-        lyricsCache.set(cacheKey, result);
+        writeLyricsCache(cacheKey, result);
         return result;
     } catch (error) {
         console.warn(`[Lyrics] Failed to fetch lyrics for ${artist} - ${title}:`, error);
-        lyricsCache.set(cacheKey, null);
+        writeLyricsCache(cacheKey, null);
         return null;
     }
 }

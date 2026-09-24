@@ -78,6 +78,8 @@ describe('db migration helper', () => {
         expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS event_registrations');
         expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS arcade_games');
         expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS game_score_submissions');
+        expect(schemaSql).toContain('ADD COLUMN IF NOT EXISTS client_round_id VARCHAR(120)');
+        expect(schemaSql).toContain('idx_game_score_round_once');
         expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS user_profile_customization');
         expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS qr_reward_claims');
         expect(schemaSql).toContain('CREATE TABLE IF NOT EXISTS kiosk_provisioning_codes');

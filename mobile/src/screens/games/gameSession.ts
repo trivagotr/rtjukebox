@@ -1,21 +1,36 @@
-import {ArcadeGame, submitGameScore} from '../../services/gamificationService';
+import {useCallback, useEffect, useRef, useState} from 'react';
+import {ArcadeGame, startGamePlaySession, submitGameScore} from '../../services/gamificationService';
 
-export function createClientRoundId(game: ArcadeGame) {
-  return `${game.slug || game.id}-${Date.now()}`;
-}
+export function useServerGameSession(gameId: string) {
+  const sessionIdRef = useRef<string | null>(null);
+  const sessionPromiseRef = useRef<Promise<string | null>>(Promise.resolve(null));
+  const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
 
-export function buildGameScorePayload(params: {
-  score: number;
-  clientRoundId: string;
-  startedAt: number;
-  now?: number;
-}) {
-  return {
-    score: Math.max(0, Math.floor(params.score)),
-    client_round_id: params.clientRoundId,
-    play_duration_ms: Math.max(0, (params.now ?? Date.now()) - params.startedAt),
-    submission_source: 'mobile_game' as const,
-  };
+  const beginNewRound = useCallback(() => {
+    setReady(false);
+    setFailed(false);
+    sessionIdRef.current = null;
+    const pendingSession = startGamePlaySession(gameId)
+      .then((session) => {
+        sessionIdRef.current = session.id;
+        setReady(true);
+        return session.id;
+      })
+      .catch(() => {
+        setFailed(true);
+        return null;
+      });
+    sessionPromiseRef.current = pendingSession;
+    return pendingSession;
+  }, [gameId]);
+
+  useEffect(() => {
+    void beginNewRound();
+  }, [beginNewRound]);
+
+  const waitForSession = useCallback(() => sessionPromiseRef.current, []);
+  return {sessionIdRef, ready, failed, beginNewRound, waitForSession};
 }
 
 export function getGameResultMessage(score: number, awardedXp: number) {
@@ -25,9 +40,10 @@ export function getGameResultMessage(score: number, awardedXp: number) {
 export async function submitMobileGameScore(params: {
   game: ArcadeGame;
   score: number;
-  clientRoundId: string;
-  startedAt: number;
+  sessionId: string;
 }) {
-  const payload = buildGameScorePayload(params);
-  return submitGameScore(params.game.id, payload);
+  return submitGameScore(params.game.id, {
+    score: Math.max(0, Math.floor(params.score)),
+    session_id: params.sessionId,
+  });
 }

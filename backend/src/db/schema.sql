@@ -520,6 +520,16 @@ CREATE TABLE IF NOT EXISTS arcade_games (
 );
 CREATE INDEX IF NOT EXISTS idx_arcade_games_active ON arcade_games(is_active, title);
 
+CREATE TABLE IF NOT EXISTS game_play_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    game_id UUID NOT NULL REFERENCES arcade_games(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMP NOT NULL,
+    submitted_at TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_game_play_sessions_user_game ON game_play_sessions(user_id, game_id, started_at DESC);
+
 CREATE TABLE IF NOT EXISTS game_score_submissions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     game_id UUID NOT NULL REFERENCES arcade_games(id) ON DELETE CASCADE,
@@ -528,6 +538,16 @@ CREATE TABLE IF NOT EXISTS game_score_submissions (
     points_awarded INTEGER NOT NULL DEFAULT 0,
     submitted_at TIMESTAMP DEFAULT NOW()
 );
+ALTER TABLE game_score_submissions ADD COLUMN IF NOT EXISTS client_round_id VARCHAR(120);
+ALTER TABLE game_score_submissions ADD COLUMN IF NOT EXISTS play_duration_ms INTEGER;
+ALTER TABLE game_score_submissions ADD COLUMN IF NOT EXISTS submission_source VARCHAR(30);
+ALTER TABLE game_score_submissions ADD COLUMN IF NOT EXISTS session_id UUID REFERENCES game_play_sessions(id) ON DELETE SET NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_game_score_round_once
+    ON game_score_submissions(game_id, user_id, client_round_id)
+    WHERE client_round_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_game_score_session_once
+    ON game_score_submissions(session_id)
+    WHERE session_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_game_score_submissions_user_day ON game_score_submissions(user_id, submitted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_game_score_submissions_game_score ON game_score_submissions(game_id, score DESC);
 

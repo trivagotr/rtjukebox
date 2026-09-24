@@ -4,7 +4,6 @@ import { createServer } from 'http';
 import { initIO } from './socket';
 import cors from 'cors';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs';
 import authRoutes from './routes/auth';
@@ -17,15 +16,18 @@ import usersRoutes from './routes/users';
 import spotifyRoutes from './routes/spotify';
 import gamificationRoutes from './routes/gamification';
 import profileRoutes from './routes/profile';
+import jobsRoutes from './routes/jobs';
 import { setupSocketHandlers } from './sockets';
 import { registerUtilityRoutes } from './utilityRoutes';
 import { startRadioHistoryWatcher } from './services/radioHistory';
-import { syncPodcastFeed } from './services/podcastFeeds';
 import { ensureDefaultPodcastFeeds, getDefaultPodcastFeeds } from './services/defaultPodcastFeeds';
 import { db } from './db';
+import { enqueueBackgroundJob, runWithLeaderLease, startBackgroundJobs, stopBackgroundJobs } from './services/backgroundJobs';
+import { runMetadataSyncJob, runProcessSongJob, runScanFolderJob } from './routes/jukebox';
+import { runPodcastFeedSyncJob } from './routes/podcastFeeds';
 import { resolveCorsOrigins } from './config/cors';
 import { requestIdMiddleware } from './middleware/requestId';
-import { readRateLimit } from './middleware/rateLimits';
+import { globalApiRateLimit, readRateLimit, startRateLimitRedis, stopRateLimitRedis } from './middleware/rateLimits';
 
 const IS_TEST_ENV = process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST);
 
@@ -105,10 +107,10 @@ app.use(helmet({
 app.use(cors({
     origin: corsOrigin,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-guest-fingerprint']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-guest-fingerprint', 'x-kiosk-credential']
 }));
 app.use(express.json({ limit: '1mb' }));
-app.use(rateLimit({ windowMs: 60000, max: 500, validate: { xForwardedForHeader: false } }));
+app.use(globalApiRateLimit);
 app.use('/api/v1', (req, res, next) => req.method === 'GET' ? readRateLimit(req, res, next) : next());
 registerUtilityRoutes(app);
 
@@ -158,6 +160,7 @@ app.use('/api/v1/users', usersRoutes);
 app.use('/api/v1/spotify', spotifyRoutes);
 app.use('/api/v1/gamification', gamificationRoutes);
 app.use('/api/v1/profile', profileRoutes);
+app.use('/api/v1/jobs', jobsRoutes);
 
 // Health check
 registerGetWithOptionalPublicBase('/health', (req, res) => res.json({ status: 'ok' }));
@@ -198,26 +201,14 @@ function startBackgroundTasks() {
     const podcastSyncIntervalMs = podcastSyncIntervalHours * 60 * 60 * 1000;
 
     async function runPodcastSync() {
-        try {
-            await ensureDefaultPodcastFeeds(db, getDefaultPodcastFeeds(process.env.DEFAULT_PODCAST_FEEDS));
-            const result = await db.query(
-                'SELECT id, feed_url, title FROM podcast_feeds WHERE is_active = true'
-            );
-            for (const feed of result.rows) {
-                try {
-                    await syncPodcastFeed(db, {
-                        id: feed.id,
-                        feedUrl: feed.feed_url,
-                        title: feed.title,
-                    });
-                } catch (error) {
-                    const message = error instanceof Error ? error.message : 'unknown error';
-                    console.error(`[podcastSync] Failed to sync feed "${feed.id}":`, message);
-                }
+        await runWithLeaderLease('podcast-sync', 60_000, async () => {
+            try {
+                await ensureDefaultPodcastFeeds(db, getDefaultPodcastFeeds(process.env.DEFAULT_PODCAST_FEEDS));
+                await enqueueBackgroundJob('podcast-feed-sync', { requestedBy: 'system' });
+            } catch (error) {
+                console.error('[podcastSync] Failed to queue podcast feed sync:', error instanceof Error ? error.name : 'Error');
             }
-        } catch (error) {
-            console.error('[podcastSync] Failed to load podcast feeds for sync:', error);
-        }
+        });
     }
 
     // Initial sync shortly after startup, then on a fixed interval.
@@ -242,16 +233,18 @@ function startBackgroundTasks() {
         if (isReconcilingSpotify) return;
         isReconcilingSpotify = true;
         try {
-            const activeDevicesResult = await db.query(
-                `SELECT id FROM devices WHERE is_active = true AND spotify_playback_device_id IS NOT NULL`
-            );
-            for (const row of activeDevicesResult.rows) {
-                try {
-                    await reconcileStoppedSpotifyPlaybackForDevice({ deviceId: row.id });
-                } catch (recErr: any) {
-                    // Suppress transient noise
+            await runWithLeaderLease('spotify-reconciliation', 15_000, async () => {
+                const activeDevicesResult = await db.query(
+                    `SELECT id FROM devices WHERE is_active = true AND spotify_playback_device_id IS NOT NULL`
+                );
+                for (const row of activeDevicesResult.rows) {
+                    try {
+                        await reconcileStoppedSpotifyPlaybackForDevice({ deviceId: row.id });
+                    } catch (recErr: any) {
+                        // Suppress transient noise
+                    }
                 }
-            }
+            });
         } catch (dbErr: any) {
             // DB query error
         } finally {
@@ -265,10 +258,44 @@ function startBackgroundTasks() {
 
 const PORT = process.env.PORT || 3000;
 if (!IS_TEST_ENV) {
-    httpServer.listen(PORT, () => {
-        console.log(`Server running on port ${PORT}`);
+    void startRateLimitRedis();
+    void startBackgroundJobs(async (name, payload, job) => {
+        switch (name) {
+            case 'scan-folder':
+                return runScanFolderJob((progress) => job.updateProgress(progress));
+            case 'process-song':
+                if (!payload.songId) throw new Error('song_id is required');
+                await job.updateProgress(10);
+                const processed = await runProcessSongJob(payload.songId);
+                await job.updateProgress(100);
+                return processed;
+            case 'sync-metadata':
+                await job.updateProgress(5);
+                const metadata = await runMetadataSyncJob(payload.songId);
+                await job.updateProgress(100);
+                return metadata;
+            case 'podcast-feed-sync':
+                return runPodcastFeedSyncJob(payload.feedId, (progress) => job.updateProgress(progress));
+            default:
+                throw new Error('Unknown background job');
+        }
+    }).then(() => {
+        httpServer.listen(PORT, () => {
+            console.log(`Server running on port ${PORT}`);
+        });
+        startBackgroundTasks();
     });
-    startBackgroundTasks();
+}
+
+async function shutdown() {
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    await stopBackgroundJobs();
+    await stopRateLimitRedis();
+}
+
+if (!IS_TEST_ENV) {
+    process.once('SIGINT', () => void shutdown());
+    process.once('SIGTERM', () => void shutdown());
 }
 
 export { app, httpServer };

@@ -121,7 +121,7 @@ describe('gamification router', () => {
       })
       .mockResolvedValueOnce({ rows: [] });
 
-    await handler({ params: { itemId: 'item-1' }, user: { id: 'user-1', role: 'user' } }, {});
+    await handler({ params: { itemId: '00000000-0000-4000-8000-000000000001' }, user: { id: 'user-1', role: 'user' } }, {});
 
     expect(mockSendError).toHaveBeenCalledWith({}, 'Not enough points', 400);
     expect(mockDbTransaction).toHaveBeenCalledTimes(1);
@@ -148,8 +148,8 @@ describe('gamification router', () => {
       .mockResolvedValue({ rows: [] });
 
     await handler({
-      params: { gameId: 'game-1' },
-      body: { score: 100 },
+      params: { gameId: '00000000-0000-4000-8000-000000000002' },
+      body: { score: 100, client_round_id: 'game-1-round-1', play_duration_ms: 30_000, submission_source: 'mobile_game' },
       user: { id: 'user-1', role: 'user' },
     }, {});
 

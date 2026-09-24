@@ -201,3 +201,168 @@ Endpoint ve UI envanterleri hâlâ son adıma bırakıldı.
 - Added strict Zod request schemas to `POST /api/v1/jukebox/queue` and `POST /api/v1/jukebox/vote`. They reject unknown keys, malformed UUIDs, empty/oversized Spotify URIs, conflicting song selectors, invalid vote values, and missing targets before the write transaction starts.
 - Validation is limited to these two high-contention write routes; strict schemas for the rest of the API remain open.
 - `backend` TypeScript build passed. Per the current instruction, no tests were run for this continuation.
+### Continuation — admin mutation audit trail (2026-09-24)
+
+- Added `backend/src/middleware/adminAudit.ts`, which asynchronously writes authenticated admin mutations to the existing `audit_logs` table after the response finishes. It records actor, method category, route template/path, response status, and request ID.
+- Request bodies, query strings, and IP addresses are deliberately omitted so credentials and personal network data are not copied into the audit trail. Audit insert errors are reported as sanitized structured context and do not change an already-sent response.
+- Applied the middleware after authorization on jukebox admin, podcast-feed admin, optional radio-profile admin, and Spotify admin routes. Added the admin rate limit to radio-profile routes as well.
+- `backend` TypeScript build passed. Tests were not run in this continuation. Existing endpoint and UI surface inventories need no route/component additions for this middleware; final source-wide refresh remains deferred until the remaining plan work is done.
+### Continuation — gamification submission hardening (2026-09-24)
+
+- Game score submissions now require a strict payload with bounded integer score, bounded round ID, plausible duration, and `mobile_game` source. The round ID, duration, and source are stored; a partial unique index allows only one submission per user/game/round. Duplicate retries return 409, and score/point writes remain in the same transaction. This provides replay protection; the score itself is still client-calculated and needs a server-verifiable gameplay protocol.
+- Listening heartbeat ignores the legacy client `listened_seconds` value when calculating rewards. It serializes by user/content, accumulates at most 60 seconds per heartbeat from elapsed server time, and updates session plus point ledger in one transaction. Idle gaps over 10 minutes start a new session.
+- `mobile/src/services/gamificationService.ts` marks `listened_seconds` optional/legacy. `schema.sql` adds the submission metadata columns idempotently for existing installations.
+- `backend` TypeScript build passed. Tests were not run in this continuation.
+### Continuation — signed QR reward tokens (2026-09-24)
+
+- Added `POST /api/v1/gamification/admin/qr-rewards/:rewardId/token`, admin-guarded, rate-limited, and audit-logged. It issues a 15-minute signed token with a random nonce, capped at the reward end time.
+- QR claims now strictly validate the request and verify the HMAC signature, expiry, reward ID, and nonce format before loading the reward. Claim and point-ledger writes remain transactional; the per-user unique claim constraint prevents replay by the same account.
+- Signing uses a domain-separated HMAC key derived from `QR_REWARD_SIGNING_SECRET` or `JWT_SECRET`. Existing raw QR strings are no longer accepted; active printed QR codes must be reissued via the new admin endpoint. No production DB or QR artifacts were changed.
+- The mobile claim call already submits the scanned value as `code`, so signed token strings use the existing client API shape. There is not yet a UI for admins to issue/display QR tokens.
+- `backend` TypeScript build passed. Tests were not run in this continuation.
+### Continuation — server-timed listening rewards and QR issuance (2026-09-24)
+
+- Listening heartbeats now use a strict shape and a per-user/content PostgreSQL advisory lock. The server derives elapsed time from the previous heartbeat, credits at most 60 seconds per minute, closes the active accumulation window after 10 idle minutes, and writes reward/ledger updates in one transaction. Legacy `listened_seconds` remains accepted but is ignored for reward calculation.
+- Added signed QR reward token issuance for admins and signature/expiry verification during claim. The issuance route is new and must be included in the final endpoint inventory. Existing raw QR codes need replacement; an admin UI for issuing/displaying reward tokens remains open.
+- Together with the previous step, game submissions now require/store round metadata and reject duplicate rounds, but game score calculation is still not verifiable from server-side gameplay events.
+- `backend` TypeScript build passed. Tests were not run in this continuation.
+### Follow-up — strict gamification write inputs (2026-09-24)
+
+- Added strict request validation and UUID parameter checks for market redemption, event registration, game score submission, listening heartbeat, QR claim, and QR token issuance. Unknown body properties are rejected; operations that take no body accept only an empty object.
+- Reused current mobile score payload fields and retained the legacy listening duration as an ignored optional field for client compatibility.
+- `backend` TypeScript build passed. Tests were not run in this continuation.
+### Follow-up — server-issued arcade play sessions (2026-09-24)
+
+- Added `POST /api/v1/gamification/games/:gameId/sessions` to issue authenticated, user/game-bound play sessions that expire after two hours. Score submission now requires an unused session UUID, derives duration from server time, and consumes the session in the same transaction as score and point writes. Database columns and a unique session index provide replay protection.
+- Updated Snake, Memory, Rhythm Tap, Tetris, and Word Guess mobile flows to start a server session for every round and reuse that session when retrying a failed score submission. Gameplay waits for the session before accepting input or advancing timers.
+- The score value remains client-calculated; session issuance and duration checks do not validate individual gameplay events or prove the claimed score.
+- `backend` TypeScript build passed. Mobile app sources passed TypeScript checking with a temporary source-only config. A plain mobile `npx tsc --noEmit` also traversed existing `__tests__` and failed on missing Jest globals and stale tests for the removed client round-ID payload; no tests were run.
+- The new session endpoint must be included when the endpoint inventory receives its final source-wide refresh.
+
+### Follow-up — Redis-backed HTTP rate limits (2026-09-24)
+
+- Replaced process-local counters for the global API limit and route-level auth, guest, read, write, heartbeat, and admin limits with a shared Redis fixed-window store when `REDIS_URL` is configured and reachable. Atomic Lua `INCR`/`PEXPIRE` ensures concurrent backend instances share counts.
+- Redis initializes at server startup and closes during SIGINT/SIGTERM shutdown. If configuration or connectivity is unavailable, the limiter falls back to its per-process memory store and logs a sanitized warning; distributed enforcement is therefore temporarily unavailable during Redis outages.
+- `backend` TypeScript build passed. No Redis container/service smoke check or tests were run in this continuation.
+- This covers HTTP rate-limit coordination. Scheduled radio, podcast, and playback jobs are still process-local and need distributed job ownership/queueing before multi-instance deployment.
+
+## G5 — Uzun HTTP işlemleri için BullMQ arka plan işleri (2026-09-24)
+
+**Durum:** Uygulandı; Redis ile canlı kuyruk/worker smoke doğrulaması yapılmadı.
+
+- `backend/src/services/backgroundJobs.ts`: BullMQ kuyruğu/worker'ı, retry/backoff, güvenli iş sonucu saklama ve job durum okuma eklendi. `REDIS_URL` gerekir; Redis yoksa kuyruk endpoint'leri 503 döner. API çalışır ancak uzun iş kuyruğa alınamaz.
+- `backend/src/routes/jobs.ts` ve `backend/src/server.ts`: authenticated `GET /api/v1/jobs/:jobId` ile yalnız işi oluşturan kullanıcı veya admin durum/ilerleme/sonucu görebilir. Worker başlatma ve graceful shutdown eklendi.
+- `POST /api/v1/jukebox/admin/scan-folder`, `POST /admin/process-song`, `POST /admin/sync-metadata` ve `POST /api/v1/podcast-feeds/sync` artık `202 Accepted` + `job_id` döndürüyor. RSS feed oluşturmanın ilk sync'i de kuyruğa alınıyor. Podcast feed ve sync payload'larında strict Zod kontrolü eklendi.
+- Klasör tarama, ses işleme, metadata sync ve RSS feed sync worker içinde çalışıyor. Scan ve RSS işleri ilerleme yüzdesi bildiriyor; hata cevapları teknik path/URL ayrıntısını açığa çıkarmıyor.
+- `jukebox-web-controller/src/AdminDashboard.tsx` scan, process ve metadata işleri için durum sorguluyor. Mobil `ProfileScreen` podcast sync sonuçlarını job tamamlanana kadar bekliyor; feed oluşturma ilk sync'in arka planda başladığını bildiriyor.
+- `backend/package.json` / lockfile BullMQ ekini ve node-redis 5 uyumunu içeriyor. Mevcut `.env.example` içinde `REDIS_URL` örneği var.
+- Kontrol: backend TypeScript build, web controller production build ve mobil kaynak TypeScript kontrolü başarılı. Test çalıştırılmadı. Redis bağlı canlı job akışı doğrulanmadı.
+- Kapsam sınırı: düzenli podcast timer'ı job kuyruğuna iş ekliyor; radio history watcher ve Spotify reconciliation timer'ı hâlâ her backend sürecinde yerel timer. Çoklu instance'da bunlar için tekil scheduler/leader coordination ayrıca gerekli.
+
+**Envanter:** G5 sonrası endpoint ve UI envanterlerine asenkron job durum akışı eklendi. Oyun alanları değiştirilmedi.
+
+### Follow-up — strict request validation: account and profile routes (2026-09-24)
+
+- `backend/src/routes/auth.ts`: registration, login, guest creation, and refresh bodies now use bounded strict Zod schemas. Unknown fields are rejected. Validation errors and login failures return stable sanitized responses; handler logs no longer include raw exception messages.
+- `backend/src/routes/profile.ts`: profile customization updates now reject unknown keys, wrong value types, and overlong values before normalization.
+- `backend/src/routes/radioProfiles.ts`: create/update, asset attach, device profile assignment, and device override bodies use strict schemas; path UUIDs and asset slot enum are validated.
+- `backend/src/routes/spotify.ts`: Spotify app-config updates reject unknown keys and bound client ID/secret length; client secret remains write-only in the response mapper.
+- Existing mobile and controller request shapes were checked against these schemas. `backend` TypeScript build passed. Tests were not run.
+- Coverage is incremental: strict schemas have not yet been added to all remaining write routes. Game-related endpoints were excluded from this continuation.
+
+**Envanter:** Endpoint envanterine bu grupların strict payload kuralları eklendi. UI envanterine, mevcut auth/profile/admin ekranlarının payload şeklinin korunduğu ve yeni UI surface eklenmediği kaydedildi.
+
+### Follow-up — strict request validation: jukebox admin and moderation writes (2026-09-24)
+
+- `backend/src/routes/jukebox.ts`: admin skip, local-song classification, device create/update, Spotify playback target, artist block, moderation settings, blocked keyword creation and moderation test now use strict bounded schemas.
+- Device/song IDs on these writes must be UUIDs. Device fields have explicit limits, active/override flags require booleans, popularity is limited to 0–100, and moderation tests require text or both title and artist. Unknown keys are rejected.
+- The existing route paths and client payload shapes are retained. No game route or game UI was changed.
+- Backend TypeScript build passed. Tests were not run.
+
+**Envanter:** Endpoint envanterine bu admin payload kuralları işlendi; UI envanterinde yalnız mevcut AdminDashboard ve moderasyon servislerinin değişmeyen UI yüzeyi olduğu belirtildi.
+
+### Continuation — realtime socket validation and kiosk expiry (2026-09-24)
+
+- `backend/src/sockets/index.ts`: device room IDs, playback progress, and kiosk heartbeat payloads now use strict Zod validation. Existing per-event rate limits, room membership checks, session ownership checks, and minimal emitted DTOs remain in place.
+- `backend/src/socket.ts`: kiosk socket authentication now passes the credential expiry into the socket session, so the shared expiry timer disconnects both JWT and kiosk credential sessions at expiry.
+- Backend TypeScript build passed. Tests were not run.
+
+**Envanter:** Socket.IO REST dışı gerçek zamanlı yüzey olarak endpoint envanterinde açıklığa kavuşturuldu; UI envanterinde bağlantının mobil JukeboxView, controller JukeboxView ve kiosk üzerinden yapıldığı kaydedildi.
+
+### Follow-up — strict jukebox user and kiosk inputs (2026-09-24)
+
+- Connect/disconnect, kiosk register, now-playing, autoplay trigger, and song block writes now validate strict bounded bodies; kiosk registration accepts exactly one credential or provisioning code.
+- Provisioning, logout-all, playback-state, song block, and blocked-artist ID parameters now require UUIDs. No game routes or game screens were changed.
+- Backend TypeScript build passed. Tests were not run.
+
+## Current scaffold status (2026-09-24)
+
+The `backend-refactor/` directory is an isolated, non-production scaffold. Its app does not replace or mount into `backend/`; the current live application remains under `backend/`. The scaffold contains the shared core, module template, and an Identity vertical slice placeholder. Identity repository and HTTP handlers intentionally still raise `NotImplementedError`, so it is not ready for production traffic. Domain-by-domain migration remains an architecture phase, and any game-related migration is excluded from this work by the current request.
+
+### Local verification
+
+- `npm run lint` passes.
+- `npm run typecheck` passes when a syntactically valid temporary `DATABASE_URL` is present for Prisma client generation; Prisma generation itself does not connect to a database.
+- The layer-boundary check was exercised by temporarily adding an `@prisma/client` import to `identity.service.ts`; ESLint rejected it with both the service import restriction and unused-import rule. The temporary import was removed.
+- Static scan found no `$queryRaw`, `$executeRaw`, runtime `process.env` reads outside the config module, or `child_process.exec` use under the scaffold source. `README.md` mentions `prisma db push` only to prohibit it.
+- `_template/` files are intentionally reusable templates. They are not imported by the app. Current duplicate names across `backend/` and `backend-refactor/` reflect the deliberate side-by-side rollout boundary.
+- No database migration was applied and no live app cutover occurred.
+
+### Continuation — scheduler ownership for multi-instance deployments (2026-09-24)
+
+- Added Redis lease coordination for periodic podcast feed enqueue, radio history polling/cleanup, and Spotify playback reconciliation. A single instance owns each task at a time; the lease renews while the task runs and is released only by its owner.
+- Without `REDIS_URL`, the existing single-process local scheduling behavior is retained. If Redis is configured but unavailable, leased jobs are skipped instead of running concurrently on every instance.
+- Backend TypeScript build passed. No Redis-backed multi-instance smoke test or tests were run.
+
+### Continuation — duplicate Spotify endpoint removal and device PATCH semantics (2026-09-24)
+
+- Removed unused duplicate `GET /api/v1/jukebox/admin/spotify-devices`; the controller's canonical source is `/api/v1/spotify/playback-devices`.
+- Changed generic device partial updates from `PUT /api/v1/jukebox/admin/devices/:id` to `PATCH` and updated all four AdminDashboard calls. The request already applied partial fields with COALESCE semantics; schema validation remains strict.
+- Tightened catalog search pagination/search bounds and lyrics query lengths/duration, and added strict kiosk Spotify token/auth/device registration bodies while preserving the current kiosk credential fields.
+- Backend TypeScript build and controller production build passed. No tests were run.
+
+### Follow-up — feed, radio and media input bounds (2026-09-24)
+
+- Podcast feed deletion now validates the feed UUID before database access. Radio history channel IDs are bounded before their parameterized lookup; jukebox soft-delete song IDs require UUIDs.
+- Lyrics lookup already used a fixed external provider, so it has no user-controlled destination URL. Its in-memory cache is now case/Unicode-normalized, size-bounded to 1,000 entries, and expires successful results after one hour and misses after five minutes.
+- Backend TypeScript build passed. Tests were not run.
+
+## Phase 2 — isolated Identity vertical slice (2026-09-24)
+
+- Implemented `backend-refactor/src/modules/identity` register, login, guest, refresh-token rotation, and logout flows. Request bodies use strict schemas; auth and guest routes have separate rate-limit classes.
+- The service depends on the repository port and Node cryptography only. Passwords use salted scrypt; refresh tokens are opaque, stored as keyed hashes, and rotated transactionally so concurrent reuse is rejected. Responses pass through an Identity DTO mapper.
+- The Prisma `User` and `RefreshToken` models now represent UUID users, display name/role/guest state, and hashed refresh sessions. Replaced the scaffold's initial migration with SQL generated by Prisma from the schema. The migration has not been applied to a database.
+- `backend-refactor/README.md` now distinguishes implemented Identity flows from still-placeholder auth guards and other modules. The module remains isolated and is not mounted into `backend/`.
+- `backend-refactor` production build and lint passed; typecheck passed. No tests were run. No database connection or migration was performed.
+
+### Identity core follow-up — access-token and admin guards (2026-09-24)
+
+- Replaced the core authentication placeholder with HS256 token verification, expiration checks, a typed authenticated principal, and role enforcement. The admin router applies one injected-secret auth/ADMIN guard at its router boundary.
+- Guard and Identity service contain no Prisma or Express imports in the service layer. The service-issued token format matches the core verifier.
+- `backend-refactor` production build and lint passed after the change. No tests were run.
+
+### Moderation regex safety follow-up (2026-09-24)
+
+- Custom blocked keywords are now escaped as literal text before boundary matching, preventing stored keyword content from changing regex structure or causing catastrophic backtracking.
+- Keyword and category input limits now match the database column sizes (100 and 50 characters).
+- No game-related code was changed. Backend TypeScript build is being rerun with the final verification batch.
+
+### Final verification batch (2026-09-24)
+
+- `backend`: `npm run build` passed.
+- `jukebox-web-controller`: `npm run build` passed after device-update calls moved to PATCH.
+- `backend-refactor`: production build and ESLint passed; typecheck had also passed with a temporary local `DATABASE_URL` for Prisma generation.
+- `git diff --check` passed; Git reported only the workspace's LF/CRLF normalization warnings.
+- No test suites were run. No live Redis-backed lease/job smoke test or database migration was run.
+
+### Queue access control — user policy confirmed (2026-09-24)
+
+- `GET /api/v1/jukebox/queue/:deviceId` now returns queue data only to admins, users with a matching `device_sessions` row, or the matching active kiosk credential supplied in `x-kiosk-credential`.
+- Kiosk queue polling now sends its stored credential in that header. CORS allows the header. Expired, revoked, inactive-device, or mismatched kiosk credentials do not grant access.
+- Backend TypeScript build and controller production build are being rerun; no test suite was run.
+
+### State correction and final verification (2026-09-24)
+
+- The earlier “Current scaffold status” paragraph is stale: Identity is no longer a placeholder. The isolated `backend-refactor/src/modules/identity` slice implements register, login, guest login, refresh-token rotation, and logout; its HS256 access-token verifier and role guard are implemented as well. Other domain modules remain templates/placeholders, the scaffold is not mounted by `backend/`, and its migration has not been applied.
+- Final verification after queue authorization: `backend` `npm run build` passed; `jukebox-web-controller` `npm run build` passed; `git diff --check` passed (Git emitted only LF/CRLF normalization warnings).
+- No automated test suites, database migration, or live Redis multi-instance smoke test were run.

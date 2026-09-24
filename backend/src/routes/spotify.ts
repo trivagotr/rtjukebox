@@ -6,6 +6,13 @@ import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { rbacMiddleware } from '../middleware/rbac';
 import { sendSuccess, sendError } from '../utils/response';
 import { deriveSpotifyDeviceAuthRedirectUri, normalizeSpotifyReturnOrigin, spotifyService, type SpotifyAppConfig } from '../services/spotify';
+import { adminAuditLog } from '../middleware/adminAudit';
+import { z } from 'zod';
+
+const spotifyAppConfigSchema = z.object({
+  client_id: z.string().trim().min(1).max(128),
+  client_secret: z.string().trim().max(512).optional(),
+}).strict();
 
 export interface SpotifyAppConfigUpdatePayload {
   client_id?: unknown;
@@ -54,11 +61,13 @@ function readSpotifyDeviceIdFromRequest(req: Request): string | null {
   const bodyDeviceId = typeof req.body?.device_id === 'string' ? req.body.device_id : null;
   const queryDeviceId = typeof req.query?.device_id === 'string' ? req.query.device_id : null;
   const paramDeviceId = typeof req.params?.deviceId === 'string' ? req.params.deviceId : null;
-  return (bodyDeviceId ?? queryDeviceId ?? paramDeviceId)?.trim() || null;
+  const deviceId = (bodyDeviceId ?? queryDeviceId ?? paramDeviceId)?.trim() || null;
+  return deviceId && z.string().uuid().safeParse(deviceId).success ? deviceId : null;
 }
 
 function readSpotifyDeviceIdFromPathParam(req: Request): string | null {
-  return typeof req.params?.deviceId === 'string' ? req.params.deviceId.trim() || null : null;
+  const deviceId = typeof req.params?.deviceId === 'string' ? req.params.deviceId.trim() || null : null;
+  return deviceId && z.string().uuid().safeParse(deviceId).success ? deviceId : null;
 }
 
 function readSpotifyReturnOriginFromRequest(req: Request): string | null {
@@ -313,6 +322,7 @@ router.get(
   '/auth',
   authMiddleware,
   rbacMiddleware(['admin']),
+  adminAuditLog,
   handleSpotifyAuthStart
 );
 
@@ -331,6 +341,7 @@ router.get(
   '/status',
   authMiddleware,
   rbacMiddleware(['admin']),
+  adminAuditLog,
   async (req: AuthRequest, res: Response) => {
     try {
       const status = await spotifyService.getAuthStatus();
@@ -346,6 +357,7 @@ router.post(
   '/device-auth/start',
   authMiddleware,
   rbacMiddleware(['admin']),
+  adminAuditLog,
   handleSpotifyDeviceAuthStart
 );
 
@@ -358,6 +370,7 @@ router.get(
   '/device-auth/status',
   authMiddleware,
   rbacMiddleware(['admin']),
+  adminAuditLog,
   handleSpotifyDeviceAuthStatus
 );
 
@@ -365,6 +378,7 @@ router.delete(
   '/device-auth/:deviceId',
   authMiddleware,
   rbacMiddleware(['admin']),
+  adminAuditLog,
   handleSpotifyDeviceAuthDelete
 );
 
@@ -376,6 +390,7 @@ router.get(
   '/app-config',
   authMiddleware,
   rbacMiddleware(['admin']),
+  adminAuditLog,
   async (req: AuthRequest, res: Response) => {
     try {
       const config = await spotifyService.getSpotifyAppConfig();
@@ -395,9 +410,12 @@ router.put(
   '/app-config',
   authMiddleware,
   rbacMiddleware(['admin']),
+  adminAuditLog,
   async (req: AuthRequest, res: Response) => {
     try {
-      const payload = normalizeSpotifyAppConfigPayload(req.body || {});
+      const parsed = spotifyAppConfigSchema.safeParse(req.body ?? {});
+      if (!parsed.success) return sendError(res, 'Invalid Spotify app config payload', 400, 'INVALID_SPOTIFY_APP_CONFIG');
+      const payload = normalizeSpotifyAppConfigPayload(parsed.data);
       await spotifyService.saveSpotifyAppConfig(payload);
       const config = await spotifyService.getSpotifyAppConfig();
       return sendSuccess(res, maskSpotifyAppConfigForResponse(config), 'Spotify app config updated');
@@ -416,6 +434,7 @@ router.post(
   '/refresh',
   authMiddleware,
   rbacMiddleware(['admin']),
+  adminAuditLog,
   async (req: AuthRequest, res: Response) => {
     try {
       await spotifyService.refreshAccessToken();
@@ -437,9 +456,13 @@ router.get(
   rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false }),
   authMiddleware,
   rbacMiddleware(['admin']),
+  adminAuditLog,
   async (req: AuthRequest, res: Response) => {
     try {
       const kioskDeviceId = typeof req.query?.kiosk_device_id === 'string' ? req.query.kiosk_device_id.trim() : null;
+      if (kioskDeviceId && !z.string().uuid().safeParse(kioskDeviceId).success) {
+        return sendError(res, 'Invalid kiosk device ID', 400, 'INVALID_DEVICE_ID');
+      }
       let accessTokenOverride: string | undefined = undefined;
 
       if (kioskDeviceId) {

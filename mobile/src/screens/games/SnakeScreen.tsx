@@ -5,7 +5,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import {COLORS, SPACING} from '../../theme/theme';
 import {ArcadeGame} from '../../services/gamificationService';
-import {createClientRoundId, submitMobileGameScore} from './gameSession';
+import {submitMobileGameScore, useServerGameSession} from './gameSession';
 import {ComboMeter, FeedbackToast, GameResultModal, GameShell} from './GameChrome';
 
 type Point = {x: number; y: number};
@@ -18,6 +18,7 @@ const SnakeScreen = () => {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const game = route.params?.game as ArcadeGame;
+  const gameSession = useServerGameSession(game.id);
   const [snake, setSnake] = useState<Point[]>(START_SNAKE);
   const [food, setFood] = useState<Point>(() => createFood(START_SNAKE));
   const [direction, setDirection] = useState<Direction>('right');
@@ -33,8 +34,6 @@ const SnakeScreen = () => {
   const scoreRef = useRef(0);
   const comboRef = useRef(1);
   const submittedRef = useRef(false);
-  const roundIdRef = useRef(createClientRoundId(game));
-  const startedAtRef = useRef(Date.now());
 
   useEffect(() => {
     directionRef.current = direction;
@@ -44,11 +43,12 @@ const SnakeScreen = () => {
     setIsSubmitting(true);
     setSubmitFailed(false);
     try {
+      const sessionId = await gameSession.waitForSession();
+      if (!sessionId) throw new Error('Could not start a verified game session');
       const result: any = await submitMobileGameScore({
         game,
         score: scoreRef.current,
-        clientRoundId: roundIdRef.current,
-        startedAt: startedAtRef.current,
+        sessionId,
       });
       setAwardedXp(Number(result?.points_awarded ?? 0));
     } catch (error) {
@@ -57,7 +57,7 @@ const SnakeScreen = () => {
     } finally {
       setIsSubmitting(false);
     }
-  }, [game]);
+  }, [game, gameSession.waitForSession]);
 
   const finishGame = useCallback(() => {
     if (submittedRef.current) {
@@ -116,10 +116,13 @@ const SnakeScreen = () => {
     return () => clearInterval(timer);
   }, [finishGame, food, gameOver, running]);
 
-  const resetGame = () => {
+  const resetGame = async () => {
+    setRunning(false);
+    if (!await gameSession.beginNewRound()) {
+      setSubmitFailed(true);
+      return;
+    }
     const nextSnake = START_SNAKE;
-    roundIdRef.current = createClientRoundId(game);
-    startedAtRef.current = Date.now();
     submittedRef.current = false;
     scoreRef.current = 0;
     comboRef.current = 1;

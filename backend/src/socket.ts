@@ -61,7 +61,7 @@ export const initIO = (server: any, options: { corsOrigin?: CorsOrigin } = {}) =
 
         try {
             const result = await db.query(
-                `SELECT d.id, d.is_active, kc.credential_hash
+                `SELECT d.id, d.is_active, kc.credential_hash, kc.expires_at
                  FROM devices d
                  JOIN kiosk_credentials kc ON kc.device_id = d.id
                  WHERE d.id = $1 AND kc.revoked_at IS NULL AND kc.expires_at > NOW()`,
@@ -78,6 +78,7 @@ export const initIO = (server: any, options: { corsOrigin?: CorsOrigin } = {}) =
 
             socket.data.role = 'kiosk';
             socket.data.deviceId = device.id;
+            socket.data.credentialExpiresAt = Math.floor(new Date(device.expires_at).getTime() / 1000);
             return next();
         } catch {
             return next(new Error('Unauthorized'));

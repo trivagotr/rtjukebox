@@ -1,4 +1,5 @@
 import api from './api';
+import {waitForBackgroundJob} from './jobsService';
 
 export interface PodcastFeedRow {
   id: string;
@@ -14,18 +15,9 @@ export interface CreatePodcastFeedInput {
   feedUrl: string;
 }
 
-export type PodcastFeedCreateSync =
-  | {
-      status: 'failed';
-    }
-  | {
-      processed: number;
-      upserted: number;
-      skipped: number;
-    };
-
 export interface PodcastFeedSyncResult {
   feedId: string;
+  status: 'synced' | 'failed';
   processed: number;
   upserted: number;
   skipped: number;
@@ -42,12 +34,7 @@ type PodcastFeedApiRow = {
 
 type CreatePodcastFeedResponse = {
   feed?: PodcastFeedApiRow;
-  sync?: {
-    status?: string;
-    processed?: number;
-    upserted?: number;
-    skipped?: number;
-  };
+  sync_job_id?: string | null;
 };
 
 function mapFeedRow(row: PodcastFeedApiRow): PodcastFeedRow {
@@ -74,7 +61,7 @@ export async function listPodcastFeeds(): Promise<PodcastFeedRow[]> {
 
 export async function createPodcastFeed(input: CreatePodcastFeedInput): Promise<{
   feed: PodcastFeedRow;
-  sync: PodcastFeedCreateSync | null;
+  syncJobId: string | null;
 }> {
   const response = await api.post('/podcast-feeds', {
     title: input.title,
@@ -93,13 +80,16 @@ export async function createPodcastFeed(input: CreatePodcastFeedInput): Promise<
 
   return {
     feed,
-    sync: mapCreateSyncPayload(payload.sync),
+    syncJobId: payload.sync_job_id ?? null,
   };
 }
 
 export async function syncPodcastFeeds(): Promise<PodcastFeedSyncResult[]> {
   const response = await api.post('/podcast-feeds/sync', {});
-  const results = response.data?.data?.results;
+  const jobId = response.data?.data?.job_id;
+  if (typeof jobId !== 'string' || !jobId) throw new Error('Podcast sync job was not queued');
+  const result = await waitForBackgroundJob<{results?: Array<Record<string, unknown>>}>(jobId);
+  const results = result.results;
 
   if (!Array.isArray(results)) {
     return [];
@@ -107,6 +97,7 @@ export async function syncPodcastFeeds(): Promise<PodcastFeedSyncResult[]> {
 
   return results.map((result) => ({
     feedId: String(result.feed_id ?? ''),
+    status: result.status === 'failed' ? 'failed' : 'synced',
     processed: Number(result.processed ?? 0),
     upserted: Number(result.upserted ?? 0),
     skipped: Number(result.skipped ?? 0),
@@ -132,28 +123,4 @@ export function hasDuplicatePodcastFeedUrl(feeds: PodcastFeedRow[], feedUrl: str
 export async function hasDuplicatePodcastFeedUrlOnServer(feedUrl: string): Promise<boolean> {
   const feeds = await listPodcastFeeds();
   return hasDuplicatePodcastFeedUrl(feeds, feedUrl);
-}
-
-function mapCreateSyncPayload(sync: CreatePodcastFeedResponse['sync']): PodcastFeedCreateSync | null {
-  if (!sync) {
-    return null;
-  }
-
-  if (sync.status === 'failed') {
-    return { status: 'failed' };
-  }
-
-  if (
-    typeof sync.processed === 'number' ||
-    typeof sync.upserted === 'number' ||
-    typeof sync.skipped === 'number'
-  ) {
-    return {
-      processed: Number(sync.processed ?? 0),
-      upserted: Number(sync.upserted ?? 0),
-      skipped: Number(sync.skipped ?? 0),
-    };
-  }
-
-  return null;
 }

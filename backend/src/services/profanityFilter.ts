@@ -114,7 +114,8 @@ export function checkProfanityText(rawText: string, customBlacklist: string[] = 
     const cleanCustom = normalizeText(customWord);
     if (!cleanCustom) continue;
 
-    const customRegex = new RegExp(`\\b${cleanCustom}\\b`, 'i');
+    const escapedKeyword = cleanCustom.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const customRegex = new RegExp(`\\b${escapedKeyword}\\b`, 'i');
     if (customRegex.test(normalized)) {
       return { isProfane: true, matchedWord: customWord };
     }

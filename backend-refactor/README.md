@@ -32,3 +32,11 @@ prisma/
 - Keep each file focused on one responsibility and keep admin behavior separate from public behavior.
 - Database schema changes use Prisma migrations. Do not use `prisma db push` or raw SQL.
 - The HTTP API has one canonical prefix: `/api/v1`.
+
+## Scaffold status and commands
+
+This directory remains isolated from the current production backend in `../backend`; it is not mounted into that application. Identity implements register, login, guest session, refresh rotation and logout, and the core includes HS256 access-token verification plus the central admin guard. Other business modules remain placeholders. Do not direct production traffic here until the remaining modules, deployment configuration and a deliberate cutover are complete.
+
+Run `npm run lint` and `DATABASE_URL=<valid PostgreSQL URL> npm run typecheck`. Prisma client generation validates the schema and does not connect to the database. The configured layer rules prohibit Prisma and Express imports from services and infrastructure imports from controllers.
+
+The `_template/` module is deliberately unmounted reusable scaffolding. Identity owns a Prisma migration generated from its schema; that migration has not been applied to any database. Domain migration, deployment cutover, and compatibility with the current production schema and tokens remain future work.

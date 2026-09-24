@@ -21,10 +21,16 @@ const IS_TEST_ENV = process.env.NODE_ENV === 'test' || Boolean(process.env.VITES
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || (IS_TEST_ENV ? 'test-refresh-secret-key' : '');
 
 const registerSchema = z.object({
-    email: z.string().email(),
-    password: z.string().min(6),
-    display_name: z.string().min(2).max(100)
-});
+    email: z.string().trim().email().max(320),
+    password: z.string().min(6).max(1024),
+    display_name: z.string().trim().min(2).max(100)
+}).strict();
+const loginSchema = z.object({
+    email: z.string().trim().min(1).max(320),
+    password: z.string().min(1).max(1024),
+}).strict();
+const guestSchema = z.object({ display_name: z.string().max(200) }).strict();
+const refreshSchema = z.object({ refresh_token: z.string().min(1).max(4096) }).strict();
 
 const ALLOWED_REGISTRATION_EMAIL_DOMAINS = new Set([
     'gmail.com',
@@ -119,7 +125,9 @@ async function createAuthSession(userId: string, email: string, role: string) {
 
 router.post('/register', authRateLimit, async (req: Request, res: Response) => {
     try {
-        const { email, password, display_name } = registerSchema.parse(req.body);
+        const parsed = registerSchema.safeParse(req.body);
+        if (!parsed.success) return sendError(res, 'Invalid registration payload', 400, 'INVALID_REGISTRATION');
+        const { email, password, display_name } = parsed.data;
         const normalizedEmail = email.trim().toLowerCase();
         const normalizedDisplayName = normalizeDisplayNameInput(display_name);
 
@@ -150,16 +158,20 @@ router.post('/register', authRateLimit, async (req: Request, res: Response) => {
 
         return sendSuccess(res, { user: mapAuthSessionUser(user), ...tokens }, 'Registration successful', null, 201);
     } catch (error) {
-        console.error('Registration failed:', error);
-        return sendError(res, 'Registration failed', 400);
+        console.error('Registration failed:', error instanceof Error ? error.name : 'Error');
+        return sendError(res, 'Registration failed', 500);
     }
 });
 
 router.post('/login', authRateLimit, async (req: Request, res: Response) => {
     try {
-        const { email, password } = req.body;
-        const inputIdentifier = typeof email === 'string' ? email.trim() : '';
-        if (!inputIdentifier || !password) {
+        const parsed = loginSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return sendError(res, 'Invalid credentials', 401, 'INVALID_CREDENTIALS');
+        }
+        const { email, password } = parsed.data;
+        const inputIdentifier = email;
+        if (!inputIdentifier) {
             return sendError(res, 'Invalid credentials', 401);
         }
 
@@ -199,14 +211,16 @@ router.post('/login', authRateLimit, async (req: Request, res: Response) => {
             ...tokens
         }, 'Login successful');
     } catch (error) {
-        console.error('Login failed:', error);
-        return sendError(res, (error as any)?.message || 'Login failed', 500);
+        console.error('Login failed:', error instanceof Error ? error.name : 'Error');
+        return sendError(res, 'Login failed', 500);
     }
 });
 
 router.post('/guest', guestRateLimit, async (req: Request, res: Response) => {
     try {
-        const normalizedDisplayName = normalizeDisplayNameInput(req.body.display_name ?? '');
+        const parsed = guestSchema.safeParse(req.body);
+        if (!parsed.success) return sendError(res, 'Invalid guest profile payload', 400, 'INVALID_GUEST_PROFILE');
+        const normalizedDisplayName = normalizeDisplayNameInput(parsed.data.display_name);
         if (!normalizedDisplayName || normalizedDisplayName.length < 2) {
             return res.status(400).json({ error: 'Display name required' });
         }
@@ -229,15 +243,16 @@ router.post('/guest', guestRateLimit, async (req: Request, res: Response) => {
             ...tokens
         }, 'Guest login successful', null, 201);
     } catch (error) {
-        console.error('Guest login failed:', error);
+        console.error('Guest login failed:', error instanceof Error ? error.name : 'Error');
         return sendError(res, 'Guest login failed', 500);
     }
 });
 
 router.post('/refresh', authRateLimit, async (req: Request, res: Response) => {
     try {
-        const { refresh_token } = req.body;
-        if (!refresh_token) return res.status(400).json({ error: 'Refresh token required' });
+        const parsed = refreshSchema.safeParse(req.body);
+        if (!parsed.success) return sendError(res, 'Refresh token required', 400, 'INVALID_REFRESH_TOKEN');
+        const { refresh_token } = parsed.data;
 
         const decoded = jwt.verify(
             refresh_token,

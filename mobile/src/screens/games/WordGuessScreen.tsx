@@ -5,7 +5,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import {COLORS, SPACING} from '../../theme/theme';
 import {ArcadeGame} from '../../services/gamificationService';
-import {createClientRoundId, submitMobileGameScore} from './gameSession';
+import {submitMobileGameScore, useServerGameSession} from './gameSession';
 import {ComboMeter, FeedbackToast, GameResultModal, GameShell} from './GameChrome';
 
 type Question = {
@@ -29,6 +29,7 @@ const WordGuessScreen = () => {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const game = route.params?.game as ArcadeGame;
+  const gameSession = useServerGameSession(game.id);
   const [questions, setQuestions] = useState<Question[]>(() => shuffle(QUESTIONS).slice(0, 6));
   const [index, setIndex] = useState(0);
   const [correct, setCorrect] = useState(0);
@@ -40,8 +41,6 @@ const WordGuessScreen = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitFailed, setSubmitFailed] = useState(false);
   const submittedRef = useRef(false);
-  const roundIdRef = useRef(createClientRoundId(game));
-  const startedAtRef = useRef(Date.now());
 
   const currentQuestion = questions[index];
   const score = useMemo(() => correct * 120 + Math.max(0, streak - 1) * 25, [correct, streak]);
@@ -50,11 +49,12 @@ const WordGuessScreen = () => {
     setIsSubmitting(true);
     setSubmitFailed(false);
     try {
+      const sessionId = await gameSession.waitForSession();
+      if (!sessionId) throw new Error('Could not start a verified game session');
       const result: any = await submitMobileGameScore({
         game,
         score: finalScore,
-        clientRoundId: roundIdRef.current,
-        startedAt: startedAtRef.current,
+        sessionId,
       });
       setAwardedXp(Number(result?.points_awarded ?? 0));
     } catch (error) {
@@ -66,7 +66,7 @@ const WordGuessScreen = () => {
   };
 
   const answer = (option: string) => {
-    if (selected || finished) {
+    if (selected || finished || !gameSession.ready) {
       return;
     }
 
@@ -108,9 +108,11 @@ const WordGuessScreen = () => {
     submitFinalScore(finalScore);
   };
 
-  const resetGame = () => {
-    roundIdRef.current = createClientRoundId(game);
-    startedAtRef.current = Date.now();
+  const resetGame = async () => {
+    if (!await gameSession.beginNewRound()) {
+      setSubmitFailed(true);
+      return;
+    }
     submittedRef.current = false;
     setQuestions(shuffle(QUESTIONS).slice(0, 6));
     setIndex(0);

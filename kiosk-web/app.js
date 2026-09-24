@@ -1131,7 +1131,9 @@ class KioskApp {
         if (!this.device) return;
 
         try {
-            const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/queue/${this.device.id}`);
+            const response = await fetch(`${CONFIG.API_URL}/api/v1/jukebox/queue/${this.device.id}`, {
+                headers: { 'x-kiosk-credential': this.getDevicePasswordForApi() },
+            });
             if (!response.ok) throw new Error('Queue fetch failed');
 
             this.queueData = await response.json();

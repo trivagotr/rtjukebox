@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { requireAuth, requireRole } from '../../core/auth/auth.middleware.js';
+import { createRequireAuth, createRequireRole } from '../../core/auth/auth.middleware.js';
 
-export function createAdminRouter() {
+export function createAdminRouter(accessTokenSecret: string) {
   const router = Router();
-  router.use(requireAuth, requireRole('ADMIN'));
+  router.use(createRequireAuth(accessTokenSecret), createRequireRole('ADMIN'));
   return router;
 }

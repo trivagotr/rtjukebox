@@ -5,7 +5,7 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import {COLORS, SPACING} from '../../theme/theme';
 import {ArcadeGame} from '../../services/gamificationService';
-import {createClientRoundId, submitMobileGameScore} from './gameSession';
+import {submitMobileGameScore, useServerGameSession} from './gameSession';
 import {FeedbackToast, GameResultModal, GameShell} from './GameChrome';
 
 type Cell = {x: number; y: number};
@@ -24,6 +24,7 @@ const TetrisScreen = () => {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const game = route.params?.game as ArcadeGame;
+  const gameSession = useServerGameSession(game.id);
   const [occupied, setOccupied] = useState<Record<string, string>>({});
   const [piece, setPiece] = useState<Piece>(() => createPiece());
   const [nextPiece, setNextPiece] = useState<Piece>(() => createPiece());
@@ -37,13 +38,11 @@ const TetrisScreen = () => {
   const [submitFailed, setSubmitFailed] = useState(false);
   const scoreRef = useRef(0);
   const submittedRef = useRef(false);
-  const roundIdRef = useRef(createClientRoundId(game));
-  const startedAtRef = useRef(Date.now());
 
   const activeCells = useMemo(() => getPieceCells(piece), [piece]);
 
   useEffect(() => {
-    if (!running || gameOver) {
+    if (!running || gameOver || !gameSession.ready) {
       return undefined;
     }
 
@@ -56,11 +55,12 @@ const TetrisScreen = () => {
     setIsSubmitting(true);
     setSubmitFailed(false);
     try {
+      const sessionId = await gameSession.waitForSession();
+      if (!sessionId) throw new Error('Could not start a verified game session');
       const result: any = await submitMobileGameScore({
         game,
         score: finalScore,
-        clientRoundId: roundIdRef.current,
-        startedAt: startedAtRef.current,
+        sessionId,
       });
       setAwardedXp(Number(result?.points_awarded ?? 0));
     } catch (error) {
@@ -117,6 +117,7 @@ const TetrisScreen = () => {
   };
 
   const moveDown = () => {
+    if (!gameSession.ready || !running || gameOver) return;
     const moved = {...piece, y: piece.y + 1};
     if (collides(moved, occupied)) {
       lockPiece(piece, occupied);
@@ -127,6 +128,7 @@ const TetrisScreen = () => {
   };
 
   const moveHorizontal = (delta: number) => {
+    if (!gameSession.ready || !running || gameOver) return;
     setPiece((current) => {
       const moved = {...current, x: current.x + delta};
       return collides(moved, occupied) ? current : moved;
@@ -134,6 +136,7 @@ const TetrisScreen = () => {
   };
 
   const rotate = () => {
+    if (!gameSession.ready || !running || gameOver) return;
     setPiece((current) => {
       const rotated = {
         ...current,
@@ -144,6 +147,7 @@ const TetrisScreen = () => {
   };
 
   const drop = () => {
+    if (!gameSession.ready || !running || gameOver) return;
     let dropped = piece;
     while (!collides({...dropped, y: dropped.y + 1}, occupied)) {
       dropped = {...dropped, y: dropped.y + 1};
@@ -151,9 +155,12 @@ const TetrisScreen = () => {
     lockPiece(dropped, occupied);
   };
 
-  const resetGame = () => {
-    roundIdRef.current = createClientRoundId(game);
-    startedAtRef.current = Date.now();
+  const resetGame = async () => {
+    setRunning(false);
+    if (!await gameSession.beginNewRound()) {
+      setSubmitFailed(true);
+      return;
+    }
     submittedRef.current = false;
     scoreRef.current = 0;
     setOccupied({});
@@ -202,17 +209,17 @@ const TetrisScreen = () => {
           <View style={styles.sidePanel}>
             <Text style={styles.nextTitle}>Sonraki</Text>
             <MiniPiece piece={nextPiece} />
-            <TouchableOpacity style={styles.pauseButton} onPress={() => setRunning((value) => !value)} disabled={gameOver}>
+            <TouchableOpacity style={styles.pauseButton} onPress={() => setRunning((value) => !value)} disabled={gameOver || !gameSession.ready}>
               <Icon name={running ? 'pause' : 'play'} size={20} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
 
         <View style={styles.controls}>
-          <ControlButton icon="arrow-left-bold" onPress={() => moveHorizontal(-1)} disabled={gameOver} />
-          <ControlButton icon="rotate-right" onPress={rotate} disabled={gameOver} />
-          <ControlButton icon="arrow-right-bold" onPress={() => moveHorizontal(1)} disabled={gameOver} />
-          <TouchableOpacity style={styles.dropButton} onPress={drop} disabled={gameOver}>
+          <ControlButton icon="arrow-left-bold" onPress={() => moveHorizontal(-1)} disabled={gameOver || !gameSession.ready || !running} />
+          <ControlButton icon="rotate-right" onPress={rotate} disabled={gameOver || !gameSession.ready || !running} />
+          <ControlButton icon="arrow-right-bold" onPress={() => moveHorizontal(1)} disabled={gameOver || !gameSession.ready || !running} />
+          <TouchableOpacity style={styles.dropButton} onPress={drop} disabled={gameOver || !gameSession.ready || !running}>
             <Text style={styles.dropText}>Bırak</Text>
           </TouchableOpacity>
         </View>

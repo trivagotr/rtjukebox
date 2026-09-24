@@ -171,13 +171,9 @@ const ProfileScreen = () => {
       setFeedTitle('');
       setFeedUrl('');
       await loadFeeds();
-      if (created.sync && 'status' in created.sync && created.sync.status === 'failed') {
-        Alert.alert('Success', 'Feed created, but the initial sync failed.');
-      } else if (created.sync && 'upserted' in created.sync) {
-        Alert.alert('Success', `Feed created and synced (${created.sync.upserted} items updated).`);
-      } else {
-        Alert.alert('Success', 'Feed created.');
-      }
+      Alert.alert('Success', created.syncJobId
+        ? 'Feed created. Its initial sync is running in the background.'
+        : 'Feed created. Initial sync could not be queued; use Sync feeds when the job service is available.');
     } catch (error) {
       console.error('Failed to create podcast feed:', error);
       Alert.alert('Error', 'Podcast feed could not be created.');
@@ -210,7 +206,8 @@ const ProfileScreen = () => {
     try {
       const results = await syncPodcastFeeds();
       await loadFeeds();
-      Alert.alert('Success', `Synced ${results.length} feed(s).`);
+      const failed = results.filter((result) => result.status === 'failed').length;
+      Alert.alert('Sync complete', `${results.length - failed} feed(s) synced; ${failed} failed.`);
     } catch (error) {
       console.error('Failed to sync podcast feeds:', error);
       Alert.alert('Error', 'Podcast feeds could not be synced.');

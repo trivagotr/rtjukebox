@@ -3,8 +3,34 @@ import { db } from '../db';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { ROLES } from '../middleware/rbac';
 import { sendError, sendSuccess } from '../utils/response';
+import { adminAuditLog } from '../middleware/adminAudit';
+import { adminRateLimit } from '../middleware/rateLimits';
+import { z } from 'zod';
 
 const router = Router();
+const playlistUriSchema = z.string().trim().max(255).nullable().optional();
+const positiveNullableIntegerSchema = z.number().int().positive().nullable().optional();
+const radioProfileCreateSchema = z.object({
+  name: z.string().trim().min(1).max(160),
+  autoplay_spotify_playlist_uri: playlistUriSchema,
+  jingle_every_n_songs: positiveNullableIntegerSchema,
+  ad_break_interval_minutes: positiveNullableIntegerSchema,
+  is_active: z.boolean().optional(),
+}).strict();
+const radioProfileUpdateSchema = radioProfileCreateSchema.partial().strict();
+const radioProfileAssetSchema = z.object({
+  song_id: z.string().uuid(),
+  slot_type: z.enum(['jingle', 'ad']),
+  sort_order: z.number().int().min(0).nullable().optional(),
+}).strict();
+const radioProfileAssignmentSchema = z.object({ radio_profile_id: z.string().uuid().nullable().optional() }).strict();
+const radioProfileOverrideSchema = z.object({
+  override_enabled: z.boolean().optional(),
+  autoplay_spotify_playlist_uri: playlistUriSchema,
+  jingle_every_n_songs: positiveNullableIntegerSchema,
+  ad_break_interval_minutes: positiveNullableIntegerSchema,
+}).strict();
+const uuidSchema = z.string().uuid();
 
 type DbClient = {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: any[] }>;
@@ -343,6 +369,8 @@ function requireAdmin(req: AuthRequest, res: Response, next: NextFunction) {
 
 router.use(authMiddleware);
 router.use(requireAdmin);
+router.use(adminRateLimit);
+router.use(adminAuditLog);
 
 router.get('/', async (_req: Request, res: Response) => {
   try {
@@ -356,7 +384,9 @@ router.get('/', async (_req: Request, res: Response) => {
 
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const payload = normalizeRadioProfilePayload('create', req.body ?? {});
+    const parsed = radioProfileCreateSchema.safeParse(req.body);
+    if (!parsed.success) return sendError(res, 'Invalid radio profile payload', 400, 'INVALID_RADIO_PROFILE');
+    const payload = normalizeRadioProfilePayload('create', parsed.data);
     const profile = await createRadioProfile(db, payload);
     return sendSuccess(res, { profile }, 'Radio profile created');
   } catch (error) {
@@ -366,6 +396,7 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 router.get('/:id', async (req: Request, res: Response) => {
+  if (!uuidSchema.safeParse(req.params.id).success) return sendError(res, 'Invalid radio profile ID', 400, 'INVALID_RADIO_PROFILE_ID');
   try {
     const profile = await getRadioProfileById(db, req.params.id);
     return sendSuccess(res, { profile }, 'Radio profile fetched');
@@ -375,8 +406,11 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 router.put('/:id', async (req: Request, res: Response) => {
+  if (!uuidSchema.safeParse(req.params.id).success) return sendError(res, 'Invalid radio profile ID', 400, 'INVALID_RADIO_PROFILE_ID');
   try {
-    const payload = normalizeRadioProfilePayload('update', req.body ?? {});
+    const parsed = radioProfileUpdateSchema.safeParse(req.body);
+    if (!parsed.success) return sendError(res, 'Invalid radio profile payload', 400, 'INVALID_RADIO_PROFILE');
+    const payload = normalizeRadioProfilePayload('update', parsed.data);
     const profile = await updateRadioProfile(db, { radioProfileId: req.params.id, payload });
     return sendSuccess(res, { profile }, 'Radio profile updated');
   } catch (error) {
@@ -385,6 +419,7 @@ router.put('/:id', async (req: Request, res: Response) => {
 });
 
 router.delete('/:id', async (req: Request, res: Response) => {
+  if (!uuidSchema.safeParse(req.params.id).success) return sendError(res, 'Invalid radio profile ID', 400, 'INVALID_RADIO_PROFILE_ID');
   try {
     await deleteRadioProfile(db, req.params.id);
     return sendSuccess(res, null, 'Radio profile deleted');
@@ -394,11 +429,11 @@ router.delete('/:id', async (req: Request, res: Response) => {
 });
 
 router.post('/:id/assets', async (req: Request, res: Response) => {
+  if (!uuidSchema.safeParse(req.params.id).success) return sendError(res, 'Invalid radio profile ID', 400, 'INVALID_RADIO_PROFILE_ID');
   try {
-    const { song_id, slot_type, sort_order } = req.body ?? {};
-    if (!song_id || (slot_type !== 'jingle' && slot_type !== 'ad')) {
-      return sendError(res, 'song_id and a valid slot_type are required', 400);
-    }
+    const parsed = radioProfileAssetSchema.safeParse(req.body);
+    if (!parsed.success) return sendError(res, 'Invalid radio profile asset payload', 400, 'INVALID_RADIO_PROFILE_ASSET');
+    const { song_id, slot_type, sort_order } = parsed.data;
 
     const asset = await attachRadioProfileAsset(db, {
       radioProfileId: req.params.id,
@@ -415,6 +450,9 @@ router.post('/:id/assets', async (req: Request, res: Response) => {
 });
 
 router.delete('/:id/assets/:songId/:slotType', async (req: Request, res: Response) => {
+  if (!uuidSchema.safeParse(req.params.id).success || !uuidSchema.safeParse(req.params.songId).success) {
+    return sendError(res, 'Invalid radio profile asset ID', 400, 'INVALID_RADIO_PROFILE_ASSET_ID');
+  }
   try {
     const slotType = req.params.slotType;
     if (slotType !== 'jingle' && slotType !== 'ad') {
@@ -434,8 +472,11 @@ router.delete('/:id/assets/:songId/:slotType', async (req: Request, res: Respons
 });
 
 router.put('/devices/:deviceId/profile', async (req: Request, res: Response) => {
+  if (!uuidSchema.safeParse(req.params.deviceId).success) return sendError(res, 'Invalid device ID', 400, 'INVALID_DEVICE_ID');
   try {
-    const radioProfileId = req.body?.radio_profile_id ?? null;
+    const parsed = radioProfileAssignmentSchema.safeParse(req.body ?? {});
+    if (!parsed.success) return sendError(res, 'Invalid radio profile assignment', 400, 'INVALID_RADIO_PROFILE_ASSIGNMENT');
+    const radioProfileId = parsed.data.radio_profile_id ?? null;
     const device = await assignDeviceToRadioProfile(db, {
       deviceId: req.params.deviceId,
       radioProfileId,
@@ -449,8 +490,11 @@ router.put('/devices/:deviceId/profile', async (req: Request, res: Response) => 
 });
 
 router.put('/devices/:deviceId/override', async (req: Request, res: Response) => {
+  if (!uuidSchema.safeParse(req.params.deviceId).success) return sendError(res, 'Invalid device ID', 400, 'INVALID_DEVICE_ID');
   try {
-    const payload = normalizeDeviceOverridePayload(req.body ?? {});
+    const parsed = radioProfileOverrideSchema.safeParse(req.body);
+    if (!parsed.success) return sendError(res, 'Invalid radio profile override', 400, 'INVALID_RADIO_PROFILE_OVERRIDE');
+    const payload = normalizeDeviceOverridePayload(parsed.data);
     const device = await updateDeviceRadioProfileOverride(db, {
       deviceId: req.params.deviceId,
       overrideEnabled: payload.overrideEnabled,

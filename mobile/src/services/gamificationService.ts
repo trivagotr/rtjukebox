@@ -53,14 +53,19 @@ export interface ListeningHeartbeatPayload {
   content_type: 'radio' | 'podcast' | string;
   content_id?: string;
   content_title?: string;
-  listened_seconds: number;
+  /** Legacy hint accepted by the API; awarded time is derived from server heartbeats. */
+  listened_seconds?: number;
 }
 
 export interface GameScoreSubmissionPayload {
   score: number;
-  client_round_id: string;
-  play_duration_ms: number;
-  submission_source: 'mobile_game';
+  session_id: string;
+}
+
+export interface GamePlaySession {
+  id: string;
+  started_at: string;
+  expires_at: string;
 }
 
 function unwrapData<T>(response: {data?: {data?: T}}): T {
@@ -105,6 +110,13 @@ export async function fetchGames(): Promise<ArcadeGame[]> {
 export async function submitGameScore(gameId: string, payload: GameScoreSubmissionPayload) {
   const response = await api.post(`/gamification/games/${gameId}/score`, payload);
   return unwrapData(response);
+}
+
+export async function startGamePlaySession(gameId: string): Promise<GamePlaySession> {
+  const response = await api.post(`/gamification/games/${gameId}/sessions`, {});
+  const data = unwrapData<{session?: GamePlaySession}>(response);
+  if (!data.session?.id) throw new Error('Game session was not returned');
+  return data.session;
 }
 
 export async function fetchMarketItems(): Promise<MarketItem[]> {

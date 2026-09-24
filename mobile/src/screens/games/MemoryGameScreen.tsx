@@ -4,7 +4,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import {COLORS, SPACING} from '../../theme/theme';
 import {ArcadeGame} from '../../services/gamificationService';
-import {createClientRoundId, submitMobileGameScore} from './gameSession';
+import {submitMobileGameScore, useServerGameSession} from './gameSession';
 import {ComboMeter, FeedbackToast, GameResultModal, GameShell} from './GameChrome';
 
 type MemoryCard = {
@@ -19,6 +19,7 @@ const MemoryGameScreen = () => {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const game = route.params?.game as ArcadeGame;
+  const gameSession = useServerGameSession(game.id);
   const [cards, setCards] = useState<MemoryCard[]>(() => createDeck());
   const [flippedIds, setFlippedIds] = useState<string[]>([]);
   const [moves, setMoves] = useState(0);
@@ -30,8 +31,6 @@ const MemoryGameScreen = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitFailed, setSubmitFailed] = useState(false);
   const submittedRef = useRef(false);
-  const roundIdRef = useRef(createClientRoundId(game));
-  const startedAtRef = useRef(Date.now());
 
   const matchedCount = useMemo(() => cards.filter((card) => card.matched).length, [cards]);
   const score = Math.max(0, matchedCount * 80 - moves * 3 + combo * 12);
@@ -40,11 +39,12 @@ const MemoryGameScreen = () => {
     setIsSubmitting(true);
     setSubmitFailed(false);
     try {
+      const sessionId = await gameSession.waitForSession();
+      if (!sessionId) throw new Error('Could not start a verified game session');
       const result: any = await submitMobileGameScore({
         game,
         score: finalScore,
-        clientRoundId: roundIdRef.current,
-        startedAt: startedAtRef.current,
+        sessionId,
       });
       setAwardedXp(Number(result?.points_awarded ?? 0));
     } catch (error) {
@@ -53,7 +53,7 @@ const MemoryGameScreen = () => {
     } finally {
       setIsSubmitting(false);
     }
-  }, [game, score]);
+  }, [game, score, gameSession.waitForSession]);
 
   useEffect(() => {
     if (matchedCount === cards.length && cards.length > 0 && !submittedRef.current) {
@@ -64,7 +64,7 @@ const MemoryGameScreen = () => {
   }, [cards.length, matchedCount, score, submitFinalScore]);
 
   const handleFlip = (card: MemoryCard) => {
-    if (locked || finished || card.matched || flippedIds.includes(card.id)) {
+    if (!gameSession.ready || locked || finished || card.matched || flippedIds.includes(card.id)) {
       return;
     }
 
@@ -96,10 +96,12 @@ const MemoryGameScreen = () => {
     }
   };
 
-  const resetGame = () => {
+  const resetGame = async () => {
+    if (!await gameSession.beginNewRound()) {
+      setSubmitFailed(true);
+      return;
+    }
     submittedRef.current = false;
-    roundIdRef.current = createClientRoundId(game);
-    startedAtRef.current = Date.now();
     setCards(createDeck());
     setFlippedIds([]);
     setMoves(0);

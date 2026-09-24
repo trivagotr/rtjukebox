@@ -10,8 +10,8 @@ export function createCompositionRoot() {
   const adapter = new PrismaPg({ connectionString: environment.DATABASE_URL });
   const prisma = new PrismaClient({ adapter });
 
-  const identityModule = createIdentityModule(prisma);
-  const adminRouter = createAdminRouter();
+  const identityModule = createIdentityModule(prisma, environment);
+  const adminRouter = createAdminRouter(environment.JWT_SECRET);
   const apiRouter = createApiRouter({
     identity: identityModule.router,
     admin: adminRouter,

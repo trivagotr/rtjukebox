@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { db } from '../db';
+import { runWithLeaderLease } from './backgroundJobs';
 
 export interface NowPlayingInput {
     title: string;
@@ -185,8 +186,10 @@ export function startRadioHistoryWatcher(): NodeJS.Timeout[] {
     const timers: NodeJS.Timeout[] = [];
 
     const cleanupTimer = setInterval(() => {
-        cleanupOldHistory().catch((error) => {
-            console.error('[radioHistory] Cleanup failed:', error);
+        void runWithLeaderLease('radio-history-cleanup', CLEANUP_INTERVAL_MS, async () => {
+            await cleanupOldHistory().catch((error) => {
+                console.error('[radioHistory] Cleanup failed:', error instanceof Error ? error.name : 'Error');
+            });
         });
     }, CLEANUP_INTERVAL_MS);
     if (typeof cleanupTimer.unref === 'function') {
@@ -202,9 +205,9 @@ export function startRadioHistoryWatcher(): NodeJS.Timeout[] {
 
     console.log(`[radioHistory] Watching ${sources.length} radio source(s) for now-playing metadata.`);
     const pollTimer = setInterval(() => {
-        for (const source of sources) {
-            void pollSource(source);
-        }
+        void runWithLeaderLease('radio-history-poll', POLL_INTERVAL_MS, async () => {
+            await Promise.all(sources.map((source) => pollSource(source)));
+        });
     }, POLL_INTERVAL_MS);
     if (typeof pollTimer.unref === 'function') {
         pollTimer.unref();
@@ -212,9 +215,9 @@ export function startRadioHistoryWatcher(): NodeJS.Timeout[] {
     timers.push(pollTimer);
 
     // Kick off an initial poll shortly after startup.
-    for (const source of sources) {
-        void pollSource(source);
-    }
+    void runWithLeaderLease('radio-history-poll', POLL_INTERVAL_MS, async () => {
+        await Promise.all(sources.map((source) => pollSource(source)));
+    });
 
     return timers;
 }

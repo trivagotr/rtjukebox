@@ -2,8 +2,21 @@ import { Router, Response } from 'express';
 import { db } from '../db';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { sendSuccess, sendError } from '../utils/response';
+import { z } from 'zod';
 
 const router = Router();
+const profilePayloadSchema = z.object({
+    favorite_song_title: z.string().max(255).nullable().optional(),
+    favorite_song_artist: z.string().max(255).nullable().optional(),
+    favorite_song_spotify_uri: z.string().max(120).nullable().optional(),
+    favorite_artist_name: z.string().max(255).nullable().optional(),
+    favorite_artist_spotify_id: z.string().max(120).nullable().optional(),
+    favorite_podcast_id: z.string().max(80).nullable().optional(),
+    favorite_podcast_title: z.string().max(500).nullable().optional(),
+    profile_headline: z.string().max(180).nullable().optional(),
+    featured_badge_id: z.string().max(80).nullable().optional(),
+    theme_key: z.string().max(80).nullable().optional(),
+}).strict();
 
 type ProfilePayload = {
     favorite_song_title: string | null;
@@ -115,7 +128,9 @@ export async function handleUpdateMyProfileRequest(req: AuthRequest, res: Respon
     }
 
     try {
-        const payload = normalizeProfileCustomizationPayload(req.body ?? {});
+        const parsedPayload = profilePayloadSchema.safeParse(req.body ?? {});
+        if (!parsedPayload.success) return sendError(res, 'Invalid profile payload', 400, 'INVALID_PROFILE_PAYLOAD');
+        const payload = normalizeProfileCustomizationPayload(parsedPayload.data);
         const result = await db.query(
             `INSERT INTO user_profile_customization (
                 user_id,

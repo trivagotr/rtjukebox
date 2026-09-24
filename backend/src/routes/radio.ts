@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { sendSuccess, sendError } from '../utils/response';
 import { db } from '../db';
+import { z } from 'zod';
 
 const router = Router();
 
@@ -34,6 +35,8 @@ router.get('/schedule', async (req: Request, res: Response) => {
 
 // Get recent song history for a channel (last 15 minutes)
 router.get('/history/:channelId', async (req: Request, res: Response) => {
+    const channelId = z.string().trim().min(1).max(120).safeParse(req.params.channelId);
+    if (!channelId.success) return sendError(res, 'Invalid radio channel ID', 400);
     try {
         const result = await db.query(
             `SELECT title, artist, cover_url, played_at
@@ -41,7 +44,7 @@ router.get('/history/:channelId', async (req: Request, res: Response) => {
              WHERE channel_id = $1
                AND played_at > now() - interval '15 minutes'
              ORDER BY played_at DESC`,
-            [req.params.channelId]
+            [channelId.data]
         );
         return sendSuccess(res, result.rows);
     } catch (error) {

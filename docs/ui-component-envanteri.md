@@ -114,3 +114,40 @@ Envanter uygulama ve ekran dosyalarındaki component tanımlarını, `RootNaviga
 
 
 
+
+## Arka plan işleri (G5)
+
+- `AdminDashboard` mevcut klasör tarama, ses işleme ve metadata sync eylemlerini 202 job yanıtı aldıktan sonra `GET /api/v1/jobs/:jobId` ile takip eder; ekran içindeki yönetim durum alanında sonuç veya hata gösterir.
+- `ProfileScreen` podcast feed yönetiminde toplu sync işinin bitmesini bekler ve başarılı/başarısız feed sayılarını bildirir. Yeni feed eklemenin ilk sync'i kuyrukta başlatılır ve arka planda devam ettiği belirtilir.
+- Mobil servis katmanında `mobile/src/services/jobsService.ts` ortak job polling istemcisidir; bu bir UI component değildir.
+
+## Validation-only changes (G3 follow-up)
+
+- Auth, profile customization, optional radio profile administration, and Spotify app-config controls keep their existing screens and route actions. Backend payload validation tightened without adding or removing UI components.
+
+## Strict payload follow-up: jukebox admin
+
+- Existing `AdminDashboard` actions use the same route paths and field names after backend validation was tightened for skip, device management, and song classification.
+- Moderation UI/service surfaces remain unchanged; keyword, settings, artist block, and text test requests now receive strict backend validation.
+- No UI components or game screens were added or changed in this phase.
+
+## Realtime behavior and validation (2026-09-24)
+
+- Mobile and controller jukebox views and the kiosk join device rooms through Socket.IO. Existing screens continue to receive queue, playback progress, heartbeat, skip, and force-logout updates.
+- The backend now validates these event payloads strictly and disconnects expired user or kiosk sessions; component layout and event names are unchanged.
+
+## Final non-game UI source scan — 2026-09-24
+
+- Rechecked mobile navigation/screens, shared components, controller JSX definitions, kiosk DOM creation, and API call sites. No React component, screen, navigation entry, or kiosk panel was added or removed in this continuation.
+- AdminDashboard keeps its existing device edit, playback target, moderation, provisioning, and background job status surfaces. Generic device edits now issue PATCH; playback-target config keeps its separate PUT route.
+- Existing jukebox and kiosk interfaces still use the same Socket.IO event names and room workflow. Server-side validation/credential expiry did not require UI component changes.
+- `mobile/src/services/jobsService.ts` remains a service, not a UI component. ProfileScreen and AdminDashboard use the previously inventoried async job status behavior.
+- The existing game UI inventory was left unchanged under the no-game scope.
+
+### Queue access control update (2026-09-24)
+
+Kiosk queue polling sends its stored device credential as `x-kiosk-credential`. The queue endpoint checks user device sessions or matching admin/kiosk authorization before returning queue state. No component or route path changed.
+
+## Final inventory pass — 2026-09-24
+
+The kiosk queue poller includes `x-kiosk-credential`; the backend grants queue access only after matching the kiosk credential or an authorized user/admin session. This changed an existing API call's authorization header, not the UI component tree. The controller and mobile component inventories were rechecked; no screen, component, navigation item, or game inventory entry was changed by this final pass.
