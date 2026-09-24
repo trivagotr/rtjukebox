@@ -28,7 +28,7 @@
     "react-native-track-player": "^4.1.1",
     "react-native-vector-icons": "^10.3.0",
     "socket.io-client": "^4.8.3",
-    "zustand": "^5.0.10"
+    "zustand": "^5.0.15"
   },
   "overrides": {
     "fast-xml-parser": "^5.9.3",
