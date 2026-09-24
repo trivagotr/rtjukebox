@@ -2,9 +2,9 @@
 
 Bu liste `backend/src/server.ts` içindeki mount'lar ve `backend/src/routes` içindeki tüm HTTP route tanımlarına göre hazırlanmıştır. İstemci eşleşmesi için `mobile/src`, `jukebox-web-controller/src` ve `kiosk-web` kaynakları taranmıştır. “Bağlı” istemcide çağrı bulunduğunu, “bağlanmayan” taranan istemcilerde çağrı bulunmadığını belirtir; canlı erişilebilirlik iddiası değildir. Parametreler `:id` biçiminde gösterilmiştir.
 
-`/api/v1` route'larının başına yapılandırılmış `PUBLIC_BASE_PATH` eklenebilir. Jukebox router'ı ayrıca yalnızca `/jukebox` altında da mount edilir; böylece kiosk API yollarının kısa alias'ları `/jukebox/...` biçiminde de vardır.
+`/api/v1` route'larının başına yapılandırılmış `PUBLIC_BASE_PATH` eklenebilir. Jukebox router'ı ayrıca doğrudan `/jukebox` altında mount edilir. Bu nedenle router içindeki tüm yolların `/jukebox/...` biçiminde alias'ı vardır; alias yalnız kiosk alt yollarıyla sınırlı değildir. Router root `/` olan route'lar mount yolu olarak gösterilmiştir.
 
-## Bağlı endpointler
+## Bağlı endpointler (mevcut istemci çağrıları)
 
 | HTTP metodu ve endpoint | İstemci |
 |---|---|
@@ -30,7 +30,7 @@ Bu liste `backend/src/server.ts` içindeki mount'lar ve `backend/src/routes` iç
 | `GET /api/v1/jukebox/lyrics`, `GET /api/v1/jukebox/kiosk/playback-state/:deviceId`, `POST /api/v1/jukebox/kiosk/register`, `GET /api/v1/jukebox/kiosk/spotify-token`, `POST /api/v1/jukebox/kiosk/spotify-token`, `POST /api/v1/jukebox/kiosk/spotify-device-auth/status`, `GET /api/v1/jukebox/kiosk/spotify-device-auth/start`, `POST /api/v1/jukebox/kiosk/spotify-device-auth/start`, `POST /api/v1/jukebox/kiosk/spotify-device`, `POST /api/v1/jukebox/kiosk/now-playing`, `POST /api/v1/jukebox/autoplay/trigger` | Kiosk web |
 | `GET /api/v1/spotify/device-auth/start`, `GET /api/v1/spotify/device-auth/status`, `DELETE /api/v1/spotify/device-auth/:deviceId`, `GET /api/v1/spotify/app-config`, `PUT /api/v1/spotify/app-config`, `GET /api/v1/spotify/playback-devices` | Web controller |
 
-## Bağlanmayan endpointler
+## Bağlanmayan endpointler (taranan istemcilerde çağrı bulunmadı)
 
 | HTTP metodu ve endpoint | Not |
 |---|---|
@@ -56,9 +56,15 @@ Aşağıdaki endpointler bu uygulamanın `/api/v1` API'si değildir veya Express
 
 `docs/verification-2026-06-24.md` dosyasındaki 2026-09-23 kaydı canlı smoke'ta register, jukebox connect/search, queue add, supervote, games list/score, QR ödül claim, leaderboard ve podcast listing akışlarının çalıştırıldığını bildiriyor. Diğer endpointler için bu kayıtta canlı smoke kanıtı yoktur.
 
+## Yeni ve önceki listelerin ayrımı
+
+- **Bağlı (yeni/güncel kullanım):** Üç istemci kaynak ağacında çağrısı bulunan route'lar yukarıdaki ilk tabloda istemci adıyla gösterilmiştir.
+- **Bağlanmayan (önceden tanımlı fakat istemci çağrısı saptanmayan):** Backend'de tanımlı olup taranan istemcilerde çağrı bulunmayan route'lar ikinci tabloda yer alır. Bu durum route'un kaldırıldığı veya kullanılamadığı anlamına gelmez.
+- Envanter, iki grubun tamamını kapsar; eski ve yeni ayrımı route yaşı/tarihi değil, istemci entegrasyon durumudur.
+
 ## Kaynak karşılaştırması
 
-Route dosyalarındaki HTTP tanımları metot ve tam yol üzerinden tarandı: 95 route tanımı bulundu, her biri bu envanterde karşılık buldu (router root `/` yolları mount yolu olarak normalize edildi). İstemci kaynakları `rg` ile çağrı ifadeleri bakımından tarandı.
+Route dosyalarındaki HTTP tanımları metot ve tam yol üzerinden tarandı; router root `/` yolları mount yolu olarak normalize edildi. Her route'un yukarıdaki bağlı veya bağlanmayan listede yer alması beklenir. İstemci kaynakları (`mobile/src`, `jukebox-web-controller/src`, `kiosk-web`) çağrı ifadeleri bakımından tarandı. Önceki sürümdeki sabit route sayısı kaynakla yeniden doğrulanmadığı için kaldırıldı.
 
 ## Sınırlama
 

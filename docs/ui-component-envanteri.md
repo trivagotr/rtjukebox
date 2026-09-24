@@ -9,11 +9,11 @@ Bu belge uygulama kaynaklarında tanımlı ekranları, yeniden kullanılan UI co
 | Component | Kaynak | Görev |
 |---|---|---|
 | `App` | `mobile/App.tsx` | Uygulama başlangıcı, provider ağacı, audio player setup, deep linking ve splash/consent geçişlerini yönetir. |
+| `SafeAreaProvider` | `mobile/App.tsx` | Uygulama genelinde güvenli ekran alanı inset'lerini sağlar. |
 | `ConsentGate` | `mobile/App.tsx` | İzin kararına göre consent ekranını, navigator ve splash katmanını gösterir. |
 | `RootNavigator` | `mobile/src/navigation/RootNavigator.tsx` | Ana stack'i kurar; oturum yükleme ekranı, tab navigasyonu, modal oynatıcı, auth akışı ve diğer ekranları bağlar. |
 | `MainTabs` | `mobile/src/navigation/RootNavigator.tsx` | Ana sayfa, radyo, podcast, jukebox ve sıralama tablarını gösterir. |
 | `AuthStack` | `mobile/src/navigation/RootNavigator.tsx` | Auth prompt, giriş ve kayıt akışlarını gruplar. |
-| `MainTabs` | `mobile/src/navigation/RootNavigator.tsx` | Ana tab navigasyonunu ve tab etiket/ikonlarını oluşturur. |
 | `AuthGuard` | `mobile/src/components/AuthGuard.tsx` | Oturumsuz kullanıcıya giriş/kayıt yönlendirme arayüzü sunar. |
 | `GlobalHeader` | `mobile/src/components/GlobalHeader.tsx` | Global başlık ve navigasyon eylemleri. |
 | `MiniPlayer` | `mobile/src/components/MiniPlayer.tsx` | Uygulama içindeki kompakt oynatıcı kontrolleri. |
@@ -48,7 +48,14 @@ Bu belge uygulama kaynaklarında tanımlı ekranları, yeniden kullanılan UI co
 | `LoginScreen` | `mobile/src/screens/auth/LoginScreen.tsx` | Kullanıcı girişi. |
 | `RegisterScreen` | `mobile/src/screens/auth/RegisterScreen.tsx` | Hesap oluşturma. |
 
-`ConsentScreen` ve `SplashScreen`, `RootNavigator` içinde kayıtlı ekranlar değildir; `App.tsx` içindeki `ConsentGate` tarafından uygulama akışında gösterilir.
+### Uygulama akışında gösterilen ekranlar
+
+| Ekran | Kaynak | Gösterim koşulu |
+|---|---|---|
+| `ConsentScreen` | `mobile/src/screens/ConsentScreen.tsx` | İlk açılışta veya izin kararı henüz verilmemişse `ConsentGate` gösterir. |
+| `SplashScreen` | `mobile/src/screens/SplashScreen.tsx` | İzin tamamlandıktan sonra `ConsentGate`, splash görünür olduğu sürece gösterir. |
+
+Bu iki ekran `RootNavigator`'a kayıtlı değildir; `App.tsx` içindeki `ConsentGate` tarafından uygulama akışında gösterilir.
 
 ### Mobil ekran içi tekrar kullanılabilir componentler
 
@@ -91,6 +98,12 @@ Kiosk düz JavaScript ve HTML ile oluşturuluyor; React component ağacı yok. A
 ## Kapsam
 
 Envanter `mobile/src`, `jukebox-web-controller/src` ve kiosk'un HTML/JS kaynaklarını kapsar. Backend, test dosyaları ve UI üretmeyen servisler component listesine alınmamıştır. Context provider bileşenleri ortak componentler bölümünde listelenmiştir. Ekran dosyasının varlığı tek başına kullanıcının o ekrana erişebildiğini kanıtlamaz; navigasyon kaydı ayrıca belirtilmiştir.
+
+## Önceki ve güncel envanter ayrımı
+
+- **Önceden listelenen ve hâlâ mevcut olanlar:** Navigasyona kayıtlı ekranlar, ortak mobil bileşenler, controller bileşenleri ve kiosk DOM yüzeyleri yukarıdaki ana tablolardadır.
+- **Güncel envanterde ayrıca görünür kılınanlar:** `ConsentScreen` ve `SplashScreen` navigator ekranı olmadıkları için ayrı uygulama akışı tablosuna alındı; önceki tabloda yalnızca açıklama notu olarak geçiyorlardı.
+- Yinelenen `MainTabs` satırı tek kayda indirildi. Ekran/bileşenlerin “eski” veya “yeni” oluşu kaynak kontrol geçmişine göre değil, önceki envanterde bulunup bulunmamasına göre belirtilmiştir.
 
 
 
