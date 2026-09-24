@@ -59,7 +59,7 @@
         "globals": "^17.12.0",
         "supertest": "^7.2.2",
         "testcontainers": "^12.1.0",
-        "tsx": "^4.6.2",
+        "tsx": "^4.23.15",
         "typescript": "^5.3.2",
         "typescript-eslint": "^8.70.1",
         "vitest": "^4.1.9"
