@@ -15,6 +15,12 @@ export type BackgroundJobProcessor = (name: BackgroundJobName, payload: Backgrou
 let queue: Queue<BackgroundJobPayload> | undefined;
 let worker: Worker<BackgroundJobPayload> | undefined;
 let redisClient: ReturnType<typeof createClient> | undefined;
+let workerReady = false;
+
+export function isBullMqRedisVersionSupported(version: string | null | undefined) {
+    const match = version?.match(/^(\d+)\.(\d+)(?:\.|$)/);
+    return Boolean(match && Number(match[1]) >= 5);
+}
 
 export class BackgroundJobsUnavailableError extends Error {
     constructor() {
@@ -25,7 +31,7 @@ export class BackgroundJobsUnavailableError extends Error {
 
 export function areBackgroundJobsReady() {
     if (process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST)) return true;
-    return Boolean(process.env.REDIS_URL?.trim() && queue && worker?.isRunning());
+    return Boolean(process.env.REDIS_URL?.trim() && redisClient?.isReady && queue && worker?.isRunning() && workerReady);
 }
 
 export async function startBackgroundJobs(processJob: BackgroundJobProcessor) {
@@ -48,6 +54,12 @@ export async function startBackgroundJobs(processJob: BackgroundJobProcessor) {
 
     try {
         await redisClient.connect();
+        const serverInfo = await redisClient.info('server');
+        const redisVersion = serverInfo.match(/^redis_version:([^\r\n]+)/m)?.[1];
+        if (!isBullMqRedisVersionSupported(redisVersion)) {
+            throw new Error('unsupported_redis_version');
+        }
+
         const connection = createNodeRedisClient(redisClient);
         queue = new Queue<BackgroundJobPayload>('radiotedu-background-jobs', { connection });
         worker = new Worker<BackgroundJobPayload>(
@@ -58,9 +70,24 @@ export async function startBackgroundJobs(processJob: BackgroundJobProcessor) {
         worker.on('failed', (job, error) => {
             console.error(JSON.stringify({ level: 'error', event: 'background_job_failed', jobId: job?.id, jobName: job?.name, errorName: error.name }));
         });
+        worker.on('ready', () => {
+            workerReady = true;
+        });
+        worker.on('error', (error) => {
+            workerReady = false;
+            console.error(JSON.stringify({ level: 'error', event: 'background_worker_error', errorName: error.name }));
+        });
+        await worker.waitUntilReady();
+        workerReady = true;
         console.info(JSON.stringify({ level: 'info', event: 'background_jobs_ready' }));
     } catch (error) {
-        console.error(JSON.stringify({ level: 'error', event: 'background_jobs_start_failed', errorName: error instanceof Error ? error.name : 'Error' }));
+        workerReady = false;
+        const reason = error instanceof Error && error.message === 'unsupported_redis_version'
+            ? 'unsupported_redis_version'
+            : undefined;
+        console.error(JSON.stringify({ level: 'error', event: 'background_jobs_start_failed', errorName: error instanceof Error ? error.name : 'Error', reason }));
+        await worker?.close(true).catch(() => undefined);
+        await queue?.close().catch(() => undefined);
         if (redisClient.isOpen) await redisClient.quit().catch(() => undefined);
         redisClient = undefined;
         queue = undefined;
@@ -141,4 +168,5 @@ export async function stopBackgroundJobs() {
     worker = undefined;
     queue = undefined;
     redisClient = undefined;
+    workerReady = false;
 }

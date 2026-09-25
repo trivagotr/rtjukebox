@@ -114,4 +114,11 @@ Source recheck after the queue authorization decision confirms the route and cli
 - Controller session restore calls `GET /api/v1/auth/me` with credentials; expired access cookies trigger one `POST /api/v1/auth/refresh` retry. Socket.IO uses the access cookie. The controller no longer stores bearer tokens in localStorage.
 - New JWTs require HS256, the configured issuer/audience, and a dedicated refresh audience. A temporary `JWT_ALLOW_LEGACY_TOKENS` switch controls old issuerless sessions.
 - `/health`, `/health/live`, and `/health/ready` are also mounted at `{PUBLIC_BASE_PATH}/health*` when configured. Readiness checks DB, writable uploads, configured rate-limit Redis, and BullMQ worker readiness; a bearer `HEALTHCHECK_TOKEN` is required.
+- BullMQ requires Redis 5 or newer. Startup rejects older Redis versions and keeps non-test readiness unavailable until the worker is ready.
+- Public deployment preflight (2026-09-25): `OPTIONS /jukebox/api/v1/auth/login` returned 204 but omitted `Access-Control-Allow-Credentials`, `PATCH`, `x-auth-transport`, and `x-kiosk-credential` from CORS response headers. The deployed response does not match the current source configuration; credentialed controller auth and kiosk credential headers are blocked until deployment/proxy configuration is updated.
 - The new browser logout route and cookie flow are current in the route table. The game route entries remain unchanged.
+
+## User directory availability scan (2026-09-25)
+
+- `backend/src/routes/users.ts` currently exposes only `GET /api/v1/users/leaderboard`; there is no admin-only user listing endpoint.
+- The existing user result route is a ranking response, not a complete account directory. No user-list endpoint was added in this scan.

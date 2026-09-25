@@ -396,4 +396,69 @@ The `backend-refactor/` directory is an isolated, non-production scaffold. Its a
 - Readiness now includes DB, writable uploads, rate-limit Redis and BullMQ worker state. `/health`, `/health/live`, and `/health/ready` also mount under `PUBLIC_BASE_PATH` when configured.
 - Added mobile `typecheck` for production app sources and fixed existing auth/podcast/QR test typings. Production-source typecheck passed; focused auth, podcast and QR tests passed. Whole-project `tsc --noEmit` now reports only the two stale game test type errors; game files were not changed under the no-games scope.
 - Backend build passed; 81 focused backend auth, profile, migration, Spotify, and health tests passed after the final updates. Controller build and component tests passed (2 tests). `backend-refactor` lint, Prisma typecheck, and build passed with a temporary local URL; it remains deliberately unmounted and is not the release target.
-- No hosted database migration or live service smoke test was performed: the configured `.env` database is hosted and its staging/production role is unconfirmed, and Docker is unavailable for Testcontainers. See `docs/pre-live-release-checklist.md` for the safe release sequence and remaining environment gates.
+- No hosted database migration or live service smoke test was performed: the configured Neon database is temporary, and Docker is unavailable for Testcontainers. See `docs/pre-live-release-checklist.md` for the safe release sequence and remaining environment gates.
+
+### Database access discovery (2026-09-25)
+
+- The user confirmed the configured Neon database is temporary, so it is not presumed to be staging or an authorized migration target.
+- Local PostgreSQL is running as the `PostgreSQL-Custom` Windows service and listens on `127.0.0.1:5432`. The PostgreSQL client tools are installed. A read-only connection attempt as the default `postgres` role without a password was rejected; no PostgreSQL password file was found.
+- The current process is not a Windows administrator, and the local PostgreSQL data directory is protected. No DB credentials were recovered, no schema or data was read from the local DB, and no migration/copy was run.
+- The current backend environment lacks `REDIS_URL`, Spotify client credentials/callback, and `HEALTHCHECK_TOKEN`; no local Redis listener was found on port `6379`. Staging smoke tests need those environment values/services.
+- Static migration review confirmed the default `db:migrate` applies the entire broad `schema.sql`, including unrelated out-of-scope domains. Added `backend/src/db/migrations/20260925_pre_live_auth.sql`, limited to the login-lockout and Spotify OAuth-state tables/indexes. Its device foreign key requires an existing `public.devices(id UUID)` table.
+- Re-ran DB-independent auth/Spotify coverage after preparing the scoped migration: 4 focused test files passed (46 tests). These tests do not replace a target DB migration or staging smoke test.
+- Local DB password recovery is a separate deferred task. Before applying the scoped SQL, confirm whether the target is local PostgreSQL or another staging DB, obtain authorized access, and take a backup. Data copy from temporary Neon is a separate choice and has not started.
+
+### PostgreSQL transition attempt (2026-09-25)
+
+- The user requested starting the move to the local PostgreSQL instance. The workspace still has only the Neon `DATABASE_URL`; no local target URL or `TARGET_DATABASE_URL` environment variable is configured.
+- A read-only Neon metadata connection timed out from this environment. The local PostgreSQL service is running, but its target database credentials/name are not available to this process.
+- No source/target tables or data were read, no backup was created, and no database was modified. The prepared scoped auth/OAuth SQL remains unapplied.
+- Continue once local target connection details are made available in a gitignored local config (for example, `backend/.env.local`) and this environment can reach the source. Keep source and target URLs separate; verify both, back up before copying, and preserve the temporary Neon source.
+
+### Local target connection verified (2026-09-25)
+
+- `TARGET_DATABASE_URL` was added to the existing gitignored `backend/.env`; the local PostgreSQL connection succeeds.
+- The configured URL currently selects the default `postgres` database, where the application `users` and `devices` tables are absent. A separate local `radiotedu` database exists and contains those tables, but the new auth-lockout and OAuth-state tables are absent there.
+- No target was changed. Do not migrate into the default `postgres` database; confirm that `radiotedu` is the intended target and update the target URL before applying the prepared additive migration.
+- The Neon source metadata connection still times out from this environment, so its contents cannot yet be compared or copied. No source data was read and no backup/restore was run.
+
+### Local auth/OAuth schema applied (2026-09-25)
+
+- Updated only the ignored `TARGET_DATABASE_URL` to select the existing local `radiotedu` database; the Neon `DATABASE_URL` remains unchanged.
+- Created and validated a custom-format backup of only `public.users` and `public.devices` in the system temp directory. `pg_restore --list` confirmed both table definitions and data are present in the backup.
+- Applied `20260925_pre_live_auth.sql` through the existing transactional migration runner with local SSL disabled for this connection. The first attempt could not open a connection because the Neon SSL setting was inherited, so no migration transaction or schema change occurred. The retry completed successfully.
+- Verified `users`, `devices`, `auth_login_attempts`, and `spotify_oauth_states` exist in `radiotedu`. User and device row counts remained 133 and 4. No game tables were read or changed.
+- The direct `pg` connection to Neon timed out, but the application's `@neondatabase/serverless` driver connected successfully. No Neon data was copied and the app's primary `DATABASE_URL` was not switched. Full PostgreSQL cutover and DB/Redis/Spotify smoke checks remain open.
+
+### Source/target comparison and local API smoke (2026-09-25)
+
+- Read-only comparison of non-game Jukebox tables found Neon/local counts of users `8/133`, devices `2/4`, songs `39/92,595`, and queue rows `67/102`. User, device, and song IDs had zero overlap; no row values or game tables were read.
+- A temporary local app smoke test against `radiotedu` returned `200` for `/health/live` and `GET /api/v1/jukebox/songs?page=1` (20 catalog entries).
+- The local schema-only auth/OAuth migration is in place and existing user/device counts remain unchanged. The local app database is usable, but switching the primary `DATABASE_URL` without a decision on Neon-only records would leave those separate records behind. Both databases remain intact; no data merge or primary URL switch was made.
+
+### Local PostgreSQL selected; Neon test data excluded (2026-09-25)
+
+- The user confirmed the Neon records were test data and do not need to be imported. `backend/.env` now points the primary `DATABASE_URL` to local `radiotedu`; `DB_SSL=false` is set for the local connection, and the prior Neon URL is preserved as `NEON_TEST_DATABASE_URL`. The file remains gitignored.
+- Verified the primary connection resolves to `radiotedu` with both auth/OAuth tables present. Repeated local API smoke through the primary configuration: `/health/live` and `GET /api/v1/jukebox/songs?page=1` both returned 200, with 20 catalog entries.
+- No Neon rows were copied; local users/devices/songs remain intact. Redis/BullMQ and Spotify smoke checks remain open because their local environment values/services are not configured.
+- User-panel source scan found only `GET /api/v1/users/leaderboard` in the users router. The controller's `LeaderboardView` is a ranking modal, not an account directory; there is no admin user-list endpoint or panel.
+
+### Local service configuration and auth smoke follow-up (2026-09-25)
+
+- Correcting the prior entry: the ignored local `backend/.env` now has Redis and Spotify settings. Redis at `localhost:6379` returned `PONG`; Spotify client credentials returned HTTP 200 from the token endpoint. No Spotify authorization state was created and no account was connected.
+- The configured callback is `https://radiotedu.com/jukebox/api/v1/spotify/callback`. Its registration in the Spotify developer dashboard and interactive admin/device authorization remain unverified. The backend route is mounted at `/api/v1/spotify/callback`; the external `/jukebox` prefix must be forwarded by the site proxy as documented.
+- Generated a 64-character local `HEALTHCHECK_TOKEN` in the ignored `.env`; its value was not printed or added to tracked files. `/health/ready` returned 200 in a test-mode smoke with local DB, uploads, and Redis rate-limit connectivity. Test mode deliberately reports background jobs ready without a BullMQ worker, so production-mode worker readiness remains unverified.
+- Verification in this session: backend `npm run build` passed; 4 focused backend files passed (17 tests); controller `App.component.test.tsx` passed (2 tests) and `npm run build` passed. No test changed or read Games data.
+- The isolated `backend-refactor` scaffold passed `npm run lint` and `npm run build` in this session; Prisma Client generation used the local URL only for schema generation. No migration or database connection/cutover was run. Identity is still the only implemented business slice; the scaffold remains unmounted and is not ready to replace `backend/`.
+- `git diff --check` passed after the documentation updates; Git emitted only LF/CRLF normalization warnings.
+- Did not start the normal backend process because startup consumes BullMQ jobs and runs periodic Spotify/device reconciliation against the local DB. Review the queue and active devices before a non-test worker smoke. Staging/prod DB migration, Spotify dashboard callback confirmation, interactive OAuth, reverse-proxy cookie/Socket.IO verification, and true non-test readiness remain release gates.
+
+### BullMQ compatibility and public route follow-up (2026-09-25)
+
+- The local Redis service answers `PING` but reports Redis `3.0.504`; BullMQ requires Redis 5 or newer. The queue was empty at the read-only precheck. A brief non-test worker probe exposed this incompatibility and was stopped; it did not process any jobs.
+- Hardened `backgroundJobs.ts`: it reads the Redis server version before constructing BullMQ, waits for the worker's ready signal, and reports false readiness when Redis is unsupported or the worker errors. Unsupported Redis is logged as `unsupported_redis_version` instead of starting an error/retry loop. The non-test local readiness endpoint returns 503 with this service.
+- Added coverage for supported/unsupported Redis version parsing. Backend build passed; focused worker-version and health tests passed (8 tests).
+- Spotify's authorization endpoint accepted the configured admin callback and derived device callback in non-interactive PKCE preflights (HTTP 303). A GET to the public callback route without OAuth state/code returned the backend's expected 400; no Spotify login or account grant was performed.
+- Public proxy probe: `https://radiotedu.com/jukebox/health` returned 200, while `/jukebox/health/live` returned 404. No IIS/proxy configuration is present in the workspace, so this deployed route discrepancy remains a hosting-side release item.
+- Public CORS preflight to `OPTIONS /jukebox/api/v1/auth/login` returned 204 but omitted credential support, `PATCH`, `x-auth-transport`, and `x-kiosk-credential`; the deployed headers do not match the current backend source. Controller cookie auth and kiosk credential requests are not verified on the public deployment and likely fail until the hosting deployment/proxy is updated.
+- No modern Redis package/service, staging proxy configuration, Spotify user session, or admin/device credentials are available here. The Redis service upgrade and interactive OAuth/cookie/Socket.IO checks remain open.

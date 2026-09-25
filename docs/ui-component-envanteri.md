@@ -161,3 +161,9 @@ The kiosk queue poller includes `x-kiosk-credential`; the backend grants queue a
 - Controller auth now uses HttpOnly cookies for access/refresh, restores the saved user from `/auth/me`, retries one expired access request through refresh, and calls `/auth/logout`; no access token is stored in localStorage. Mobile guest login stores no refresh token and its auth service continues bearer-token requests.
 - Controller cookie auth requires credentialed CORS and same-site frontend/API origins; the existing component tree is unchanged.
 - No screen, component, navigation entry, or kiosk panel was added or removed in this continuation. Existing game inventory entries were not changed.
+
+### User directory availability scan (2026-09-25)
+
+- The web controller has a `LeaderboardView` ranking modal; it does not show a full account directory or provide user administration.
+- Mobile also has a leaderboard screen, which is a ranking view rather than an admin user list. No separate user-management panel was found or added.
+- Public API CORS preflight currently omits `Access-Control-Allow-Credentials` and the `x-auth-transport` request header required by the controller's cookie login. The deployed controller auth flow therefore needs a backend/proxy update before release; local source and local component tests do not prove public cookie login works.
