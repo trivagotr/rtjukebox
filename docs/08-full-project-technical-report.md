@@ -43,7 +43,7 @@ Kökte tek bir `package.json` yoktur. Her uygulama kendi klasöründe bağımsı
 | `kiosk-web/` | Statik web | backend static servis eder | Kiosk oynatıcı |
 | `docs/` | Dokümantasyon | yok | Planlar ve bu rapor |
 
-Canlı yayın modelinde backend genelde `PORT=3000` üzerinde çalışır. `PUBLIC_BASE_PATH=/jukebox` verildiğinde aynı API'ler hem kök path'ten hem de `/jukebox` subdirectory altından mount edilir.
+Canlı yayın modelinde backend `PORT=3000` üzerinde çalışır. HTTP API'nin kanonik yolu `/api/v1`'dir. IIS dış `/jukebox` prefix'ini proxy sırasında kaldırarak public `/jukebox/api/v1/*` isteklerini backend `/api/v1/*` yoluna iletir. API router'ları backend tarafında ikinci kez `/jukebox` altında mount edilmez. `PUBLIC_BASE_PATH=/jukebox` health alias'ları, statik kiosk/controller yollarını ve Socket.IO path'ini belirler.
 
 Örnek canlı API path'leri:
 
@@ -57,15 +57,15 @@ https://radiotedu.com/jukebox/kiosk
 
 ## 3. Runtime ve Subdirectory Mantığı
 
-Backend'de `src/server.ts` içinde `PUBLIC_BASE_PATH` normalize edilir. `mountWithOptionalPublicBase()` fonksiyonu şu işi yapar:
+Backend'de `src/server.ts` içinde `PUBLIC_BASE_PATH` normalize edilir. `mountWithOptionalPublicBase()` yalnızca bu yardımcı fonksiyonla mount edilen statik dosya yollarını (kiosk, uploads ve controller) kök path'e ek olarak public prefix altında da sunar. API router'ları doğrudan `/api/v1/*` altında mount edilir; IIS dış prefix'i proxy sırasında kaldırır.
 
 ```text
-Girdi: routePath = /api/v1/auth
-PUBLIC_BASE_PATH boşsa:
-  -> sadece /api/v1/auth mount edilir
-PUBLIC_BASE_PATH=/jukebox ise:
-  -> /api/v1/auth mount edilir
-  -> /jukebox/api/v1/auth da mount edilir
+API isteği:
+Dış path: /jukebox/api/v1/auth/login
+IIS proxy hedefi: /api/v1/auth/login
+Backend API mount: /api/v1/auth
+
+Statik kiosk/health/socket yolları ise yapılandırılan PUBLIC_BASE_PATH'i kullanır.
 ```
 
 Socket.IO için de `src/socket.ts` içinde path hesaplanır:

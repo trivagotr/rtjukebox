@@ -21,10 +21,28 @@ const IS_TEST_ENV = process.env.NODE_ENV === 'test' || Boolean(process.env.VITES
 // default is only allowed under tests so the suite can run without secrets.
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || (IS_TEST_ENV ? 'test-refresh-secret-key' : '');
 
+const SUPPORTED_REGISTRATION_LANGUAGES = [
+    'en', 'tr', 'ru', 'ar', 'de', 'nl', 'fr', 'it', 'jp',
+] as const;
+const REGISTRATION_TERMS_VERSION = '2026-08-22';
+const REGISTRATION_PRIVACY_VERSION = '2026-08-22';
+const LEGACY_REGISTRATION_TERMS_VERSION = '2026-08-11';
+const LEGACY_REGISTRATION_PRIVACY_VERSION = '2026-08-11';
+const ACCEPTED_REGISTRATION_LEGAL_PAIRS = new Set([
+    `${REGISTRATION_TERMS_VERSION}:${REGISTRATION_PRIVACY_VERSION}`,
+    `${LEGACY_REGISTRATION_TERMS_VERSION}:${LEGACY_REGISTRATION_PRIVACY_VERSION}`,
+]);
+
 const registerSchema = z.object({
     email: z.string().trim().email().max(320),
-    password: z.string().min(10).max(1024),
-    display_name: z.string().trim().min(2).max(100)
+    password: z.string().min(8).max(200),
+    display_name: z.string().trim().min(2).max(100),
+    preferred_language: z.enum(SUPPORTED_REGISTRATION_LANGUAGES).optional(),
+    age: z.number().int().min(0).max(120).optional(),
+    terms_accepted: z.boolean().optional(),
+    privacy_acknowledged: z.boolean().optional(),
+    terms_version: z.string().max(32).optional(),
+    privacy_version: z.string().max(32).optional(),
 }).strict();
 const loginSchema = z.object({
     email: z.string().trim().min(1).max(320),
@@ -38,18 +56,35 @@ const DUMMY_PASSWORD_HASH = bcrypt.hash(randomUUID(), 10);
 const LOGIN_FAILURE_LIMIT = 5;
 const ACCESS_COOKIE = 'rtj_access';
 const REFRESH_COOKIE = 'rtj_refresh';
+
+export function resolveAuthCookiePaths(publicBasePath?: string) {
+    const trimmed = (publicBasePath || '').trim();
+    const withLeadingSlash = trimmed && trimmed !== '/'
+        ? (trimmed.startsWith('/') ? trimmed : `/${trimmed}`)
+        : '';
+    const normalizedBasePath = withLeadingSlash.endsWith('/')
+        ? withLeadingSlash.slice(0, -1)
+        : withLeadingSlash;
+
+    return {
+        access: normalizedBasePath || '/',
+        refresh: `${normalizedBasePath}/api/v1/auth`,
+    };
+}
+
+const AUTH_COOKIE_PATHS = resolveAuthCookiePaths(process.env.PUBLIC_BASE_PATH);
 const ACCESS_COOKIE_OPTIONS = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict' as const,
-    path: '/api/v1',
+    path: AUTH_COOKIE_PATHS.access,
     maxAge: 24 * 60 * 60 * 1000,
 };
 const REFRESH_COOKIE_OPTIONS = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict' as const,
-    path: '/api/v1/auth',
+    path: AUTH_COOKIE_PATHS.refresh,
     maxAge: 30 * 24 * 60 * 60 * 1000,
 };
 const ACCESS_COOKIE_CLEAR_OPTIONS = { httpOnly: true, secure: ACCESS_COOKIE_OPTIONS.secure, sameSite: 'strict' as const, path: ACCESS_COOKIE_OPTIONS.path };
@@ -159,6 +194,26 @@ export function getEmailDomain(email: string): string {
     return String(email).trim().toLowerCase().split('@').pop() ?? '';
 }
 
+export function isTeduInstitutionEmail(email: string): boolean {
+    const domain = getEmailDomain(email);
+    return domain === 'tedu.edu.tr' || domain.endsWith('.tedu.edu.tr');
+}
+
+function getRegistrationPolicyError(input: z.infer<typeof registerSchema>, email: string): string | null {
+    const legalVersionPair = `${input.terms_version ?? ''}:${input.privacy_version ?? ''}`;
+    const legalAccepted = input.terms_accepted === true
+        && input.privacy_acknowledged === true
+        && ACCEPTED_REGISTRATION_LEGAL_PAIRS.has(legalVersionPair);
+
+    if (!legalAccepted) {
+        return 'You must accept the Terms of Use and acknowledge the Privacy Notice';
+    }
+    if (!isTeduInstitutionEmail(email) && (!Number.isInteger(input.age) || Number(input.age) < 18)) {
+        return 'You must be at least 18 years old to register with a non-TEDU email address';
+    }
+    return null;
+}
+
 export function isAllowedRegistrationEmail(email: string): boolean {
     const domain = getEmailDomain(email);
     return ALLOWED_REGISTRATION_EMAIL_DOMAINS.has(domain) || domain.endsWith('.edu.tr');
@@ -180,6 +235,7 @@ export function mapCurrentUserProfile(row: Record<string, unknown>) {
         total_songs_added: Number(row.total_songs_added ?? 0),
         role: row.role,
         last_super_vote_at: row.last_super_vote_at ?? null,
+        preferred_language: row.preferred_language ?? null,
     };
 }
 
@@ -196,6 +252,7 @@ export function mapAuthSessionUser(row: Record<string, unknown>) {
         total_songs_added: Number(row.total_songs_added ?? 0),
         total_upvotes_received: Number(row.total_upvotes_received ?? 0),
         last_super_vote_at: row.last_super_vote_at ?? null,
+        preferred_language: row.preferred_language ?? null,
     };
 }
 
@@ -236,7 +293,7 @@ router.post('/register', authRateLimit, async (req: Request, res: Response) => {
         if (!emptyQuerySchema.safeParse(req.query).success) return sendError(res, 'Invalid registration query', 400, 'INVALID_REGISTRATION');
         const parsed = registerSchema.safeParse(req.body);
         if (!parsed.success) return sendError(res, 'Invalid registration payload', 400, 'INVALID_REGISTRATION');
-        const { email, password, display_name } = parsed.data;
+        const { email, password, display_name, preferred_language } = parsed.data;
         const normalizedEmail = email.trim().toLowerCase();
         const normalizedDisplayName = normalizeDisplayNameInput(display_name);
 
@@ -248,24 +305,43 @@ router.post('/register', authRateLimit, async (req: Request, res: Response) => {
             return sendError(res, 'Display name required', 400);
         }
 
-        // Check if user exists
-        const existing = await db.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
-        if (existing.rows[0]) {
+        const policyError = getRegistrationPolicyError(parsed.data, normalizedEmail);
+        if (policyError) return sendError(res, policyError, 400);
+
+        const registration = await db.transaction(async (client) => {
+            const existing = await client.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
+            if (existing.rows[0]) return null;
+
+            const hashedPassword = await bcrypt.hash(password, 10);
+            const result = await client.query(
+                `INSERT INTO users (email, password_hash, display_name, role, last_ip, user_agent, preferred_language)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+                [normalizedEmail, hashedPassword, normalizedDisplayName, ROLES.USER, req.ip, req.headers['user-agent'], preferred_language ?? null]
+            );
+
+            const user = result.rows[0];
+            await client.query(
+                `INSERT INTO legal_acceptance_events (
+                    user_id, event_type, terms_version, privacy_version, age_18_confirmed, channel
+                 ) VALUES ($1, 'registration', $2, $3, $4, 'mobile')
+                 ON CONFLICT (user_id, event_type) DO NOTHING`,
+                [
+                    user.id,
+                    parsed.data.terms_version!,
+                    parsed.data.privacy_version!,
+                    isTeduInstitutionEmail(normalizedEmail) ? null : Number(parsed.data.age) >= 18,
+                ]
+            );
+
+            const tokens = await createAuthSession(user.id, user.email, user.role, client);
+            return { user, tokens };
+        });
+
+        if (!registration) {
             return sendError(res, 'Registration could not be completed', 400, 'REGISTRATION_UNAVAILABLE');
         }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
-
-        const result = await db.query(
-            `INSERT INTO users (email, password_hash, display_name, role, last_ip, user_agent)
-             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-            [normalizedEmail, hashedPassword, normalizedDisplayName, ROLES.USER, req.ip, req.headers['user-agent']]
-        );
-
-        const user = result.rows[0];
-        const tokens = await createAuthSession(user.id, user.email, user.role);
-
-        return sendSuccess(res, { user: mapAuthSessionUser(user), ...applyAuthTransport(req, res, tokens) }, 'Registration successful', null, 201);
+        return sendSuccess(res, { user: mapAuthSessionUser(registration.user), ...applyAuthTransport(req, res, registration.tokens) }, 'Registration successful', null, 201);
     } catch (error) {
         console.error('Registration failed:', error instanceof Error ? error.name : 'Error');
         return sendError(res, 'Registration failed', 500);

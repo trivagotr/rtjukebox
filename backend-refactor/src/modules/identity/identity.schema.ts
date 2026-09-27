@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 export const registerRequestSchema = z.strictObject({
-  email: z.email().max(320),
-  password: z.string().min(6).max(1024),
+  email: z.email().trim().toLowerCase().max(255),
+  password: z.string().min(10).max(1024),
   display_name: z.string().trim().min(2).max(100),
 });
 
@@ -16,5 +16,5 @@ export const guestRequestSchema = z.strictObject({
 });
 
 export const refreshRequestSchema = z.strictObject({
-  refresh_token: z.string().trim().min(1).max(256),
+  refresh_token: z.string().trim().min(1).max(4096).optional(),
 });

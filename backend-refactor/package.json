@@ -15,25 +15,38 @@
     "test": "vitest run",
     "migrate": "prisma migrate deploy",
     "migrate:dev": "prisma migrate dev",
-    "prisma:generate": "prisma generate"
+    "prisma:generate": "prisma generate",
+    "openapi:generate": "tsx scripts/generate-openapi.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
+    "argon2": "^0.45.1",
+    "bcryptjs": "^2.4.3",
+    "bullmq": "^6.3.9",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
+    "fast-xml-parser": "^5.11.1",
+    "file-type": "^22.1.1",
     "helmet": "^8.1.0",
+    "ipaddr.js": "^1.9.1",
+    "multer": "^2.4.0",
+    "music-metadata": "^11.16.1",
     "pg": "^8.16.3",
     "pino": "^10.1.0",
     "pino-http": "^11.0.0",
-    "zod": "^4.6.5"
+    "redis": "^5.12.1",
+    "socket.io": "^4.8.4",
+    "zod": "^4.6.5",
+    "zod-openapi": "^6.0.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
+    "@types/multer": "^2.2.0",
     "@types/node": "^22.19.0",
     "@types/pg": "^8.15.5",
     "eslint": "^10.11.0",
@@ -41,10 +54,15 @@
     "globals": "^17.12.0",
     "prettier": "^3.6.2",
     "prisma": "^7.10.0",
-    "tsx": "^4.20.6",
+    "socket.io-client": "^4.8.4",
     "tsc-alias": "^1.8.16",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.70.1",
     "vitest": "^4.1.9"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.2",
+    "mysql2": "^3.24.4"
   }
 }

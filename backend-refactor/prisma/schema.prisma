@@ -7,27 +7,453 @@ datasource db {
   provider = "postgresql"
 }
 
+// Identity and the established user table. Game-related tables are intentionally
+// excluded from this refactor schema, as requested.
 model User {
-  id           String         @id @default(uuid()) @db.Uuid
-  email        String         @unique
-  displayName  String         @map("display_name")
-  passwordHash String?        @map("password_hash")
-  role         String         @default("USER")
-  isGuest      Boolean        @default(false) @map("is_guest")
-  createdAt    DateTime       @default(now()) @map("created_at")
-  refreshTokens RefreshToken[]
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                 String                  @unique @db.VarChar(255)
+  passwordHash          String?                 @map("password_hash") @db.VarChar(255)
+  displayName           String                  @map("display_name") @db.VarChar(100)
+  avatarUrl             String?                 @map("avatar_url") @db.VarChar(500)
+  isGuest               Boolean?                @default(false) @map("is_guest")
+  role                  String?                 @default("user") @db.VarChar(20)
+  rankScore             Int?                    @default(0) @map("rank_score")
+  voteWeight            Decimal?                @default(1.0) @map("vote_weight") @db.Decimal(5, 2)
+  totalSongsAdded       Int?                    @default(0) @map("total_songs_added")
+  totalUpvotesReceived  Int?                    @default(0) @map("total_upvotes_received")
+  totalDownvotesReceived Int?                   @default(0) @map("total_downvotes_received")
+  lastSuperVoteAt       DateTime?               @map("last_super_vote_at") @db.Timestamp(6)
+  isBanned              Boolean?                @default(false) @map("is_banned")
+  userAgent             String?                 @map("user_agent") @db.Text
+  fcmToken              String?                 @map("fcm_token") @db.VarChar(500)
+  pushPreferences       Json?                   @default("{\"podcast\":true,\"radio\":true,\"jukebox\":true}") @map("push_preferences")
+  createdAt             DateTime?               @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt             DateTime?               @default(now()) @map("updated_at") @db.Timestamp(6)
+  refreshTokens         RefreshToken[]
+  deviceSessions        DeviceSession[]
+  addedQueueItems       QueueItem[]             @relation("QueueItemAddedBy")
+  votes                 Vote[]
+  createdProvisionCodes KioskProvisioningCode[] @relation("ProvisionCodeCreatedBy")
+  auditLogs             AuditLog[]
+  profileCustomization  UserProfileCustomization?
+  spotifyAuths          SpotifyAuth[]
+  spotifyOAuthStates    SpotifyOAuthState[] @relation("SpotifyOAuthAdmin")
+  blockedArtists        BlockedArtist[] @relation("BlockedArtistCreatedBy")
 
+  @@index([rankScore(sort: Desc)], map: "idx_users_rank")
   @@map("users")
 }
 
 model RefreshToken {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
-  tokenHash String   @unique @map("token_hash")
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  tokenHash         String   @map("token_hash") @db.VarChar(255)
+  deviceFingerprint String?  @map("device_fingerprint") @db.VarChar(255)
+  expiresAt         DateTime @map("expires_at") @db.Timestamp(6)
+  createdAt         DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId, expiresAt])
+  @@index([userId], map: "idx_refresh_user")
   @@map("refresh_tokens")
+}
+
+model AuthLoginAttempt {
+  identifierHash String    @id @map("identifier_hash") @db.Char(64)
+  failedAttempts Int       @default(0) @map("failed_attempts")
+  lockedUntil    DateTime? @map("locked_until") @db.Timestamp(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamp(6)
+
+  @@index([lockedUntil], map: "idx_auth_login_attempts_locked_until")
+  @@map("auth_login_attempts")
+}
+
+model Device {
+  id              String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deviceCode      String                  @unique @map("device_code") @db.VarChar(20)
+  name            String                  @db.VarChar(100)
+  location        String?                 @db.VarChar(200)
+  isActive        Boolean?                @default(true) @map("is_active")
+  currentSongId   String?                 @map("current_song_id") @db.Uuid
+  lastHeartbeat   DateTime?               @map("last_heartbeat") @db.Timestamp(6)
+  password        String?                 @db.VarChar(50)
+  createdAt       DateTime?               @default(now()) @map("created_at") @db.Timestamp(6)
+  sessions        DeviceSession[]
+  queueItems      QueueItem[]
+  kioskCredential KioskCredential?
+  provisionCodes  KioskProvisioningCode[]
+  radioProfileId  String?                 @map("radio_profile_id") @db.Uuid
+  overrideEnabled Boolean                 @default(false) @map("override_enabled")
+  overrideAutoplaySpotifyPlaylistUri String? @map("override_autoplay_spotify_playlist_uri") @db.VarChar(255)
+  overrideJingleEveryNSongs Int?           @map("override_jingle_every_n_songs")
+  overrideAdBreakIntervalMinutes Int?      @map("override_ad_break_interval_minutes")
+  lastAdBreakAt DateTime?                  @map("last_ad_break_at") @db.Timestamp(6)
+  spotifyPlaybackDeviceId String?          @map("spotify_playback_device_id") @db.VarChar(255)
+  spotifyPlayerName String?                @map("spotify_player_name") @db.VarChar(200)
+  spotifyPlayerConnectedAt DateTime?       @map("spotify_player_connected_at") @db.Timestamp(6)
+  spotifyPlayerIsActive Boolean             @default(false) @map("spotify_player_is_active")
+  radioProfile     RadioProfile?            @relation(fields: [radioProfileId], references: [id])
+  spotifyDeviceAuth SpotifyDeviceAuth?
+  spotifyOAuthStates SpotifyOAuthState[]
+
+  @@map("devices")
+}
+
+model DeviceSession {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  deviceId  String    @map("device_id") @db.Uuid
+  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device    Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId, deviceId], map: "idx_device_sessions_lookup")
+  @@map("device_sessions")
+}
+
+model GuestDailySongLimit {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fingerprint String   @db.VarChar(255)
+  dayKey     DateTime  @map("day_key") @db.Date
+  songsAdded Int       @default(0) @map("songs_added")
+  createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt  DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+
+  @@unique([fingerprint, dayKey])
+  @@index([dayKey], map: "idx_guest_daily_song_limits_day_key")
+  @@map("guest_daily_song_limits")
+}
+
+model KioskProvisioningCode {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deviceId  String    @map("device_id") @db.Uuid
+  codeHash  String    @unique @map("code_hash") @db.Char(64)
+  expiresAt DateTime  @map("expires_at") @db.Timestamp(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamp(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  device    Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  creator   User?     @relation("ProvisionCodeCreatedBy", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([deviceId, expiresAt(sort: Desc)], map: "idx_kiosk_provisioning_codes_device")
+  @@map("kiosk_provisioning_codes")
+}
+
+model KioskCredential {
+  deviceId      String    @id @map("device_id") @db.Uuid
+  credentialHash String   @unique @map("credential_hash") @db.Char(64)
+  expiresAt     DateTime  @map("expires_at") @db.Timestamp(6)
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamp(6)
+  createdAt     DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt     DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+  device        Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@map("kiosk_credentials")
+}
+
+model Song {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sourceType      String      @default("local") @map("source_type") @db.VarChar(20)
+  visibility      String      @default("public") @db.VarChar(20)
+  assetRole       String      @default("music") @map("asset_role") @db.VarChar(20)
+  spotifyUri      String?     @unique(map: "idx_songs_spotify_uri_unique") @map("spotify_uri") @db.VarChar(100)
+  spotifyId       String?     @map("spotify_id") @db.VarChar(50)
+  title           String      @db.VarChar(200)
+  artist          String      @db.VarChar(200)
+  artistId        String?     @map("artist_id") @db.VarChar(50)
+  album           String?     @db.VarChar(200)
+  coverUrl        String?     @map("cover_url") @db.VarChar(500)
+  fileUrl         String?     @map("file_url") @db.VarChar(500)
+  fileHash        String?     @unique(map: "idx_songs_file_hash_unique") @map("file_hash") @db.Char(64)
+  durationMs      Int?        @map("duration_ms")
+  durationSeconds Int?        @map("duration_seconds")
+  isExplicit      Boolean?    @default(false) @map("is_explicit")
+  isBlocked       Boolean?    @default(false) @map("is_blocked")
+  isActive        Boolean?    @default(true) @map("is_active")
+  genre           String?     @db.VarChar(100)
+  playCount       Int?        @default(0) @map("play_count")
+  score           Int?        @default(0)
+  lastPlayedAt    DateTime?   @map("last_played_at") @db.Timestamp(6)
+  createdAt       DateTime?  @default(now()) @map("created_at") @db.Timestamp(6)
+  queueItems      QueueItem[]
+  radioProfileAssets RadioProfileAsset[]
+
+  @@map("songs")
+}
+
+model QueueItem {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deviceId       String   @map("device_id") @db.Uuid
+  songId         String   @map("song_id") @db.Uuid
+  addedBy        String   @map("added_by") @db.Uuid
+  queueReason    String   @default("user") @map("queue_reason") @db.VarChar(20)
+  autoplayRadioProfileId String? @map("autoplay_radio_profile_id") @db.Uuid
+  status         String?  @default("pending") @db.VarChar(20)
+  priorityScore  Decimal? @default(0) @map("priority_score") @db.Decimal(10, 2)
+  upvotes        Int?     @default(0)
+  downvotes      Int?     @default(0)
+  position       Int?
+  addedAt        DateTime? @default(now()) @map("added_at") @db.Timestamp(6)
+  playedAt       DateTime? @map("played_at") @db.Timestamp(6)
+  device         Device   @relation(fields: [deviceId], references: [id])
+  song           Song     @relation(fields: [songId], references: [id])
+  requester      User     @relation("QueueItemAddedBy", fields: [addedBy], references: [id])
+  votes          Vote[]
+  autoplayRadioProfile RadioProfile? @relation(fields: [autoplayRadioProfileId], references: [id], onDelete: SetNull)
+
+  @@index([deviceId, status], map: "idx_queue_device_status")
+  @@map("queue_items")
+}
+
+model Vote {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  queueItemId String   @map("queue_item_id") @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  voteType   Int       @map("vote_type") @db.SmallInt
+  createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  queueItem  QueueItem @relation(fields: [queueItemId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id])
+
+  @@unique([queueItemId, userId])
+  @@index([queueItemId], map: "idx_votes_queue")
+  @@map("votes")
+}
+
+model RadioSchedule {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dayOfWeek  Int       @map("day_of_week") @db.SmallInt
+  startTime  DateTime  @map("start_time") @db.Time(6)
+  endTime    DateTime  @map("end_time") @db.Time(6)
+  showName   String    @map("show_name") @db.VarChar(200)
+  djName     String?   @map("dj_name") @db.VarChar(100)
+  description String?  @db.Text
+  isLive     Boolean?  @default(true) @map("is_live")
+  isActive   Boolean?  @default(true) @map("is_active")
+  createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+
+  @@index([dayOfWeek], map: "idx_schedule_day")
+  @@map("radio_schedule")
+}
+
+model SongHistory {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channelId String   @map("channel_id") @db.Text
+  title     String   @db.Text
+  artist    String?  @db.Text
+  coverUrl  String?  @map("cover_url") @db.Text
+  playedAt  DateTime @default(now()) @map("played_at") @db.Timestamptz(6)
+
+  @@index([channelId, playedAt(sort: Desc)], map: "idx_song_history_channel_played_at")
+  @@map("song_history")
+}
+
+model PodcastFeed {
+  id           String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title        String?           @db.VarChar(255)
+  feedUrl      String            @unique @map("feed_url") @db.Text
+  isActive     Boolean           @default(true) @map("is_active")
+  lastSyncedAt DateTime?         @map("last_synced_at") @db.Timestamp(6)
+  lastSyncError String?          @map("last_sync_error") @db.Text
+  createdBy    String?           @map("created_by") @db.Uuid
+  createdAt    DateTime?         @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime?         @default(now()) @map("updated_at") @db.Timestamp(6)
+  episodes     PodcastEpisode[]
+
+  @@map("podcast_feeds")
+}
+
+model PodcastEpisode {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  feedId          String      @map("feed_id") @db.Uuid
+  guid            String?     @db.Text
+  episodeUrl      String?     @map("episode_url") @db.Text
+  audioUrl        String?     @map("audio_url") @db.Text
+  title           String      @db.VarChar(500)
+  description     String?     @db.Text
+  imageUrl        String?     @map("image_url") @db.Text
+  publishedAt     DateTime?   @map("published_at") @db.Timestamp(6)
+  author          String?     @db.VarChar(255)
+  durationSeconds Int?        @map("duration_seconds")
+  createdAt       DateTime?   @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt       DateTime?   @default(now()) @map("updated_at") @db.Timestamp(6)
+  feed            PodcastFeed @relation(fields: [feedId], references: [id], onDelete: Cascade)
+
+  @@unique([feedId, guid], map: "idx_podcast_episodes_feed_guid_unique")
+  @@unique([feedId, audioUrl], map: "idx_podcast_episodes_feed_audio_url_unique")
+  @@unique([feedId, episodeUrl], map: "idx_podcast_episodes_feed_episode_url_unique")
+  @@index([publishedAt(sort: Desc)], map: "idx_podcast_episodes_published_at")
+  @@map("podcast_episodes")
+}
+
+model RadioProfile {
+  id                         String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                       String                    @db.VarChar(100)
+  autoplaySpotifyPlaylistUri String?                   @map("autoplay_spotify_playlist_uri") @db.VarChar(255)
+  jingleEveryNSongs          Int?                      @map("jingle_every_n_songs")
+  adBreakIntervalMinutes     Int?                      @map("ad_break_interval_minutes")
+  isActive                   Boolean?                  @default(true) @map("is_active")
+  createdAt                  DateTime?                 @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt                  DateTime?                 @default(now()) @map("updated_at") @db.Timestamp(6)
+  devices                    Device[]
+  assets                     RadioProfileAsset[]
+  playlistStats              RadioProfilePlaylistStat[]
+  autoplayQueueItems         QueueItem[]
+
+  @@index([name], map: "idx_radio_profiles_name")
+  @@index([isActive], map: "idx_radio_profiles_active")
+  @@map("radio_profiles")
+}
+
+model RadioProfileAsset {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  radioProfileId String       @map("radio_profile_id") @db.Uuid
+  songId         String       @map("song_id") @db.Uuid
+  slotType       String       @map("slot_type") @db.VarChar(20)
+  sortOrder      Int?         @map("sort_order")
+  createdAt      DateTime?    @default(now()) @map("created_at") @db.Timestamp(6)
+  radioProfile   RadioProfile @relation(fields: [radioProfileId], references: [id], onDelete: Cascade)
+  song           Song         @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@unique([radioProfileId, songId, slotType])
+  @@index([radioProfileId, slotType], map: "idx_radio_profile_assets_lookup")
+  @@map("radio_profile_assets")
+}
+
+model RadioProfilePlaylistStat {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  radioProfileId String       @map("radio_profile_id") @db.Uuid
+  spotifyUri     String       @map("spotify_uri") @db.VarChar(100)
+  playCount      Int          @default(0) @map("play_count")
+  lastPlayedAt   DateTime?    @map("last_played_at") @db.Timestamp(6)
+  createdAt      DateTime?    @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt      DateTime?    @default(now()) @map("updated_at") @db.Timestamp(6)
+  radioProfile   RadioProfile @relation(fields: [radioProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([radioProfileId, spotifyUri])
+  @@map("radio_profile_playlist_stats")
+}
+
+model SpotifyAppConfig {
+  id           Int       @id @default(1) @db.SmallInt
+  clientId     String    @map("client_id") @db.VarChar(255)
+  clientSecret String    @map("client_secret") @db.Text
+  createdAt    DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt    DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+
+  @@map("spotify_app_config")
+}
+
+model SpotifyAuth {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String?   @map("user_id") @db.Uuid
+  accessToken    String    @map("access_token") @db.Text
+  refreshToken   String    @map("refresh_token") @db.Text
+  tokenExpiresAt DateTime  @map("token_expires_at") @db.Timestamp(6)
+  scopes         String    @db.Text
+  createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt      DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+  user           User?     @relation(fields: [userId], references: [id])
+
+  @@map("spotify_auth")
+}
+
+model SpotifyOAuthState {
+  stateHash    String    @id @map("state_hash") @db.Char(64)
+  stateKind    String    @default("admin") @map("state_kind") @db.VarChar(16)
+  deviceId     String?   @map("device_id") @db.Uuid
+  returnOrigin String?   @map("return_origin") @db.VarChar(2048)
+  codeVerifier String?   @map("code_verifier") @db.VarChar(128)
+  adminUserId  String?   @map("admin_user_id") @db.Uuid
+  expiresAt    DateTime  @map("expires_at") @db.Timestamp(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  device       Device?   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  adminUser    User?     @relation("SpotifyOAuthAdmin", fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt], map: "idx_spotify_oauth_states_expires_at")
+  @@map("spotify_oauth_states")
+}
+
+model SpotifyDeviceAuth {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deviceId           String    @unique @map("device_id") @db.Uuid
+  spotifyAccountId   String    @map("spotify_account_id") @db.VarChar(100)
+  spotifyDisplayName String    @map("spotify_display_name") @db.VarChar(255)
+  spotifyEmail       String?   @map("spotify_email") @db.VarChar(255)
+  spotifyProduct     String?   @map("spotify_product") @db.VarChar(50)
+  spotifyCountry     String?   @map("spotify_country") @db.VarChar(10)
+  accessToken        String    @map("access_token") @db.Text
+  refreshToken       String    @map("refresh_token") @db.Text
+  tokenExpiresAt     DateTime  @map("token_expires_at") @db.Timestamp(6)
+  scopes             String    @db.Text
+  createdAt          DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt          DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+  device             Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@map("spotify_device_auth")
+}
+
+model BlockedArtist {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  artistName      String    @map("artist_name") @db.VarChar(200)
+  spotifyArtistId String?   @unique(map: "idx_blocked_artists_spotify_id") @map("spotify_artist_id") @db.VarChar(50)
+  blockedBy       String?   @map("blocked_by") @db.Uuid
+  reason          String?   @db.VarChar(500)
+  createdAt       DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  creator         User?     @relation("BlockedArtistCreatedBy", fields: [blockedBy], references: [id])
+
+  @@map("blocked_artists")
+}
+
+model BlockedKeyword {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  word      String    @unique @db.VarChar(100)
+  category  String?   @default("profanity") @db.VarChar(50)
+  createdAt DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+
+  @@index([word], map: "idx_blocked_keywords_word")
+  @@map("blocked_keywords")
+}
+
+model ContentFilterSettings {
+  id                         Int       @id @default(1) @db.SmallInt
+  lyricsFilterEnabled        Boolean?  @default(true) @map("lyrics_filter_enabled")
+  blockUnverifiedObscureTracks Boolean? @default(true) @map("block_unverified_obscure_tracks")
+  minPopularityWithoutLyrics Int?      @default(15) @map("min_popularity_without_lyrics")
+  updatedAt                  DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+
+  @@map("content_filter_settings")
+}
+
+model UserProfileCustomization {
+  userId                    String    @id @map("user_id") @db.Uuid
+  favoriteSongTitle         String?   @map("favorite_song_title") @db.VarChar(255)
+  favoriteSongArtist        String?   @map("favorite_song_artist") @db.VarChar(255)
+  favoriteSongSpotifyUri    String?   @map("favorite_song_spotify_uri") @db.VarChar(120)
+  favoriteArtistName        String?   @map("favorite_artist_name") @db.VarChar(255)
+  favoriteArtistSpotifyId   String?   @map("favorite_artist_spotify_id") @db.VarChar(120)
+  favoritePodcastId         String?   @map("favorite_podcast_id") @db.Uuid
+  favoritePodcastTitle      String?   @map("favorite_podcast_title") @db.VarChar(500)
+  profileHeadline           String?   @map("profile_headline") @db.VarChar(180)
+  featuredBadgeId           String?   @map("featured_badge_id") @db.Uuid
+  themeKey                  String?   @map("theme_key") @db.VarChar(80)
+  updatedAt                 DateTime? @default(now()) @map("updated_at") @db.Timestamp(6)
+  user                      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profile_customization")
+}
+
+model AuditLog {
+  id         BigInt   @id @default(autoincrement())
+  userId     String?  @map("user_id") @db.Uuid
+  action     String   @db.VarChar(50)
+  entityType String?  @map("entity_type") @db.VarChar(50)
+  entityId   String?  @map("entity_id") @db.Uuid
+  metadata   Json?
+  ipAddress  Unsupported("inet")? @map("ip_address")
+  createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt(sort: Desc)], map: "idx_audit_user")
+  @@index([action], map: "idx_audit_action")
+  @@map("audit_logs")
 }

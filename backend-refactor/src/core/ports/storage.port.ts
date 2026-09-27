@@ -10,5 +10,7 @@ export interface StorageService {
     content: Uint8Array;
     contentType: string;
   }): Promise<StoredObject>;
+  get(key: string): Promise<Uint8Array | null>;
+  list(prefix: string): Promise<string[]>;
   delete(key: string): Promise<void>;
 }

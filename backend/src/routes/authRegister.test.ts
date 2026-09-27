@@ -64,7 +64,7 @@ vi.mock('../utils/response', () => ({
   sendSuccess: mockSendSuccess,
 }));
 
-import './auth';
+import { resolveAuthCookiePaths } from './auth';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
@@ -87,7 +87,7 @@ describe('auth registration routes', () => {
     mockSendSuccess.mockReset();
   });
 
-  it('registers users without returning password hashes', async () => {
+  it('accepts the native Gmail registration payload and records legal acceptance', async () => {
     const handler = mockRouteHandlers.post['/register'];
     expect(handler).toBeTypeOf('function');
     mockDbQuery
@@ -104,19 +104,32 @@ describe('auth registration routes', () => {
             rank_score: 0,
             role: 'user',
             last_super_vote_at: null,
+            preferred_language: 'en',
           },
         ],
-      });
+      })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
 
     await handler(
       createReq({
         email: 'STUDENT@gmail.com',
-        password: 'password123',
+        password: 'password',
         display_name: ' Student ',
+        preferred_language: 'en',
+        age: 18,
+        terms_accepted: true,
+        privacy_acknowledged: true,
+        terms_version: '2026-08-22',
+        privacy_version: '2026-08-22',
       }),
       {},
     );
 
+    expect(mockDbTransaction).toHaveBeenCalledOnce();
+    expect(mockDbQuery.mock.calls[1][0]).toContain('preferred_language');
+    expect(mockDbQuery.mock.calls[2][0]).toContain('INSERT INTO legal_acceptance_events');
+    expect(mockDbQuery.mock.calls[2][1]).toEqual(['user-1', '2026-08-22', '2026-08-22', true]);
     const payload = mockSendSuccess.mock.calls[0][1];
     expect(payload.user).toEqual(
       expect.objectContaining({
@@ -129,6 +142,50 @@ describe('auth registration routes', () => {
     expect(payload.user).not.toHaveProperty('password_hash');
     expect(payload.access_token).toEqual(expect.any(String));
     expect(payload.refresh_token).toEqual(expect.any(String));
+  });
+
+  it('rejects mobile registration without both current legal acknowledgements', async () => {
+    const handler = mockRouteHandlers.post['/register'];
+
+    await handler(createReq({
+      email: 'student@gmail.com',
+      password: 'password',
+      display_name: 'Student',
+      age: 18,
+      terms_accepted: true,
+      privacy_acknowledged: false,
+      terms_version: '2026-08-22',
+      privacy_version: '2026-08-22',
+    }), {});
+
+    expect(mockSendError).toHaveBeenCalledWith(
+      expect.anything(),
+      'You must accept the Terms of Use and acknowledge the Privacy Notice',
+      400,
+    );
+    expect(mockDbQuery).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-TEDU mobile registrations under age 18', async () => {
+    const handler = mockRouteHandlers.post['/register'];
+
+    await handler(createReq({
+      email: 'student@gmail.com',
+      password: 'password',
+      display_name: 'Student',
+      age: 17,
+      terms_accepted: true,
+      privacy_acknowledged: true,
+      terms_version: '2026-08-22',
+      privacy_version: '2026-08-22',
+    }), {});
+
+    expect(mockSendError).toHaveBeenCalledWith(
+      expect.anything(),
+      'You must be at least 18 years old to register with a non-TEDU email address',
+      400,
+    );
+    expect(mockDbQuery).not.toHaveBeenCalled();
   });
 
   it('persists guest users with the guest role', async () => {
@@ -166,6 +223,17 @@ describe('auth registration routes', () => {
     expect(mockSendSuccess.mock.calls[0][1]).not.toHaveProperty('refresh_token');
   });
 
+  it('sets cookie paths that cover API and Socket.IO under the published base path', () => {
+    expect(resolveAuthCookiePaths()).toEqual({
+      access: '/',
+      refresh: '/api/v1/auth',
+    });
+    expect(resolveAuthCookiePaths('/jukebox/')).toEqual({
+      access: '/jukebox',
+      refresh: '/jukebox/api/v1/auth',
+    });
+  });
+
   it('issues strict HttpOnly cookies and omits bearer tokens for cookie clients', async () => {
     const handler = mockRouteHandlers.post['/register'];
     mockDbQuery
@@ -173,17 +241,28 @@ describe('auth registration routes', () => {
       .mockResolvedValueOnce({ rows: [{
         id: 'user-1', email: 'student@gmail.com', display_name: 'Student', role: 'user', is_guest: false,
       }] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
     const res = { cookie: vi.fn(), clearCookie: vi.fn() };
 
     await handler({
-      ...createReq({ email: 'student@gmail.com', password: 'long-enough-password', display_name: 'Student' }),
+      ...createReq({
+        email: 'student@gmail.com',
+        password: 'long-enough-password',
+        display_name: 'Student',
+        preferred_language: 'en',
+        age: 18,
+        terms_accepted: true,
+        privacy_acknowledged: true,
+        terms_version: '2026-08-22',
+        privacy_version: '2026-08-22',
+      }),
       headers: { 'user-agent': 'vitest', 'x-auth-transport': 'cookie' },
     }, res);
 
     expect(res.cookie).toHaveBeenCalledTimes(2);
     expect(res.cookie.mock.calls[0][0]).toBe('rtj_access');
-    expect(res.cookie.mock.calls[0][2]).toMatchObject({ httpOnly: true, sameSite: 'strict', path: '/api/v1' });
+    expect(res.cookie.mock.calls[0][2]).toMatchObject({ httpOnly: true, sameSite: 'strict', path: '/' });
     expect(res.cookie.mock.calls[1][0]).toBe('rtj_refresh');
     expect(res.cookie.mock.calls[1][2].path).toBe('/api/v1/auth');
     expect(mockSendSuccess.mock.calls[0][1]).not.toHaveProperty('access_token');

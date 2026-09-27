@@ -115,6 +115,7 @@ Source recheck after the queue authorization decision confirms the route and cli
 - New JWTs require HS256, the configured issuer/audience, and a dedicated refresh audience. A temporary `JWT_ALLOW_LEGACY_TOKENS` switch controls old issuerless sessions.
 - `/health`, `/health/live`, and `/health/ready` are also mounted at `{PUBLIC_BASE_PATH}/health*` when configured. Readiness checks DB, writable uploads, configured rate-limit Redis, and BullMQ worker readiness; a bearer `HEALTHCHECK_TOKEN` is required.
 - BullMQ requires Redis 5 or newer. Startup rejects older Redis versions and keeps non-test readiness unavailable until the worker is ready.
+- For `PUBLIC_BASE_PATH=/jukebox`, the access cookie uses `/jukebox` so browsers send it to both `/jukebox/api/v1/*` and `/jukebox/socket.io`; the refresh cookie uses `/jukebox/api/v1/auth`. Without a base path, access uses `/` and refresh uses `/api/v1/auth`.
 - Public deployment preflight (2026-09-25): `OPTIONS /jukebox/api/v1/auth/login` returned 204 but omitted `Access-Control-Allow-Credentials`, `PATCH`, `x-auth-transport`, and `x-kiosk-credential` from CORS response headers. The deployed response does not match the current source configuration; credentialed controller auth and kiosk credential headers are blocked until deployment/proxy configuration is updated.
 - The new browser logout route and cookie flow are current in the route table. The game route entries remain unchanged.
 
@@ -122,3 +123,76 @@ Source recheck after the queue authorization decision confirms the route and cli
 
 - `backend/src/routes/users.ts` currently exposes only `GET /api/v1/users/leaderboard`; there is no admin-only user listing endpoint.
 - The existing user result route is a ranking response, not a complete account directory. No user-list endpoint was added in this scan.
+
+### Public Jukebox availability probe (2026-09-25)
+
+- Outside accessibility is confirmed for `/jukebox/`, `/jukebox/kiosk/`, and the songs catalog API (all HTTP 200). This verifies routing and basic catalog response only, not login, voting, playback or socket behavior.
+- Public `/jukebox/health` is 200 while `/jukebox/health/live` is 404. CORS preflight is 204 but omits credentials, PATCH, `x-auth-transport` and `x-kiosk-credential`.
+- See `jukebox-live-toggle-runbook.md` for the service state, safe shutdown/restore sequence, and checks. No live switch was changed.
+
+### Post-restart runtime verification (2026-09-25)
+
+- After `RadioTEDU-Jukebox` automatically recovered from a WinSW stop-handler error, local IIS returned 200 for `/jukebox/health/live` and for token-authenticated `/jukebox/health/ready`. An unauthenticated readiness request returns 404 by design.
+- The login CORS preflight now returns 204 with credentials, PATCH, `x-auth-transport`, and `x-kiosk-credential`; controller root and kiosk root both return 200.
+- These are local IIS runtime checks. Real browser cookie login, authenticated Socket.IO, and testing from the configured public hostname remain unverified. The source API route inventory above is unchanged.
+- Initial interactive smoke: guest auth returned 201 and device connect returned 200; after refresh the user remained signed in, confirming cookie session restore. The UI did not restore the selected device code, so it must be entered again. Authenticated Socket.IO remains unverified.
+- Socket.IO polling through local IIS first returned 404 because the proxy target omitted the configured `/jukebox` base path. The machine IIS rule now forwards to the backend's `/jukebox/socket.io`; polling and an authenticated namespace connection/device-room join both pass.
+- An authenticated Socket.IO smoke through IIS connected with an existing guest/device session and successfully emitted `join_device`; backend logs recorded both socket connection and device-room join. This validates the token/cookie handshake and authorization path at runtime. The real browser's visible connection state remains a UI confirmation.
+- Applied `backend/src/db/migrations/20260925_kiosk_credentials.sql` to the active `radiotedu` database after validating a full custom-format backup. `kiosk_provisioning_codes` and `kiosk_credentials` now exist, so the documented admin provisioning and kiosk registration routes have their required schema. No kiosk credential has been issued yet; the active `KOLEJ` device still needs admin provisioning and Spotify device authorization.
+
+## Backend-refactor son taraması (2026-09-26, izole uygulama)
+
+Aşağıdaki yüzey `backend-refactor/src/routes/index.ts`, `composition-root.ts` ve modül router'ları taranarak çıkarıldı. Bu backend `backend/src/server.ts` tarafından mount edilmediğinden, tablo mevcut canlı endpoint listesine eklenmiş gibi değerlendirilmemelidir. Route adları refactor kodundaki kanonik `/api/v1` prefix'iyle gösterilir. Refactor admin yolları merkezi `ADMIN` guard, rate limit ve audit middleware'inden geçer; eski istemci uyumluluk yolları da aynı admin guard ile mount edilir.
+
+| Modül / mount | Refactor sürümündeki metot ve tam yollar | İstemci / durum |
+|---|---|---|
+| Kimlik | `POST /api/v1/auth/register`, `/login`, `/guest`, `/refresh`, `/logout`; `GET /api/v1/auth/me`; avatar uyumluluk alias'ı `POST /api/v1/auth/upload-avatar` | Mobil ve web controller'daki auth akışlarıyla şekil uyumu hedeflenir; refactor henüz canlıya alınmadı |
+| Kullanıcı ve profil | `GET /api/v1/users/leaderboard`, `/users/me`, `/users/me/profile`; `PATCH /api/v1/users/me/profile`, `/users/me/favorites`; `POST /api/v1/users/me/avatar` | Mobil ve controller; eski profil alias'ları da guarded `/api/v1/profile/me` ve `/api/v1/profile/favorites` |
+| Cihazlar | `GET /api/v1/jukebox/devices`; `POST /api/v1/jukebox/kiosk/register`; admin `GET/POST /api/v1/admin/jukebox/devices`, `PATCH /api/v1/admin/jukebox/devices/:id`, `POST /api/v1/admin/jukebox/devices/:id/logout-all`, `/provision`, `PUT /api/v1/admin/jukebox/devices/:id/spotify-playback-target` | Controller admin paneli ve kiosk; admin uyumluluk alias'ı `/api/v1/jukebox/admin/*` |
+| Jukebox kullanıcı/kiosk | `POST /api/v1/jukebox/connect`, `/disconnect`, `/queue`, `/vote`, `/kiosk/heartbeat`, `/kiosk/now-playing`, `/autoplay/trigger`; `GET /api/v1/jukebox/queue/:deviceId`, `/jukebox/songs`, `/jukebox/lyrics`, `/jukebox/kiosk/playback-state/:deviceId`; Spotify kiosk: `POST /api/v1/jukebox/kiosk/spotify-token`, `/spotify-device-auth/status`, `/spotify-device-auth/start`, `/spotify-device` | Mobil, web controller ve kiosk web; autoplay endpoint'i bu uygulama turunda eklendi ve Spotify playlist'i yoksa veya uygun parça dönmezse güvenli managed local fallback kullanır. Kuyruk ve playback state cihaz oturumu veya eşleşen kiosk credential ister; POST kiosk yazma işlemleri tercihen `x-kiosk-credential` header kullanır ve mevcut kiosk istemcisinin uyumluluğu için `device_pwd` gövde alanını da kabul eder (query string kabul edilmez) |
+| Jukebox admin/katalog | `POST /api/v1/admin/jukebox/skip`, `/upload-song`, `/scan-folder`, `/process-song`, `/sync-metadata`; `GET /api/v1/admin/jukebox/songs`, `/playlist-preview`; `PATCH /api/v1/admin/jukebox/songs/:id/classification`; `DELETE /api/v1/admin/jukebox/songs/:id`; moderasyon `GET/PUT /moderation/settings`, `GET/POST /moderation/keywords`, `DELETE /moderation/keywords/:id`, `POST /moderation/test`; blocklist `GET /blocked`, `POST /songs/:id/block`, `DELETE /songs/:id/block`, `POST /artists/block`, `DELETE /artists/:id/block` (hepsi `/api/v1/admin/jukebox` altında) | AdminDashboard; uyumluluk alias'ları `/api/v1/jukebox/admin/*`; uzun işler `202` + `job_id` döndürür |
+| Spotify | Public callback: `GET /api/v1/spotify/callback`, `/spotify/device-auth/callback`. Admin: `GET /api/v1/admin/spotify/auth`, `/status`, `/app-config`, `/device-auth/status`, `/playback-devices`; `PUT /api/v1/admin/spotify/app-config`; `POST /api/v1/admin/spotify/device-auth/start`; `DELETE /api/v1/admin/spotify/device-auth/:deviceId`. Admin eski alias'ı aynı yolların `/api/v1/spotify/*` altındaki korumalı biçimidir. | Controller admin paneli ve kiosk web; gerçek Spotify grant/playback testi dış hesap ve cihaz gerektirir, yapılmadı |
+| Radyo / profiller | `GET /api/v1/radio/status`, `/schedule`, `/history/:channelId`; admin `/api/v1/admin/radio-profiles`: `GET/POST /`, `GET/PUT/DELETE /:id`, `POST /:id/assets`, `DELETE /:id/assets/:songId/:slotType`, `PUT /devices/:deviceId/profile`, `/devices/:deviceId/override` | Radyo istemcileri ve admin paneli; eski guarded alias `/api/v1/radio-profiles/*` |
+| Podcast | `GET /api/v1/podcasts`; guarded feed yönetimi `GET/POST /api/v1/admin/podcast-feeds`, `POST /api/v1/admin/podcast-feeds/sync`, `DELETE /api/v1/admin/podcast-feeds/:id`; eski guarded alias `/api/v1/podcast-feeds/*` | Mobil feed servisi; RSS fetch işleri BullMQ kuyruğunda |
+| Job durumu | `GET /api/v1/jobs/:jobId` | Başlatan kullanıcı veya admin; job sahipliği denetlenir |
+
+`backend-refactor` tarafında `/api/v1/users/:id/stats`, gamification veya oyun endpoint'i yoktur. Kullanıcı stats endpoint'i istemci kaynak taramasında çağrılmadığı ve IDOR riski taşıdığı için kaldırılmıştır. Oyun/gamification, kullanıcı talimatıyla kapsam dışıdır.
+
+### İstemci bağlantısı çapraz kontrolü
+
+- Kiosk `app.js` autoplay, queue, now-playing, Spotify token/device ve playback-state yollarını; `device-spotify-auth.js` kiosk Spotify OAuth başlatma/durum yollarını çağırıyor. `GET /jukebox/lyrics` kiosk ve controller tarafından çağrılıyor.
+- Web controller `App.tsx` jukebox queue, vote, catalog, connect, profile/session ve lyrics akışlarını çağırıyor; `AdminDashboard.tsx` admin cihaz, provisioning, Spotify ayarları, moderasyon, katalog, upload ve job durumlarını çağırıyor.
+- Mobil `JukeboxScreen.tsx` cihaz, katalog, bağlanma, queue ve vote akışlarını; profil/auth servisleri kendi tablolarında yazılı yolları çağırıyor.
+- Bu kaynak çağrıları şu an canlı backend ile ilgilidir. Refactor'a cutover yapılmadığı için aynı isimli route'u tanımlamak refactor'un canlı kullandığı anlamına gelmez.
+
+### Socket.IO — refactor kodu
+
+Handshake JWT veya cihaz kapsamlı kiosk credential ister. Sunucudan gelen olaylar `queue_updated`, `song_skipped`, `song_rejected`, `force_logout`; istemci→sunucu olayı `join_device`'tır. Oda üyeliği cihaz oturumu/rol/kiosk sahipliğiyle doğrulanır, event başına sınır uygulanır; JWT süresi veya kiosk credential iptal/sona erme halinde bağlantı kapatılır. Bu refactor Socket.IO yüzeyi mevcut backend sürümünden ayrı tutulur.
+## Backend-refactor completion re-scan (2026-09-26)
+
+- Rechecked mounted route declarations after the non-game backend implementation pass. The refactor remains isolated under `backend-refactor/`; none of these paths are live until a separately planned cutover.
+- Added `PATCH /api/v1/admin/jukebox/devices/:id/playback-target` with `{ provider: "spotify", target_id, player_name? }`. The prior `PUT /api/v1/admin/jukebox/devices/:id/spotify-playback-target` remains available for current clients. Spotify is the only implemented playback provider.
+- `GET /api/v1/users/me?include=profile` returns profile and badges when requested; existing `/users/me/profile` and guarded `/profile/*` compatibility routes remain.
+- Podcast feed administration operates on the complete feed registry, matching the active admin-router contract. List, delete and sync are admin-only and not restricted to the creator.
+- Audio processing invokes `ffprobe` without a shell, validates the audio stream/container and duration, and rejects files over four hours; uploads are limited to 50 MB. Docker runtime installs ffmpeg. Local deployments need `ffprobe` on `PATH` or `FFPROBE_PATH` configured.
+- The refactor OpenAPI document is generated from request Zod schemas with `cd backend-refactor && npm run openapi:generate` into `backend-refactor/docs/openapi.json`. It is not a live endpoint or a replacement for the active backend inventory.
+- Existing web/mobile/kiosk components continue to use the compatible Spotify playback-target route; this pass adds no client UI route. No game or gamification source or inventory row was changed.
+- Build, lint and the 17 refactor tests passed after the additions. No database was connected or migrated and no live service was restarted.
+- Upload validation runs ffprobe before storing a newly uploaded audio file; malformed media does not create an upload or song row.
+
+## Backend-refactor final non-game re-scan (2026-09-26)
+
+- Completed the mounted endpoint and realtime contract scan for the isolated `backend-refactor/` implementation. Generated contract artifact: `backend-refactor/docs/openapi.json` (`npm run openapi:generate`). Production endpoints still come from `backend/`; this refactor is not mounted in production.
+- Jukebox write endpoints reject unexpected query input. Queue reads require a connected user/device session or a valid active kiosk credential, including Socket.IO room joins; ADMIN role by itself is insufficient.
+- Kiosk heartbeat is credential protected and updates device liveness. It also reconciles stopped Spotify playback with the configured Connect target, starts the next queued Spotify item or triggers autoplay, and emits `queue_updated`. Spotify failures are contained so the kiosk heartbeat remains available. Credentialed `/jukebox/kiosk/now-playing` completion also runs the same profile automation for completed normal music.
+- Radio profile completion automation enqueues configured local jingle/ad assets with queue priority and updates ad-break timing transactionally. The admin profile/asset/override routes remain behind the central ADMIN guard.
+- Socket.IO compatibility: `join_device` supports the active kiosk client's raw UUID payload and the object payload; `leave_device`, `playback_progress`, and `kiosk_heartbeat` are validated and rate limited. The Socket.IO path respects `PUBLIC_BASE_PATH`.
+- Playback target compatibility remains: provider-shaped `PATCH /api/v1/admin/jukebox/devices/:id/playback-target` plus Spotify-specific `PUT /api/v1/admin/jukebox/devices/:id/spotify-playback-target`.
+- Final verification for this pass: build, lint, Prisma validation, OpenAPI generation, and 25 automated tests passed. No database migration or service restart occurred. Legacy schema baseline, staging, and live Spotify checks are rollout gates, not implementation claims.
+- Game/gamification endpoints were not added or changed.
+
+### Architecture acceptance addendum (2026-09-26)
+
+- Shared clock/ID ports are now wired into identity, jukebox, Spotify OAuth, avatar and catalog job-ID use cases. External Spotify OAuth/playback HTTP is behind `SpotifyOAuthHttpProvider`; module services no longer issue direct HTTP fetches.
+- Negative lint probe confirmed Prisma imports in `identity.service.ts` are rejected; the probe was restored. Static scan found service/controller layer boundaries intact, `process.env` only in core configuration, and no raw Prisma SQL or shell-execution APIs in refactor source.
+- Final build/lint/test checks passed (25 tests). The refactor deployment remains independently gated on legacy database baseline review, staging checks and real Spotify playback.

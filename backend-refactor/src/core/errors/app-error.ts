@@ -3,8 +3,9 @@ export class AppError extends Error {
     message: string,
     readonly statusCode: number,
     readonly code: string,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = new.target.name;
   }
 }
@@ -30,6 +31,18 @@ export class UnauthorizedError extends AppError {
 export class ConflictError extends AppError {
   constructor(message = 'Conflict') {
     super(message, 409, 'CONFLICT');
+  }
+}
+
+export class TooManyRequestsError extends AppError {
+  constructor(message = 'Too many attempts. Try again later.') {
+    super(message, 429, 'LOGIN_TEMPORARILY_LOCKED');
+  }
+}
+
+export class ServiceUnavailableError extends AppError {
+  constructor(message = 'Service unavailable', code = 'SERVICE_UNAVAILABLE', options?: ErrorOptions) {
+    super(message, 503, code, options);
   }
 }
 

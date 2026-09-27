@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_banned BOOLEAN DEFAULT FALSE,
     last_ip INET,
     user_agent TEXT,
+    preferred_language VARCHAR(10),
     fcm_token VARCHAR(500),
     push_preferences JSONB DEFAULT '{"podcast": true, "radio": true, "jukebox": true}',
     created_at TIMESTAMP DEFAULT NOW(),
@@ -31,6 +32,19 @@ CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_ip INET;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS user_agent TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_super_vote_at TIMESTAMP;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_language VARCHAR(10);
+
+CREATE TABLE IF NOT EXISTS legal_acceptance_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    event_type VARCHAR(40) NOT NULL CHECK (event_type IN ('registration', 'erp-first-login')),
+    terms_version VARCHAR(32) NOT NULL,
+    privacy_version VARCHAR(32) NOT NULL,
+    age_18_confirmed BOOLEAN,
+    channel VARCHAR(30) NOT NULL CHECK (channel IN ('web', 'mobile', 'erp')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, event_type)
+);
 
 -- User Monthly Rank Scores Table
 CREATE TABLE IF NOT EXISTS user_monthly_rank_scores (

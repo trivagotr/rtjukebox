@@ -29,14 +29,20 @@ prisma/
 - Services do not import Express or Prisma. They use interfaces defined as ports.
 - Controllers do not import infrastructure adapters.
 - Infrastructure adapters implement ports; domain and service code do not depend on adapter details.
+- System time and identifier generation enter through the shared `Clock` and `IdGenerator` ports. Spotify OAuth/playback HTTP uses a provider port; feed fetching, catalog access, audio probing, storage, and jobs also stay behind ports.
 - Keep each file focused on one responsibility and keep admin behavior separate from public behavior.
 - Database schema changes use Prisma migrations. Do not use `prisma db push` or raw SQL.
 - The HTTP API has one canonical prefix: `/api/v1`.
+- Compatibility aliases remain mounted only when they pass through the same authentication and authorization guards as their canonical routes.
 
-## Scaffold status and commands
+## Implementation status and commands
 
-This directory remains isolated from the current production backend in `../backend`; it is not mounted into that application. Identity implements register, login, guest session, refresh rotation and logout, and the core includes HS256 access-token verification plus the central admin guard. Other business modules remain placeholders. Do not direct production traffic here until the remaining modules, deployment configuration and a deliberate cutover are complete.
+The non-game backend implementation in this directory covers identity and refresh-token rotation; current-user, profile, avatar and leaderboard reads; device discovery, administration and expiring kiosk provisioning; queue reads/writes/votes, kiosk heartbeat/now-playing/autoplay, stopped-playback recovery, and radio-profile jingle/ad automation; authenticated Socket.IO device rooms; local/Spotify catalog, moderation and admin catalog operations; audio/avatar storage and processing; Spotify OAuth, per-device authorization, playback state and lyrics; podcast feeds with SSRF-safe fetching and queued synchronization; radio status/schedule/history and radio-profile administration. Feature modules are wired through the composition root. Admin routes share the central role guard, rate limit and audit middleware. Game/gamification is excluded by request.
 
-Run `npm run lint` and `DATABASE_URL=<valid PostgreSQL URL> npm run typecheck`. Prisma client generation validates the schema and does not connect to the database. The configured layer rules prohibit Prisma and Express imports from services and infrastructure imports from controllers.
+This refactor remains isolated from the active backend in `../backend`; no production traffic, database migration, service restart or cutover has been performed. That is an operations boundary, not a missing feature implementation. Before deployment, compare the existing database schema with `prisma/schema.prisma`, establish and review a migration baseline for that database, configure Redis 5 or newer and all environment secrets, then run staging contract and Spotify account/device checks. The checked-in initial migration is generated from an empty database and must not be applied to an existing database as a baseline.
 
-The `_template/` module is deliberately unmounted reusable scaffolding. Identity owns a Prisma migration generated from its schema; that migration has not been applied to any database. Domain migration, deployment cutover, and compatibility with the current production schema and tokens remain future work.
+Run `npm run lint`, `npm test`, and `DATABASE_URL=<valid PostgreSQL URL> npm run typecheck`. Prisma client generation and validation do not connect to the database. The configured layer rules prohibit Prisma and Express imports from services and infrastructure imports from controllers.
+
+Generate the OpenAPI document from the request Zod schemas with `npm run openapi:generate`; it writes `docs/openapi.json`. Audio processing requires `ffprobe` on `PATH` (or `FFPROBE_PATH`); Docker installs ffmpeg in the runtime image. Audio stream/container metadata is checked and files over four hours or 50 MB are rejected.
+
+The `_template/` module is deliberately unmounted reusable scaffolding. Prisma migrations have not been applied to any database. The repositories target established legacy tables through Prisma adapters; database parity, safe baseline/cutover, deployment configuration, and live-token validation remain operational rollout tasks.

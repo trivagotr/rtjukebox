@@ -29,5 +29,8 @@ export const validateBodySchema = (schema: z.ZodType): RequestHandler =>
 export const validateQuery = (shape: z.ZodRawShape): RequestHandler =>
   validatePart('query', strictObject(shape));
 
+export const validateQuerySchema = (schema: z.ZodType): RequestHandler =>
+  validatePart('query', schema);
+
 export const validateParams = (shape: z.ZodRawShape): RequestHandler =>
   validatePart('params', strictObject(shape));

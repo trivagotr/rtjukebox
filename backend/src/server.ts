@@ -15,6 +15,7 @@ import radioProfilesRoutes from './routes/radioProfiles';
 import usersRoutes from './routes/users';
 import spotifyRoutes from './routes/spotify';
 import gamificationRoutes from './routes/gamification';
+import memberLibraryRoutes from './routes/memberLibrary';
 import profileRoutes from './routes/profile';
 import jobsRoutes from './routes/jobs';
 import { setupSocketHandlers } from './sockets';
@@ -147,6 +148,7 @@ app.use('/api/v1/jukebox', jukeboxRoutes);
 app.use('/api/v1/users', usersRoutes);
 app.use('/api/v1/spotify', spotifyRoutes);
 app.use('/api/v1/gamification', gamificationRoutes);
+app.use('/api/v1/profile', memberLibraryRoutes);
 app.use('/api/v1/profile', profileRoutes);
 app.use('/api/v1/jobs', jobsRoutes);
 

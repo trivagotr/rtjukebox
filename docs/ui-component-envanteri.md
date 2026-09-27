@@ -92,7 +92,7 @@ Kiosk düz JavaScript ve HTML ile oluşturuluyor; React component ağacı yok. A
 | Kiosk ana/oynatım görünümü | `kiosk-web/index.html`, `kiosk-web/app.js` | Status strip, boşta/çalan stage, albüm kapağı, parça ve istek sahibi, ilerleme, QR kartı ve kiosk çıkış kontrolü. |
 | Kuyruk paneli | `kiosk-web/index.html`, `kiosk-web/app.js` | Bekleyen parçalar, istek sahibi, oy göstergesi ve boş kuyruk durumu. |
 | Söz paneli | `kiosk-web/index.html`, `kiosk-web/app.js` | Söz yükleniyor, bulunamadı, boş ve senkronize satır durumları. Satırlar HTML'e eklenmeden escape edilir. |
-| Cihaz kayıt/kurulum overlay'i | `kiosk-web/app.js` | Cihaz kodu ve 15 dakikalık tek kullanımlık provisioning koduyla kiosk kaydını başlatır; dönen credential'ı yerel olarak saklar ve URL'ye eklemez. |
+| Cihaz kayıt/kurulum overlay'i | `kiosk-web/app.js`, `kiosk-web/config.js` | Cihaz kodu ve 15 dakikalık tek kullanımlık provisioning koduyla kiosk kaydını başlatır; dönen credential'ı yerel olarak saklar ve URL'ye eklemez. `/jukebox/kiosk/` altında çalışırken API temel adresine `/jukebox` proxy önekini ekler. |
 | Spotify başlangıç overlay'i | `kiosk-web/app.js` | Eksik Spotify bağlantısı için kurulum prompt'u ve bağlantı eylemi sunar. |
 | Spotify cihaz yetkilendirme overlay'i | `kiosk-web/index.html`, `kiosk-web/device-spotify-auth.js` | Spotify cihaz bağlantısı, başlatma ve durum gösterimi. |
 | Oynatıcı kontrol/yönetimi | `kiosk-web/playback.js`, `kiosk-web/spotify-player.js` | Spotify web oynatıcı bağlantısı ve playback olaylarının UI'a yansıtılması. |
@@ -167,3 +167,46 @@ The kiosk queue poller includes `x-kiosk-credential`; the backend grants queue a
 - The web controller has a `LeaderboardView` ranking modal; it does not show a full account directory or provide user administration.
 - Mobile also has a leaderboard screen, which is a ranking view rather than an admin user list. No separate user-management panel was found or added.
 - Public API CORS preflight currently omits `Access-Control-Allow-Credentials` and the `x-auth-transport` request header required by the controller's cookie login. The deployed controller auth flow therefore needs a backend/proxy update before release; local source and local component tests do not prove public cookie login works.
+- Fixed local auth cookie paths for subdirectory hosting: with `/jukebox`, access cookies now cover the API and Socket.IO paths, and refresh cookies cover the prefixed auth routes. The deployed build still needs this update.
+
+### Public release status (2026-09-25)
+
+The deployed controller page and kiosk return HTTP 200, but this confirms only static delivery. Public API CORS preflight currently omits cookie credentials, PATCH, `x-auth-transport`, and `x-kiosk-credential`; authenticated controller requests are therefore not verified against the deployed backend. `/jukebox/health/live` also returns 404. See `jukebox-live-toggle-runbook.md` before scheduling a live off/on change.
+
+### Post-restart UI delivery and CORS verification (2026-09-25)
+
+- Following the Jukebox service's automatic recovery/restart, local IIS returned HTTP 200 for `/jukebox/` and `/jukebox/kiosk/`.
+- Login CORS preflight now returns 204 with credentials, PATCH, and the controller/kiosk custom headers. This verifies browser preflight routing, but not a signed-in controller session, cookie persistence, playback, or authenticated Socket.IO.
+- No UI component or client route changed during this runtime check; the inventory remains source-derived. Browser session and socket checks are still pending.
+- The user entered the controller and refreshed; backend logs record guest creation 201 and device connection 200, and the user still saw the signed-in guest after refresh. Auth cookie restore works. The selected device code is not restored by the UI after a page refresh; the user must enter it again. Authenticated Socket.IO remains to be confirmed.
+- The controller's configured Socket.IO path is `/jukebox/socket.io`. Its IIS reverse-proxy target had incorrectly removed `/jukebox`; the rule is corrected. Local IIS polling and an authenticated Socket.IO room-join smoke both pass.
+- Authenticated Socket.IO smoke through IIS using a current guest/device session succeeded and the device room join was logged. The transport/auth route is healthy; the user then confirmed the controller displays its device and queue.
+- User-visible runtime state: the controller showed one pending `Howlin' for You` queue row while the center panel displayed `Müzik sırası boş`. This is consistent with current source behavior: the center panel is driven by `nowPlaying`, while the right queue panel is driven separately by pending `queue` items. It means no track is currently playing; the listed song is waiting in the queue.
+
+## Backend-refactor etki taraması (2026-09-26)
+
+Mobil, web controller ve kiosk kaynakları yeniden tarandı. Bu backend refactor'u henüz `backend/` uygulamasına mount edilmediğinden UI component ağacında veya kullanıcı akışlarında değişiklik yok; mevcut istemciler hâlâ aktif backend API'sini çağırıyor. Refactor route'larıyla eşleşen UI yüzeyleri şunlardır:
+
+- Mobil `JukeboxScreen`: cihaz keşfi, bağlanma, şarkı arama, kuyruğa ekleme ve oy verme.
+- Web controller `JukeboxView` ve `QueueItem`: kuyruk, oynatma durumu, oy ve söz görünümü.
+- Web controller `AdminDashboard`: cihaz CRUD/provisioning, kiosk logout, şarkı upload/process/scan, moderasyon, Spotify app/device ayarları ve job ilerlemesi.
+- Kiosk DOM yüzeyleri (`kiosk-web/app.js`, `device-spotify-auth.js`, `playback.js`, `spotify-player.js`): kayıt, kuyruk, autoplay tetikleme, now-playing, Spotify authorization ve playback-state.
+
+Endpoint çağrısı/contract eşlemesi [endpoint envanterindeki refactor taramasında](endpoint-envanteri.md#backend-refactor-son-taramasi-2026-09-26-izole-uygulama) ayrıca listelenmiştir. Bu güncelleme oyun ekranlarını veya bileşenlerini değiştirmez; envanterdeki oyun kayıtları olduğu gibi korunmuştur.
+### Backend refactor UI impact re-scan (2026-09-26)
+
+- Rechecked mobile, web controller, kiosk, and admin component API references after the backend changes. Existing UI calls still use the retained Spotify-specific playback-target `PUT`; no component currently calls the new provider-shaped `PATCH`.
+- The `GET /users/me?include=profile` form is available to clients, while the existing profile routes remain for current mobile/controller callers.
+- No UI component or game/gamification component changed as part of this pass. The component inventory’s existing live-backend references remain unchanged; the refactor remains isolated and does not imply deployment.
+
+### Backend refactor final UI/socket contract scan (2026-09-26)
+
+- Rechecked web controller, kiosk, and mobile client references against the isolated refactor route/event surface. Client source and component behavior were not changed in this pass; production clients still call the active `backend/` service.
+- Preserved kiosk Socket.IO compatibility for raw UUID `join_device`, and validated `leave_device`, `playback_progress`, and `kiosk_heartbeat`. The refactor Socket.IO transport path includes the configured public base path.
+- Kiosk queue updates continue to use the existing `queue_updated` shape. Heartbeat-triggered playback recovery and profile jingle/ad insertion are backend behaviors and require staging/device verification before cutover.
+- No UI component or game/gamification component was modified. The refactor is isolated and not deployed.
+
+### Architecture audit addendum (2026-09-26)
+
+- No UI contract changed in the final architecture pass. Existing UI and kiosk calls remain mapped to the compatible refactor routes/events; OAuth HTTP abstraction and injected clock/ID ports are backend internals.
+- Verification: refactor build/lint and 25 tests pass. There has been no deployment or production service/database change.

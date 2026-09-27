@@ -1,8 +1,9 @@
 node_modules
 dist
 coverage
-.git
 .env
 .env.*
 !.env.example
+generated
+.git
 npm-debug.log*

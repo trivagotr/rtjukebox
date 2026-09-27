@@ -8,6 +8,8 @@ services:
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-radiotedu}:${POSTGRES_PASSWORD:-radiotedu_local}@db:5432/${POSTGRES_DB:-radiotedu}?schema=public
       REDIS_URL: redis://redis:6379
+      UPLOAD_DIRECTORY: /data/uploads
+      FFPROBE_PATH: ffprobe
       JWT_SECRET: ${JWT_SECRET:-replace_with_a_random_secret_of_at_least_32_characters}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-replace_with_a_different_random_secret_of_at_least_32_characters}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
@@ -17,6 +19,8 @@ services:
       redis:
         condition: service_healthy
     restart: unless-stopped
+    volumes:
+      - uploads_data:/data/uploads
 
   db:
     image: postgres:17-alpine
@@ -51,3 +55,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  uploads_data:

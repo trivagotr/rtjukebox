@@ -10,7 +10,7 @@ const PUBLIC_BASE_PATH = getPublicBasePath();
 const IS_LOCAL_DEV = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const API_BASE = IS_LOCAL_DEV
     ? `${window.location.protocol}//${window.location.hostname}:3000`
-    : window.location.origin;
+    : `${window.location.origin}${PUBLIC_BASE_PATH}`;
 
 const getDeviceCode = () => {
     const urlParams = new URLSearchParams(window.location.search);
