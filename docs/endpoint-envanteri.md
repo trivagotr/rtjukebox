@@ -196,3 +196,9 @@ Handshake JWT veya cihaz kapsamlı kiosk credential ister. Sunucudan gelen olayl
 - Shared clock/ID ports are now wired into identity, jukebox, Spotify OAuth, avatar and catalog job-ID use cases. External Spotify OAuth/playback HTTP is behind `SpotifyOAuthHttpProvider`; module services no longer issue direct HTTP fetches.
 - Negative lint probe confirmed Prisma imports in `identity.service.ts` are rejected; the probe was restored. Static scan found service/controller layer boundaries intact, `process.env` only in core configuration, and no raw Prisma SQL or shell-execution APIs in refactor source.
 - Final build/lint/test checks passed (25 tests). The refactor deployment remains independently gated on legacy database baseline review, staging checks and real Spotify playback.
+
+### Production Spotify callback note (2026-09-27)
+
+- `GET /api/v1/spotify/callback` remains the Spotify redirect target. It requires `state` and a successful `code` or OAuth `error`; unrelated provider callback fields are ignored. Invalid-shape diagnostics record field names/types only, never OAuth values.
+- Callback parser hardening passed the focused route suite (6/6) and backend build. Live service restart and health were verified; the actual Spotify grant/playback is still pending the kiosk consent flow.
+- Follow-up after the live 403: both OAuth start routes now use the confidential server-side Authorization Code flow with Basic client authentication, without combining it with a PKCE verifier. The route/service suites passed (37 tests) and build passed. This follow-up build still needs a service restart; admin and device Spotify grants remain pending.

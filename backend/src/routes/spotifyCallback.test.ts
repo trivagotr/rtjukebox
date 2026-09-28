@@ -71,11 +71,10 @@ describe('spotify callback route', () => {
     expect(mockGetAuthUrl).toHaveBeenCalledWith(
       expect.any(String),
       'http://127.0.0.1:5173',
-      expect.any(String),
     );
     expect(mockDbQuery).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO spotify_oauth_states'),
-      [expect.any(String), 'http://127.0.0.1:5173', expect.any(String)]
+      [expect.any(String), 'http://127.0.0.1:5173']
     );
     expect(res.redirect).toHaveBeenCalledWith('https://accounts.spotify.com/authorize?state=signed');
   });
@@ -86,7 +85,7 @@ describe('spotify callback route', () => {
 
     mockIsDeviceAuthState.mockReturnValue(false);
     mockGetAuthReturnOriginFromState.mockResolvedValue('http://127.0.0.1:5173');
-    mockDbQuery.mockResolvedValue({ rows: [{ return_origin: 'http://127.0.0.1:5173', code_verifier: 'pkce-verifier' }] });
+    mockDbQuery.mockResolvedValue({ rows: [{ return_origin: 'http://127.0.0.1:5173' }] });
 
     await (spotifyRouteModule as any).handleSpotifyAuthCallback(
       {
@@ -105,7 +104,7 @@ describe('spotify callback route', () => {
       expect.stringContaining('DELETE FROM spotify_oauth_states'),
       [expect.any(String)]
     );
-    expect(mockHandleCallback).toHaveBeenCalledWith('admin-auth-code', undefined, 'pkce-verifier');
+    expect(mockHandleCallback).toHaveBeenCalledWith('admin-auth-code');
     expect(res.send).toHaveBeenCalledWith(
       expect.stringContaining(
         "window.opener.postMessage({ type: 'SPOTIFY_AUTH_SUCCESS' }, \"http://127.0.0.1:5173\");"
@@ -122,7 +121,7 @@ describe('spotify callback route', () => {
 
     mockIsDeviceAuthState.mockReturnValue(false);
     mockGetAuthReturnOriginFromState.mockResolvedValue(null);
-    mockDbQuery.mockResolvedValue({ rows: [{ return_origin: null, code_verifier: 'pkce-verifier' }] });
+    mockDbQuery.mockResolvedValue({ rows: [{ return_origin: null }] });
 
     await (spotifyRouteModule as any).handleSpotifyAuthCallback(
       {
@@ -134,7 +133,7 @@ describe('spotify callback route', () => {
       res,
     );
 
-    expect(mockHandleCallback).toHaveBeenCalledWith('admin-auth-code', undefined, 'pkce-verifier');
+    expect(mockHandleCallback).toHaveBeenCalledWith('admin-auth-code');
     expect(res.send).toHaveBeenCalledWith(expect.stringContaining('Spotify Connected Successfully'));
     expect(res.send).not.toHaveBeenCalledWith(
       expect.stringContaining("window.opener.postMessage({ type: 'SPOTIFY_AUTH_SUCCESS' }, \"*\");")
@@ -191,6 +190,32 @@ describe('spotify callback route', () => {
       expect.stringContaining(
         "window.opener.postMessage({ type: 'SPOTIFY_DEVICE_AUTH_SUCCESS', deviceId: \"device-1\" }, \"http://127.0.0.1:5173\");"
       )
+    );
+  });
+
+  it('ignores additional authorization-server callback parameters while requiring a valid state', async () => {
+    const spotifyRouteModule = await import('./spotify');
+    const res = createResponseDouble();
+
+    mockIsDeviceAuthState.mockReturnValue(false);
+
+    await (spotifyRouteModule as any).handleSpotifyAuthCallback(
+      {
+        query: {
+          code: 'admin-auth-code',
+          state: 'legacy-state',
+          iss: 'https://accounts.spotify.com',
+        },
+      } as any,
+      res,
+    );
+
+    expect(mockDbQuery).toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM spotify_oauth_states'),
+      [expect.any(String)]
+    );
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'INVALID_SPOTIFY_STATE' })
     );
   });
 });

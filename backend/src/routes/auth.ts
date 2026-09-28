@@ -28,9 +28,12 @@ const REGISTRATION_TERMS_VERSION = '2026-08-22';
 const REGISTRATION_PRIVACY_VERSION = '2026-08-22';
 const LEGACY_REGISTRATION_TERMS_VERSION = '2026-08-11';
 const LEGACY_REGISTRATION_PRIVACY_VERSION = '2026-08-11';
+const WEB_REGISTRATION_TERMS_VERSION = '2026-09-26';
+const WEB_REGISTRATION_PRIVACY_VERSION = '2026-09-26';
 const ACCEPTED_REGISTRATION_LEGAL_PAIRS = new Set([
     `${REGISTRATION_TERMS_VERSION}:${REGISTRATION_PRIVACY_VERSION}`,
     `${LEGACY_REGISTRATION_TERMS_VERSION}:${LEGACY_REGISTRATION_PRIVACY_VERSION}`,
+    `${WEB_REGISTRATION_TERMS_VERSION}:${WEB_REGISTRATION_PRIVACY_VERSION}`,
 ]);
 
 const registerSchema = z.object({
@@ -38,12 +41,15 @@ const registerSchema = z.object({
     password: z.string().min(8).max(200),
     display_name: z.string().trim().min(2).max(100),
     preferred_language: z.enum(SUPPORTED_REGISTRATION_LANGUAGES).optional(),
-    age: z.number().int().min(0).max(120).optional(),
+    age: z.union([z.number().int().min(0).max(120), z.string().regex(/^\d+$/).transform(Number)]).optional(),
+    birth_year: z.number().int().min(1900).max(2100).optional(),
     terms_accepted: z.boolean().optional(),
     privacy_acknowledged: z.boolean().optional(),
     terms_version: z.string().max(32).optional(),
     privacy_version: z.string().max(32).optional(),
-}).strict();
+    newsletter_opt_in: z.boolean().optional(),
+    newsletterOptIn: z.boolean().optional(),
+}).strip();
 const loginSchema = z.object({
     email: z.string().trim().min(1).max(320),
     password: z.string().min(1).max(1024),

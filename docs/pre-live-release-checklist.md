@@ -78,6 +78,20 @@ Do not mark the release live-ready until the remaining checks pass. The Jukebox 
 - Public `/jukebox/health/live` returned 200 and authenticated `/jukebox/health/ready` returned 200. Jukebox backend/API and kiosk connection are live-ready. Spotify playback is the only identified functional blocker for playing Spotify-backed songs and is deferred by the user.
 - Separate staging remains conditional: run staging smoke only if a separate staging target will be used. The active service and public host are already serving the current Jukebox.
 
+### Spotify callback troubleshooting (2026-09-27)
+
+- The kiosk provisioning code was consumed successfully at 2026-09-27 11:20:25 UTC. `KOLEJ` has an active kiosk credential through 2026-09-28 11:20:25 UTC. No Spotify device grant has been stored yet.
+- Hardened `GET /api/v1/spotify/callback` to ignore unrelated OAuth callback query fields while continuing to require a valid `state` and either `code` or an authorization error. Invalid callback logs include parameter names/types only; OAuth values are not logged.
+- Focused callback suite passed (6 tests); backend build passed. The service restart command printed repeated stop-wait warnings, then returned. Runtime verification found `RadioTEDU-Jukebox` Running, public `/jukebox/health/live` returning 200, and a synthetic callback with `code`, `state`, and an extra provider field reaching state validation. No Spotify token was exchanged by that probe.
+- Remaining interactive test: refresh `/jukebox/kiosk/`, start Spotify authorization from the kiosk, finish the Spotify consent flow, and verify the device grant and playback. If callback validation still fails, inspect the sanitized parameter-shape log before changing OAuth state handling.
+
+### Spotify token exchange follow-up (2026-09-27)
+
+- The 403 is logged from the admin `/api/v1/spotify/callback` path during its token exchange. No global Spotify grant or device-scoped Spotify grant is stored.
+- The previous OAuth implementation combined a PKCE verifier with confidential-client Basic authentication. Updated both admin and device authorization starts/exchanges to use Spotify's server-side Authorization Code Flow consistently: state validation stays enabled, no PKCE challenge/verifier is sent, and token exchange uses Basic client authentication. Provider errors now log HTTP status and provider error code only.
+- Verification after this change: Spotify service/callback suites passed (37 tests); backend build passed. The compiled build is ready, but it was produced after the preceding service restart and still needs a service restart before another admin-dashboard authorization attempt.
+- Next: restart `RadioTEDU-Jukebox`, authorize Spotify from the admin dashboard again, then authorize the `KOLEJ` device from the kiosk and verify playback. If Spotify still rejects the token request, check the new provider error code and the Spotify app's authorized-user/redirect settings.
+
 ### Read-only Jukebox live toggle scan (2026-09-25)
 
 - Public controller `/jukebox/`, kiosk `/jukebox/kiosk/`, and song catalog API returned HTTP 200. `/jukebox/health` returned 200, but `/jukebox/health/live` returned 404.

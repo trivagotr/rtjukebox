@@ -21,7 +21,7 @@ const spotifyCallbackQuerySchema = z.object({
   error: z.string().trim().min(1).max(256).optional(),
   error_description: z.string().trim().max(2048).optional(),
   state: z.string().trim().min(1).max(4096),
-}).strict();
+});
 const spotifyDeviceAuthStartBodySchema = z.object({
   device_id: z.string().uuid(),
   return_origin: z.string().trim().min(1).max(2048).optional(),
@@ -178,7 +178,11 @@ export async function handleSpotifyDeviceAuthCallback(req: Request, res: Respons
       deriveSpotifyDeviceAuthRedirectUri(appConfig.redirectUri)
     );
   } catch (error: any) {
-    console.error('[Spotify Device Auth Callback] Error:', error.message);
+    console.error('[Spotify Device Auth Callback] Error:', {
+      message: error?.message,
+      status: error?.response?.status,
+      providerCode: typeof error?.response?.data?.error === 'string' ? error.response.data.error : undefined,
+    });
     return res.status(500).send(`
       <!DOCTYPE html>
       <html>
@@ -196,7 +200,19 @@ export async function handleSpotifyDeviceAuthCallback(req: Request, res: Respons
 export async function handleSpotifyAuthCallback(req: Request, res: Response) {
   try {
     const parsedQuery = spotifyCallbackQuerySchema.safeParse(req.query);
-    if (!parsedQuery.success) return sendError(res, 'Invalid Spotify callback parameters', 400, 'INVALID_SPOTIFY_CALLBACK');
+    if (!parsedQuery.success) {
+      console.warn('[Spotify Callback] Invalid callback parameter shape', {
+        keys: Object.keys(req.query).slice(0, 20),
+        fields: parsedQuery.error.issues.slice(0, 10).map((issue) => ({
+          path: issue.path.join('.'),
+          issue: issue.code,
+          received: Array.isArray((req.query as Record<string, unknown>)[String(issue.path[0])])
+            ? 'array'
+            : typeof (req.query as Record<string, unknown>)[String(issue.path[0])],
+        })),
+      });
+      return sendError(res, 'Invalid Spotify callback parameters', 400, 'INVALID_SPOTIFY_CALLBACK');
+    }
     const { code, error, state } = parsedQuery.data;
 
     if (spotifyService.isDeviceAuthState(state)) {
@@ -207,7 +223,7 @@ export async function handleSpotifyAuthCallback(req: Request, res: Response) {
     const consumedState = await db.query(
       `DELETE FROM spotify_oauth_states
        WHERE state_hash = $1 AND expires_at > NOW()
-       RETURNING return_origin, code_verifier`,
+       RETURNING return_origin`,
       [stateHash],
     );
     if (!consumedState.rows[0]) {
@@ -216,8 +232,6 @@ export async function handleSpotifyAuthCallback(req: Request, res: Response) {
 
     const signedReturnOrigin = await spotifyService.getAuthReturnOriginFromState(state);
     const returnOrigin = consumedState.rows[0].return_origin as string | null;
-    const codeVerifier = consumedState.rows[0].code_verifier as string | null;
-    if (!codeVerifier) return sendError(res, 'Spotify authorization state is invalid', 400, 'INVALID_SPOTIFY_STATE');
     if (signedReturnOrigin !== returnOrigin) {
       return sendError(res, 'Spotify authorization state did not match its stored origin', 400, 'INVALID_SPOTIFY_STATE');
     }
@@ -234,7 +248,7 @@ export async function handleSpotifyAuthCallback(req: Request, res: Response) {
       ? `window.opener.postMessage({ type: 'SPOTIFY_AUTH_SUCCESS' }, ${JSON.stringify(returnOrigin)});`
       : '';
 
-    await spotifyService.handleCallback(code, undefined, codeVerifier);
+    await spotifyService.handleCallback(code);
 
     return res.send(`
       <!DOCTYPE html>
@@ -253,7 +267,11 @@ export async function handleSpotifyAuthCallback(req: Request, res: Response) {
       </html>
     `);
   } catch (error: any) {
-    console.error('[Spotify Callback] Error:', error.message);
+    console.error('[Spotify Callback] Error:', {
+      message: error?.message,
+      status: error?.response?.status,
+      providerCode: typeof error?.response?.data?.error === 'string' ? error.response.data.error : undefined,
+    });
     return res.status(500).send(`
       <!DOCTYPE html>
       <html>
@@ -277,17 +295,15 @@ export async function handleSpotifyAuthStart(req: Request, res: Response) {
     if (requestedOrigin && !returnOrigin) return sendError(res, 'Invalid Spotify return origin', 400, 'INVALID_SPOTIFY_RETURN_ORIGIN');
 
     const nonce = crypto.randomBytes(32).toString('base64url');
-    const codeVerifier = crypto.randomBytes(48).toString('base64url');
-    const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
-    const authUrl = await spotifyService.getAuthUrl(nonce, returnOrigin, codeChallenge);
+    const authUrl = await spotifyService.getAuthUrl(nonce, returnOrigin);
     const state = new URL(authUrl).searchParams.get('state');
     if (!state) throw new Error('Spotify authorization URL did not include state');
     const stateHash = crypto.createHash('sha256').update(state).digest('hex');
     await db.query('DELETE FROM spotify_oauth_states WHERE expires_at <= NOW()');
     await db.query(
       `INSERT INTO spotify_oauth_states (state_hash, state_kind, return_origin, code_verifier, expires_at)
-       VALUES ($1, 'admin', $2, $3, NOW() + INTERVAL '10 minutes')`,
-      [stateHash, returnOrigin, codeVerifier],
+       VALUES ($1, 'admin', $2, NULL, NOW() + INTERVAL '10 minutes')`,
+      [stateHash, returnOrigin],
     );
     if (process.env.NODE_ENV === 'test' || Boolean(process.env.VITEST)) {
       return res.redirect(authUrl);

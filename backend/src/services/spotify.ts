@@ -380,15 +380,13 @@ export class SpotifyService {
   async getDeviceAuthStartUrl(deviceId: string, returnOrigin?: string | null): Promise<string> {
     const appConfig = await this.getSpotifyAppConfig();
     const state = await this.buildSignedDeviceAuthState(deviceId, returnOrigin);
-    const codeVerifier = crypto.randomBytes(48).toString('base64url');
-    const codeChallenge = crypto.createHash('sha256').update(codeVerifier).digest('base64url');
     const stateHash = crypto.createHash('sha256').update(state).digest('hex');
     const normalizedReturnOrigin = normalizeSpotifyReturnOrigin(returnOrigin);
     await db.query('DELETE FROM spotify_oauth_states WHERE expires_at <= NOW()');
     await db.query(
       `INSERT INTO spotify_oauth_states (state_hash, state_kind, device_id, return_origin, code_verifier, expires_at)
-       VALUES ($1, 'device', $2, $3, $4, NOW() + INTERVAL '10 minutes')`,
-      [stateHash, deviceId, normalizedReturnOrigin, codeVerifier],
+       VALUES ($1, 'device', $2, $3, NULL, NOW() + INTERVAL '10 minutes')`,
+      [stateHash, deviceId, normalizedReturnOrigin],
     );
     const params = new URLSearchParams({
       response_type: 'code',
@@ -396,8 +394,6 @@ export class SpotifyService {
       scope: SPOTIFY_REQUIRED_SCOPES,
       redirect_uri: appConfig.redirectUri,
       show_dialog: 'true',
-      code_challenge_method: 'S256',
-      code_challenge: codeChallenge,
       state,
     });
 
@@ -467,11 +463,11 @@ export class SpotifyService {
     const consumedState = await db.query(
       `DELETE FROM spotify_oauth_states
        WHERE state_hash = $1 AND state_kind = 'device' AND device_id = $2 AND expires_at > NOW()
-       RETURNING return_origin, code_verifier`,
+       RETURNING return_origin`,
       [stateHash, deviceId],
     );
-    const storedState = consumedState.rows[0] as { return_origin: string | null; code_verifier: string | null } | undefined;
-    if (!storedState?.code_verifier || storedState.return_origin !== returnOrigin) {
+    const storedState = consumedState.rows[0] as { return_origin: string | null } | undefined;
+    if (!storedState || storedState.return_origin !== returnOrigin) {
       throw new Error('Spotify device authorization state is invalid, expired, or already used');
     }
     const redirectUri = redirectUriOverride?.trim() || appConfig.redirectUri;
@@ -487,7 +483,6 @@ export class SpotifyService {
       grant_type: 'authorization_code',
       code,
       redirect_uri: redirectUri,
-      code_verifier: storedState.code_verifier,
     });
 
     const authHeader = Buffer.from(`${appConfig.clientId}:${appConfig.clientSecret}`).toString('base64');
@@ -573,7 +568,7 @@ export class SpotifyService {
 
   // ─── Authorization Code Flow (for playback control, requires admin auth) ───
 
-  async getAuthUrl(state?: string, returnOrigin?: string | null, codeChallenge?: string): Promise<string> {
+  async getAuthUrl(state?: string, returnOrigin?: string | null): Promise<string> {
     const appConfig = await this.getSpotifyAppConfig();
     const oauthState = state
       ? this.buildSignedAuthState(state, returnOrigin, appConfig.clientSecret)
@@ -589,23 +584,16 @@ export class SpotifyService {
     if (oauthState) {
       params.set('state', oauthState);
     }
-    if (codeChallenge) {
-      params.set('code_challenge_method', 'S256');
-      params.set('code_challenge', codeChallenge);
-    }
-
     return `${SPOTIFY_ACCOUNTS_URL}/authorize?${params.toString()}`;
   }
 
-  async handleCallback(code: string, userId?: string, codeVerifier?: string): Promise<void> {
+  async handleCallback(code: string, userId?: string): Promise<void> {
     const appConfig = await this.getSpotifyAppConfig();
     const params = new URLSearchParams({
       grant_type: 'authorization_code',
       code,
       redirect_uri: appConfig.redirectUri,
     });
-    if (codeVerifier) params.set('code_verifier', codeVerifier);
-
     const authHeader = Buffer.from(`${appConfig.clientId}:${appConfig.clientSecret}`).toString('base64');
 
     const response = await axios.post(`${SPOTIFY_ACCOUNTS_URL}/api/token`, params.toString(), {

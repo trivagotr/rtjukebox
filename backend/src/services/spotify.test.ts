@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createHash } from 'node:crypto';
 
 const { mockDbQuery, mockAxiosGet, mockAxiosPost, mockAxiosPut } = vi.hoisted(() => ({
   mockDbQuery: vi.fn(),
@@ -31,13 +30,9 @@ import {
 } from './spotify';
 
 function queueDeviceCallbackQueries(deviceId: string, returnOrigin: string | null, existingAuth: Record<string, unknown>[] = []) {
-  const stateInsert = mockDbQuery.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO spotify_oauth_states'));
-  const codeVerifier = stateInsert?.[1]?.[3] as string | undefined;
-  if (!codeVerifier) throw new Error('Device auth start did not persist a PKCE verifier');
-
   mockDbQuery
     .mockResolvedValueOnce({ rows: [] })
-    .mockResolvedValueOnce({ rows: [{ return_origin: returnOrigin, code_verifier: codeVerifier }] })
+    .mockResolvedValueOnce({ rows: [{ return_origin: returnOrigin }] })
     .mockResolvedValueOnce({ rows: [{ id: deviceId }] })
     .mockResolvedValueOnce({ rows: existingAuth });
 }
@@ -65,6 +60,32 @@ describe('SpotifyService', () => {
     expect(SPOTIFY_REQUIRED_SCOPES).toContain('playlist-read-collaborative');
     expect(SPOTIFY_REQUIRED_SCOPES).toContain('user-read-email');
     expect(SPOTIFY_REQUIRED_SCOPES).toContain('user-read-private');
+  });
+
+  it('exchanges confidential-client authorization codes with Basic auth and no PKCE verifier', async () => {
+    const service = new SpotifyService();
+    mockAxiosPost.mockResolvedValueOnce({
+      data: {
+        access_token: 'admin-access-token',
+        refresh_token: 'admin-refresh-token',
+        expires_in: 3600,
+        scope: 'playlist-read-private user-read-email',
+      },
+    });
+
+    await service.handleCallback('admin-auth-code');
+
+    expect(mockAxiosPost).toHaveBeenCalledWith(
+      'https://accounts.spotify.com/api/token',
+      expect.stringContaining('grant_type=authorization_code'),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: expect.stringMatching(/^Basic /),
+        }),
+      }),
+    );
+    expect(mockAxiosPost.mock.calls[0][1]).toContain('code=admin-auth-code');
+    expect(mockAxiosPost.mock.calls[0][1]).not.toContain('code_verifier=');
   });
 
   it('round-trips the admin return origin through signed oauth state', async () => {
@@ -337,10 +358,8 @@ describe('SpotifyService', () => {
     expect(url.searchParams.get('redirect_uri')).toBe('http://127.0.0.1:3000/api/v1/spotify/callback');
     expect(url.searchParams.get('state')).toMatch(/^device\./);
     expect(url.searchParams.get('state')).toContain('device-1');
-    expect(url.searchParams.get('code_challenge_method')).toBe('S256');
-    const stateInsert = mockDbQuery.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO spotify_oauth_states'));
-    const codeVerifier = stateInsert?.[1]?.[3] as string;
-    expect(url.searchParams.get('code_challenge')).toBe(createHash('sha256').update(codeVerifier).digest('base64url'));
+    expect(url.searchParams.has('code_challenge_method')).toBe(false);
+    expect(url.searchParams.has('code_challenge')).toBe(false);
   });
 
   it('round-trips the return origin through signed device auth state', async () => {
@@ -435,6 +454,7 @@ describe('SpotifyService', () => {
       }),
     );
     expect(mockAxiosPost.mock.calls[0][1]).toContain('redirect_uri=http%3A%2F%2F127.0.0.1%3A3000%2Fapi%2Fv1%2Fspotify%2Fcallback');
+    expect(mockAxiosPost.mock.calls[0][1]).not.toContain('code_verifier=');
     expect(mockDbQuery.mock.calls.some(([sql]) => String(sql).includes('spotify_device_auth'))).toBe(true);
   });
 
